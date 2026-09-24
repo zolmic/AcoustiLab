@@ -1,0 +1,14 @@
+[package]
+name = "acoustilab-cli"
+description = "Command-line runner for the AcoustiLab engine"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "acoustilab"
+path = "src/main.rs"
+
+[dependencies]
+acoustilab = { path = "../acoustilab" }
+serde_json.workspace = true

@@ -1,0 +1,12 @@
+[package]
+name = "acoustilab"
+description = "AcoustiLab electro-mechano-acoustic network engine"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+num-complex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
