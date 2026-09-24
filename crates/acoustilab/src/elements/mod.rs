@@ -57,15 +57,31 @@ pub trait Element: Send + Sync {
     /// global indices of the element's branch unknowns.
     fn stamp(&self, cx: &FreqCx, mna: &mut Mna, br: &[usize]);
 
+    /// Number of ports this element exposes through `port_potential` and
+    /// `port_flow`. Together the ports must account for every terminal
+    /// connection, so that Σ Re(V·conj(I)) over all ports of all elements
+    /// balances (Tellegen's theorem; see the energy-balance property test).
+    fn port_count(&self) -> usize {
+        0
+    }
+
+    /// True for independent sources, whose port flow is the flow they
+    /// deliver (see `port_flow`).
+    fn is_source(&self) -> bool {
+        false
+    }
+
     /// Across quantity of port `port` (voltage, velocity or pressure
     /// difference between the port's terminals).
     fn port_potential(&self, _x: &[C64], _port: usize) -> Option<C64> {
         None
     }
 
-    /// Through quantity at port `port`, positive entering the element at the
-    /// port's first terminal. Sources report the flow they *deliver* into
-    /// the network, so that potential/flow is the impedance they see.
+    /// Through quantity at port `port`, positive *entering* the element at
+    /// the port's first terminal (and leaving at its second), so that
+    /// Re(V·conj(I)) is the power the element absorbs there. Independent
+    /// sources are the one exception: they report the flow they *deliver*
+    /// into the network, so that potential/flow is the impedance they see.
     fn port_flow(&self, _cx: &FreqCx, _x: &[C64], _br: &[usize], _port: usize) -> Option<C64> {
         None
     }
@@ -227,6 +243,9 @@ impl Element for OnePort {
     fn stamp(&self, cx: &FreqCx, mna: &mut Mna, _br: &[usize]) {
         mna.admittance(self.n1, self.n2, (self.y)(cx));
     }
+    fn port_count(&self) -> usize {
+        1
+    }
     fn port_potential(&self, x: &[C64], port: usize) -> Option<C64> {
         (port == 0).then(|| crate::mna::potential(x, self.n1) - crate::mna::potential(x, self.n2))
     }
@@ -265,6 +284,9 @@ impl Element for TwoPort {
     fn stamp(&self, cx: &FreqCx, mna: &mut Mna, br: &[usize]) {
         mna.two_port_abcd(self.port1, self.port2, (br[0], br[1]), (self.abcd)(cx));
     }
+    fn port_count(&self) -> usize {
+        2
+    }
     fn port_potential(&self, x: &[C64], port: usize) -> Option<C64> {
         let (p, n) = match port {
             0 => self.port1,
@@ -273,9 +295,14 @@ impl Element for TwoPort {
         };
         Some(crate::mna::potential(x, p) - crate::mna::potential(x, n))
     }
-    /// Port 0: flow entering at p1. Port 1: flow leaving at p2 (towards the load).
+    /// Flow entering at p1 (port 0) or at p2 (port 1; the negative of the
+    /// flow the two-port delivers towards its load).
     fn port_flow(&self, _cx: &FreqCx, x: &[C64], br: &[usize], port: usize) -> Option<C64> {
-        br.get(port).map(|&b| x[b])
+        match port {
+            0 => Some(x[br[0]]),
+            1 => Some(-x[br[1]]),
+            _ => None,
+        }
     }
     fn validity(&self, _air: &AirState, _level: u8) -> Vec<ValidityLimit> {
         self.limits.clone()
@@ -297,7 +324,9 @@ pub struct Composite {
 }
 
 /// How a composite exposes a port: the potential between two unknowns and
-/// the flow through one of its parts.
+/// the flow through one of its parts. For the energy balance to hold, the
+/// composite's ports must cover every external terminal connection (the
+/// property test sums over the composite's ports, not its parts).
 pub struct CompositePort {
     pub plus: Unknown,
     pub minus: Unknown,
@@ -328,6 +357,9 @@ impl Element for Composite {
     }
     fn branch_count(&self) -> usize {
         self.parts.iter().map(|p| p.branch_count()).sum()
+    }
+    fn port_count(&self) -> usize {
+        self.ports.len()
     }
     fn stamp(&self, cx: &FreqCx, mna: &mut Mna, br: &[usize]) {
         for (p, o) in self.parts.iter().zip(self.offsets()) {

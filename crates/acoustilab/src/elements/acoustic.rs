@@ -128,6 +128,12 @@ impl Element for PressureSource {
     fn type_name(&self) -> &'static str {
         "pressure_source"
     }
+    fn port_count(&self) -> usize {
+        1
+    }
+    fn is_source(&self) -> bool {
+        true
+    }
     fn branch_count(&self) -> usize {
         1
     }

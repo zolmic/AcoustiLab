@@ -167,3 +167,21 @@ fn rejects_unit_less_and_misspelled_keys() {
         "domain mismatch"
     );
 }
+
+#[test]
+fn power_balances_over_all_element_ports() {
+    // Tellegen: absorbed powers (sources negative) sum to zero; every
+    // element exposes ports covering all its terminals.
+    for wall_loss in [false, true] {
+        let c = sealed_cup(wall_loss, RE, BL);
+        for f in [15.0, 400.0, 1204.0, 9000.0] {
+            let x = c.solve_at(f).unwrap();
+            let p = c.power_absorbed(f, &x);
+            assert!(p.iter().all(|(_, v)| v.is_some()), "{p:?}");
+            let delivered = -p.iter().find(|(id, _)| id == "amp").unwrap().1.unwrap();
+            let sum: f64 = p.iter().map(|(_, v)| v.unwrap()).sum();
+            assert!(delivered > 0.0);
+            assert!(sum.abs() < 1e-12 * delivered, "f={f}: {p:?}");
+        }
+    }
+}

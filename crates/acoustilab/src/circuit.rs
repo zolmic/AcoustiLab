@@ -249,6 +249,32 @@ impl Circuit {
         })
     }
 
+    /// Real power absorbed by each element at one frequency (RMS phasors),
+    /// Σ over its ports of Re(V·conj(I_in)); independent sources report the
+    /// negative of the power they deliver. By Tellegen's theorem the values
+    /// sum to zero. Elements without ports are skipped (and listed as `None`).
+    pub fn power_absorbed(&self, f: f64, x: &[C64]) -> Vec<(String, Option<f64>)> {
+        let cx = self.cx(f);
+        self.elements
+            .iter()
+            .enumerate()
+            .map(|(i, e)| {
+                let br = self.branches(i);
+                let mut total = 0.0;
+                for port in 0..e.port_count() {
+                    match (e.port_potential(x, port), e.port_flow(&cx, x, &br, port)) {
+                        (Some(v), Some(i)) => total += (v * i.conj()).re,
+                        _ => return (e.id().to_string(), None),
+                    }
+                }
+                if e.is_source() {
+                    total = -total;
+                }
+                (e.id().to_string(), (e.port_count() > 0).then_some(total))
+            })
+            .collect()
+    }
+
     pub fn validity(&self) -> Vec<ValidityLimit> {
         self.elements
             .iter()

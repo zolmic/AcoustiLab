@@ -171,6 +171,13 @@ impl Element for Cavity {
             0
         }
     }
+    fn port_count(&self) -> usize {
+        if self.n2.is_some() {
+            2
+        } else {
+            1
+        }
+    }
     fn stamp(&self, cx: &FreqCx, mna: &mut Mna, br: &[usize]) {
         match self.n2 {
             Some(n2) if self.distributed(cx.level) => {
@@ -196,6 +203,21 @@ impl Element for Cavity {
         match (port, self.n2) {
             (0, _) => Some(potential(x, self.n1)),
             (1, Some(n2)) => Some(potential(x, n2)),
+            _ => None,
+        }
+    }
+    /// Flow entering the cavity at each face (to ambient).
+    fn port_flow(&self, cx: &FreqCx, x: &[C64], br: &[usize], port: usize) -> Option<C64> {
+        let lumped = cx.jw() * self.compliance(cx.air, cx.omega) * potential(x, self.n1);
+        match (port, self.n2) {
+            (0, None) => Some(lumped),
+            // L1 depth line: branch 0 enters face 1, branch 1 leaves face 2.
+            (0, Some(_)) if self.distributed(cx.level) => Some(x[br[0]]),
+            (1, Some(_)) if self.distributed(cx.level) => Some(-x[br[1]]),
+            // L0: the short's branch unknown is the flow it delivers into
+            // face 1, i.e. it carries −x[br0] from face 1 to face 2.
+            (0, Some(_)) => Some(lumped - x[br[0]]),
+            (1, Some(_)) => Some(x[br[0]]),
             _ => None,
         }
     }

@@ -82,5 +82,11 @@ Parameters in *italics* are optional.
 | `port_potential` | `element`, *`port`* | across quantity at the port |
 | `impedance` | `element`, *`port`* | port potential / port flow (e.g. electrical input impedance at a `vsource`) |
 
+Element port flows are positive *entering* the element at the port's first
+terminal. For a duct, port 0 is the through-flow from its first node towards
+its second, and port 1 is the negative of that at the far end. Independent
+sources are the exception: they report the flow they deliver, so an
+`impedance` probe on a source reads the load it sees.
+
 Results report every probe as complex RMS values, plus magnitude and phase.
 Acoustic pressures also report dB SPL re 20 µPa.

@@ -45,6 +45,9 @@ impl Element for Motor {
     fn type_name(&self) -> &'static str {
         "motor"
     }
+    fn port_count(&self) -> usize {
+        2
+    }
     fn branch_count(&self) -> usize {
         1
     }
@@ -60,11 +63,12 @@ impl Element for Motor {
         };
         Some(potential(x, p) - potential(x, n))
     }
-    /// Port 0: coil current; port 1: force delivered to the diaphragm.
+    /// Port 0: coil current entering at e+. Port 1: force entering at m+,
+    /// i.e. minus the force Bl·i the motor delivers to the diaphragm.
     fn port_flow(&self, _cx: &FreqCx, x: &[C64], br: &[usize], port: usize) -> Option<C64> {
         match port {
             0 => Some(x[br[0]]),
-            1 => Some(x[br[0]] * self.bl),
+            1 => Some(-x[br[0]] * self.bl),
             _ => None,
         }
     }
@@ -105,6 +109,9 @@ impl Element for Piston {
     fn type_name(&self) -> &'static str {
         "piston"
     }
+    fn port_count(&self) -> usize {
+        2
+    }
     fn stamp(&self, _cx: &FreqCx, mna: &mut Mna, _br: &[usize]) {
         let sd = C64::new(self.sd, 0.0);
         // U = Sd·v into front, out of rear.
@@ -120,12 +127,13 @@ impl Element for Piston {
             _ => None,
         }
     }
-    /// Port 0: acoustic reaction force on the diaphragm; port 1: volume
-    /// velocity delivered into the front node.
+    /// Port 0: force entering at m+ (the acoustic reaction Sd·Δp the
+    /// diaphragm works against). Port 1: volume velocity entering at the
+    /// front node, i.e. minus the Sd·v the diaphragm pushes into it.
     fn port_flow(&self, _cx: &FreqCx, x: &[C64], _br: &[usize], port: usize) -> Option<C64> {
         match port {
             0 => Some((potential(x, self.front) - potential(x, self.rear)) * self.sd),
-            1 => Some((potential(x, self.m.0) - potential(x, self.m.1)) * self.sd),
+            1 => Some(-(potential(x, self.m.0) - potential(x, self.m.1)) * self.sd),
             _ => None,
         }
     }

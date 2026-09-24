@@ -125,6 +125,12 @@ impl Element for VSource {
     fn type_name(&self) -> &'static str {
         "vsource"
     }
+    fn port_count(&self) -> usize {
+        1
+    }
+    fn is_source(&self) -> bool {
+        true
+    }
     fn branch_count(&self) -> usize {
         1
     }
@@ -183,6 +189,12 @@ impl Element for FlowSourceElement {
     }
     fn type_name(&self) -> &'static str {
         self.type_name
+    }
+    fn port_count(&self) -> usize {
+        1
+    }
+    fn is_source(&self) -> bool {
+        true
     }
     fn stamp(&self, _cx: &FreqCx, mna: &mut Mna, _br: &[usize]) {
         mna.flow_source(self.into, self.from, self.value);
