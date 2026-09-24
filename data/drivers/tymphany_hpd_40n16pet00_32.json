@@ -1,0 +1,55 @@
+{
+  "schema": "acoustilab-driver/0.1",
+  "name": "tymphany_hpd_40n16pet00_32",
+  "title": "Tymphany HPD-40N16PET00-32: 40 mm headphone driver, plastic (PET) diaphragm, NdFeB motor, 32 ohm",
+  "provenance": {
+    "origin": "datasheet",
+    "source": "Tymphany HK Ltd, Driver Specification Sheet, Model HPD-40N16PET00-32, Rev 1, last update 2018-07-11 19:57:16 (cited as a reference driver in spec Section 5, p. 16, and the references, p. 69)",
+    "url": "https://media.digikey.com/pdf/Data%20Sheets/Tymphany/HPD-40N16PET00-32_Spec.pdf",
+    "date": "2018-07-11",
+    "retrieved": "2026-09-24",
+    "licence": "Public manufacturer datasheet. Only its numeric parameters are recorded here, as facts with attribution; the document is not redistributed.",
+    "condition": "Not stated on the sheet. Treated as a small-signal free-air measurement, so Mms, Cms and Rms include the free-air load.",
+    "air_load": "free air (assumed; not stated)"
+  },
+  "primary": {
+    "fs_Hz": 81.8,
+    "Qms": 2.71,
+    "Qes": 1.01,
+    "Re_ohm": 32.8,
+    "Mms_g": 0.3,
+    "Sd_cm2": 10
+  },
+  "datasheet": {
+    "Bl_Tm": 2.42,
+    "Cms_um_per_N": 11.7,
+    "Vas_L": 1.64,
+    "Le_mH": 0,
+    "Qts": 0.74,
+    "Zmin_ohm": 33.53,
+    "Xmax_mm": 0.8,
+    "rated_impedance_ohm": 32,
+    "rated_power_mW": 10,
+    "sensitivity": [
+      {"level_dB": 74.18, "drive_V": 2.83, "distance_m": 1, "condition": "half space, +/- 1.0 dB"},
+      {"level_dB": 80.4, "drive_W": 1, "distance_m": 1, "condition": "half space, +/- 1.0 dB"}
+    ]
+  },
+  "tolerances": {
+    "Re": 0.05,
+    "Zmin": 0.075,
+    "fs": 0.15
+  },
+  "model": {
+    "Le_mH": 0
+  },
+  "estimated": [],
+  "notes": [
+    "Values are exactly as printed on the sheet, including the Cms unit (um/N). Only mm/N is consistent with fs, Mms and Vas (spec p. 16, erratum E5); the governance report flags it.",
+    "Bl, Re, Mms and fs give Qes = 0.864 and Qts = 0.655, not the printed 1.01 and 0.74 (erratum E5). The engine uses the primary set, which derives Bl = 2.24 T m, Cms = 12.6 mm/N and Rms = 0.0569 N s/m.",
+    "Rated impedance 32 ohm is the nominal value from the product description ('32 ohm'); the sheet has no separate rated-impedance field.",
+    "Rated power is the sheet's 'Rated Noise Power' of 0.01 W over a 20 Hz-20 kHz test spectrum.",
+    "The 2.83 V and 1 W sensitivities differ by 6.22 dB, which is 1 W into 33.5 ohm (the listed Zmin), not into Re or into the 32 ohm nominal.",
+    "Printed but not used: EBP (given as the formula fs/Qes), Fs/Qts 110.99 Hz, motor efficiency factor 0.2 (T m)^2/ohm, effective cone diameter 3.56 cm, voice-coil inner diameter 16.36 mm, gap height 1 mm, driver mass 0.01 kg, test spectrum 20 Hz-20 kHz."
+  ]
+}
