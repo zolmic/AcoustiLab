@@ -1,0 +1,56 @@
+{
+  "schema": "acoustilab-materials/0.1",
+  "description": "Rigid-frame porous materials for the 'porous_layer' element. Every entry states its value, method, physical state, tolerance, status, source and licence. 'status' is one of: measured, datasheet, estimated, unverified. Parameters use the element's unit-suffixed keys; entries with flow resistivity only use a one-parameter model (Miki by default).",
+  "entries": [
+    {
+      "id": "glass_wool_14kg_through",
+      "kind": "porous",
+      "params": {"sigma_Pa_s_per_m2": 5900},
+      "method": "static air-flow resistivity, through-thickness direction",
+      "state": "bulk density 14 kg/m3, uncompressed",
+      "tolerance": "not stated",
+      "status": "unverified",
+      "source": "Tarnow 2002, as quoted in the AcoustiLab v2 spec, Section 13 (p. 46): 5.9 kPa s/m2 through-thickness, 2.9 in-plane; paper not consulted in this work",
+      "licence": "fact quoted from a publication"
+    },
+    {
+      "id": "glass_wool_14kg_in_plane",
+      "kind": "porous",
+      "params": {"sigma_Pa_s_per_m2": 2900},
+      "method": "static air-flow resistivity, in-plane direction",
+      "state": "bulk density 14 kg/m3, uncompressed",
+      "tolerance": "not stated",
+      "status": "unverified",
+      "source": "Tarnow 2002, as quoted in the AcoustiLab v2 spec, Section 13 (p. 46); paper not consulted in this work",
+      "licence": "fact quoted from a publication"
+    },
+    {
+      "id": "pu_foam_acoustic_grade",
+      "kind": "porous",
+      "params": {"sigma_Pa_s_per_m2": 50000},
+      "method": "static air-flow resistivity",
+      "state": "open-cell polyurethane foam, acoustic grade, uncompressed",
+      "tolerance": "single measurement; spread unknown",
+      "status": "estimated",
+      "source": "AcoustiLab v2 spec, Section 13 (p. 47): 'about 50 kPa s/m2', single measurement, origin not given",
+      "licence": "fact quoted from the specification"
+    },
+    {
+      "id": "pu_foam_textbook_jca",
+      "kind": "porous",
+      "params": {
+        "porosity": 0.85,
+        "sigma_Pa_s_per_m2": 34000,
+        "tortuosity": 1.18,
+        "viscous_length_um": 60,
+        "thermal_length_um": 87
+      },
+      "method": "Johnson-Champoux-Allard parameter set",
+      "state": "polyurethane foam, uncompressed",
+      "tolerance": "not stated",
+      "status": "unverified",
+      "source": "AcoustiLab v2 spec, Section 13 (p. 47), attributed there to Allard and Atalla (Propagation of Sound in Porous Media, 2nd ed., Wiley 2009) and to COMSOL's headphone model. The book could not be consulted in this work, so the attribution is not verified. Internal consistency: Johnson's shape factor 8*alpha_inf*eta/(sigma*phi*Lambda^2) = 1.64 and Lambda' > Lambda, both physically admissible.",
+      "licence": "fact quoted from the specification"
+    }
+  ]
+}
