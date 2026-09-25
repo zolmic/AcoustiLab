@@ -829,13 +829,13 @@ struct Iec711GeomRaw {
     l5: f64,
     a2: f64,
     b2: f64,
-    h2: f64,
+    // Luan's slit heights h2, h4 stay in the file for the record and are
+    // not read: `slit_heights_mm` replaces them.
     r2: f64,
     #[serde(rename = "R2")]
     big_r2: f64,
     d1: f64,
     r4: f64,
-    h4: f64,
     #[serde(rename = "R4")]
     big_r4: f64,
     d2: f64,
@@ -845,6 +845,13 @@ struct Iec711GeomRaw {
 struct Iec711SlitRaw {
     parts: usize,
     part_angle_deg: f64,
+}
+
+/// Slit heights that replace Luan's (COMSOL Generic 711 Coupler documentation).
+#[derive(Debug, Clone, Deserialize)]
+struct Iec711SlitHeightsRaw {
+    h2: f64,
+    h4: f64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -866,6 +873,7 @@ struct Iec711FitRaw {
 struct Iec711Raw {
     geometry_mm: Iec711GeomRaw,
     annular_slit: Iec711SlitRaw,
+    slit_heights_mm: Iec711SlitHeightsRaw,
     microphone_bk4192: MicRaw,
     fit: Iec711FitRaw,
 }
@@ -943,8 +951,9 @@ fn load_impedance(t: [C64; 4], z: C64) -> C64 {
 }
 
 impl Iec711 {
-    /// Literature geometry with the fitted side-volume scale and the
-    /// B&K 4192 microphone.
+    /// Literature geometry (Luan et al. 2019 Table 1) with the slit heights
+    /// of the COMSOL Generic 711 Coupler documentation, the fitted
+    /// side-volume scale and the B&K 4192 microphone.
     pub fn literature() -> &'static Iec711 {
         static M: OnceLock<Iec711> = OnceLock::new();
         M.get_or_init(|| {
@@ -954,6 +963,7 @@ impl Iec711 {
                 "",
             );
             let g = r.geometry_mm;
+            let h = r.slit_heights_mm;
             let mm = 1e-3;
             Iec711 {
                 r0: g.r0 * mm,
@@ -962,12 +972,12 @@ impl Iec711 {
                 l5: g.l5 * mm,
                 a2: g.a2 * mm,
                 b2: g.b2 * mm,
-                h2: g.h2 * mm,
+                h2: h.h2 * mm,
                 r2: g.r2 * mm,
                 big_r2: g.big_r2 * mm,
                 d1: g.d1 * mm,
                 r4: g.r4 * mm,
-                h4: g.h4 * mm,
+                h4: h.h4 * mm,
                 big_r4: g.big_r4 * mm,
                 d2: g.d2 * mm,
                 parts4: r.annular_slit.parts,
@@ -1612,8 +1622,9 @@ fn type33(mut b: Build) -> Result<Box<dyn Element>> {
     let m = coupler_model(&mut b)?;
     // Ear-canal extension: 10.0 mm is stated for Type 3.1 in ITU-T P.57
     // clause 6.3.1 (and used for Type 3.3 by Nielsen & Herring Jensen,
-    // DAGA 2022); to be verified for Type 3.3. Bore 7.5 mm as the principal
-    // cavity (P.57 clause 6.4.4.4.1).
+    // DAGA 2022); to be verified for Type 3.3. Bore 7.5 mm as stated by the
+    // spec (p. 26), equal to the 60318-4 main cavity; P.57 does not state
+    // the Type 3.3 extension bore.
     let ext_len = b
         .params
         .positive_opt("extension_length", Dim::Length)?

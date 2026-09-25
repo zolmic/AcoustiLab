@@ -20,10 +20,10 @@ compliance at the standards' reference conditions (23 °C, 101.325 kPa).
 | `canal` | Chain of truncated cones cascaded into one two-port | User area function | First transverse mode and Stinson bound at the widest section (L1); lumped kl (L0) |
 | `eardrum` `hudde_engel` | Hudde & Engel (1998) drum, ossicles, cochlea and middle-ear cavities | COMSOL guide 6.4, Table 2-8 | Defined to 16 kHz |
 | `eardrum` `type43` | Two-branch drum in series with a middle-ear cavity | Fitted to ITU-T P.57 Table 5-c | Fitted from 20 Hz to 20 kHz |
-| `eardrum` `iec60318_4` | The coupler's two Helmholtz branches and its microphone lumped at one plane | Luan et al. 2019 | Human-valid to 10 kHz |
-| `iec60318_4` | Main cavity in three sections, two shunt Helmholtz branches, microphone | Luan et al. 2019, plus one fitted side-volume scale | Human-valid from 100 Hz to 10 kHz, coupler-only above; Stinson bound 19.1 kHz |
+| `eardrum` `iec60318_4` | The coupler's two Helmholtz branches and its microphone lumped at one plane | As `iec60318_4` | Human-valid to 10 kHz |
+| `iec60318_4` | Main cavity in three sections, two shunt Helmholtz branches, microphone | Luan et al. 2019, COMSOL slit heights, one fitted side-volume scale | Human-valid from 100 Hz to 10 kHz, coupler-only above; Stinson bound 19.2 kHz |
 | `type33` | 10 mm × 7.5 mm extension in front of `iec60318_4` | P.57 clause 6.3.1 | As `iec60318_4` |
-| `type43` | P.57 canal (conical chain), fitted drum at the DRP, tip stub | P.57 Table 6 and Annex B; fit to Table 5-c | 20 Hz to 20 kHz by P.57; line bound at the widest modelled section (19.2 kHz from the reference plane) |
+| `type43` | P.57 canal (conical chain), fitted drum at the DRP, tip stub | P.57 Table 6 and Annex B; fit to Table 5-c | 20 Hz to 20 kHz by P.57; line bound at the widest modelled section (19.5 kHz from the reference plane) |
 
 ## Canal: conical transfer-matrix chain
 
@@ -158,7 +158,10 @@ leads the plotted curve by a growing amount, the equivalent of about 4.4 µs
 of delay. The cause is not known without the original papers. The high-
 frequency phase of this model is therefore uncertain (open issue 2). The
 test pins the low-frequency values: 26.5 dB re 8e6 Pa·s/m³ at 165 Hz and a
-minimum of 12.2 dB near 865 Hz, both ±0.3 dB.
+minimum of 12.2 dB near 865 Hz, both ±0.3 dB. It also pins the log base:
+the plot reads 26.0 dB at 2.5 kHz and 25.7 dB at 3 kHz (ln: 25.3 and
+26.1 dB; log10 would give 22.5 and 23.6 dB), tested to ±1 dB, and a phase of
+−9° at 860 Hz and +11° at 1 kHz, tested to ±3°.
 
 **Passivity.** Re Z > 0 from 1 Hz to 67.8 kHz. The phase laws make it
 negative above that, far outside the 16 kHz for which the model is defined.
@@ -256,20 +259,33 @@ the microphone:
 - Branch 2 is a rectangular slit a2 × b2 × h2 (thermoviscous slit medium)
   into an annular cavity r2..R2 of thickness d1. The slit length includes
   an end correction at both ends: Munjal et al., *Formulas of Acoustics*
-  (2008) p. 319, as Luan Eq. A.7. For h2 = 0.16 mm it is 0.199 mm.
+  (2008) p. 319, as Luan Eq. A.7. For h2 = 0.17 mm it is 0.208 mm.
 - Branch 4 is a radial slit of gap h4 from R0 to r4 over three arcs of
   95.33°, into an annular cavity r4..R4 of thickness d2. It is a chain of
-  32 stepped slit segments of area angle·r·h4; the relative error at
-  3 kHz is 3.5e-6 against 128 steps. End corrections are 0.096 mm (inner)
-  and 0.099 mm (outer), with each arc's perimeter as the width.
+  32 stepped slit segments of area angle·r·h4; the relative error of the
+  chain matrix is 6e-6 against both 128 steps and the exact radial
+  waveguide (Bessel functions of the complex slit wavenumber, computed
+  independently in review). End corrections are 0.125 mm (inner)
+  and 0.130 mm (outer), with each arc's perimeter as the width.
 - The cavities are compliances with the thermal wall-layer correction of
   the `cavity` element, using the wall area of both faces and both rims.
   Above the branch resonances the slit inertance carries the branch impedance,
   so the radial-wave cavity form of Luan Eq. A.8 is not needed.
 
 **Geometry** (Luan et al. Table 1, mean micro-CT values of a G.R.A.S.
-RA0045, in mm): R0 3.77; L1 3.12; L3 4.75; L5 4.69; a2 2.53; b2 2.35; h2 0.16;
-r2 6.30; R2 9.01; d1 1.91; r4 4.66; h4 0.05; R4 9.01; d2 1.40.
+RA0045, in mm): R0 3.77; L1 3.12; L3 4.75; L5 4.69; a2 2.53; b2 2.35;
+r2 6.30; R2 9.01; d1 1.91; r4 4.66; R4 9.01; d2 1.40.
+
+**Slit heights.** The spec (p. 25) asks for element values fitted to the
+standard "rather than trusted from slit heights whose cube is uncertain".
+Luan's heights, h2 = 0.16 ± 0.06 mm and h4 = 0.05 ± 0.02 mm, are the least
+certain dimensions of the scan. The model uses instead the heights of the
+COMSOL "Generic 711 Coupler" model documentation (COMSOL 6.0 Application
+Gallery), "The slit heights are h1 = 69 µm and h2 = 170 µm": h2 = 0.170 mm for
+the rectangular slit (COMSOL's 2230 µm × 170 µm duct) and h4 = 0.069 mm for
+the annular slit. Both lie inside Luan's ranges. That documentation shows
+its model complying with the IEC standard curve. Luan's values stay in the
+data file for the record.
 
 **Microphone.** B&K Type 4192, as a series R–M–C: C = 0.62e-13 m⁵/N (8.8 mm³),
 R = 119e6 Pa·s/m³, M = 710 kg/m⁴. Values from the COMSOL "Generic 711
@@ -283,41 +299,57 @@ pp. 6–18. Use `microphone: "rigid"` for a rigid end.
 - half-wave resonance near 13.5 kHz (COMSOL documentation: "prescribed by
   the IEC standard … around 13.5 kHz").
 
-With the geometry exactly as published, the model gives 1068 mm³ at
-500 Hz, 15 % short. Luan et al.'s own Fig. 7 reads 166.5 dB re 1 Pa·s/m³
-at 100 Hz, which corresponds to 1070 mm³, so the deficit is in the geometry
-rather than this code.
+The static volume of Luan's geometry is 1080 mm³: main cavity 561, side
+cavities 249 and 262, microphone 9. Luan et al.'s own Fig. 7 reads
+166.5 dB re 1 Pa·s/m³ at 100 Hz, about 1070 mm³, which agrees with it. With
+those dimensions this model gives 1142 mm³ at 100 Hz (the thermal wall
+layer makes the small cavities partly isothermal) and 1068 mm³ at 500 Hz.
+With the COMSOL slit heights it gives 1122 mm³ at 500 Hz, 11 % short of 1260.
+The deficit is in the published volumes, not in this code.
 
-The slit heights cannot close the gap within their stated micro-CT
-uncertainty:
+The one fitted parameter is a common scale on the two side-cavity volumes.
+The fit gives **side_volume_scale = 1.281**, which takes the cavities to 319
+and 335 mm³, about 28 % above the micro-CT volumes (open issue 1). The
+half-wave resonance is checked, not fitted: 13.57 kHz, against the required
+13.5 ± 1.5 kHz.
 
-| Slit height | Effective volume at 500 Hz |
-|---|---|
-| h2 from 0.10 to 0.22 mm | 886–1090 mm³ |
-| h4 from 0.03 to 0.07 mm | 900–1112 mm³ |
-| COMSOL's pair, 0.17 / 0.069 mm | 1122 mm³ |
+**Check against the published standard curve.** The only openly published
+plot of the IEC 60318-4 Table 1 curve found is Fig. 3 of the same COMSOL
+documentation: "Standard (IEC 60318-4)" with its tolerances, in dB re
+1 MPa·s/m³, 100 Hz to 10 kHz. `tools/ear/digitize_comsol_711.py` digitises it
+from the figure's pixels (about ±0.1 dB) into `private/` only, because it
+reproduces the standard's table. The comparison, at the 21 third-octave
+frequencies, is the test
+`iec60318_4_follows_the_published_standard_curve_when_available`, which
+skips when the file is absent. Results:
 
-The one fitted parameter is therefore a common scale on the two side-cavity
-volumes. The fit gives **side_volume_scale = 1.631**, which takes the
-cavities to 406 and 427 mm³. That is far outside the micro-CT uncertainty
-and is flagged as open issue 1.
+| Model | Points in tolerance | Largest deviation / tolerance |
+|---|---|---|
+| COMSOL slit heights, scale 1.281 (shipped) | 21 / 21 | 0.86 (3.15 kHz) |
+| Luan slit heights, scale 1.631 (the first version of this model) | 9 / 21 | 4.25 (1.25 kHz) |
 
-The half-wave resonance is checked, not fitted: 13.55 kHz, against the
-required 13.5 ± 1.5 kHz. Resulting effective volumes:
+With Luan's slit heights the 1260 mm³ fit moved both Helmholtz resonances
+down. The model was then 0.9–1.0 dB low from 100 to 250 Hz and 1.8–2.8 dB
+high from 0.8 to 2 kHz, outside the tolerances. The shipped model stays
+within 0.2 dB of the nominal curve below 1 kHz and within 0.9 dB up to
+10 kHz. The digitised 500 Hz level, 31.15 dB, matches 1260 mm³ (31.09 dB) to
+within the reading accuracy.
+
+Resulting effective volumes (transfer impedance):
 
 | Frequency | Effective volume |
 |---|---|
-| 20 Hz | 1576 mm³ |
-| 100 Hz | 1462 mm³ |
+| 20 Hz | 1389 mm³ |
+| 100 Hz | 1295 mm³ |
 | 500 Hz | 1260 mm³ |
-| 1 kHz | 785 mm³ |
-| 2 kHz | 522 mm³ |
-| 5 kHz | 433 mm³ |
+| 1 kHz | 1022 mm³ |
+| 2 kHz | 658 mm³ |
+| 5 kHz | 411 mm³ |
 
 **Validity reported.** "IEC 60318-4 literature model: human-valid 100 Hz to
 10 kHz, coupler-only above": shading begins at 10 kHz and deepens at 16 kHz.
-The main cavity also reports its transverse mode (26.7 kHz) and Stinson
-bound (19.1 kHz). Below 100 Hz the model is coupler-extrapolated. A
+The main cavity also reports its transverse mode (26.8 kHz) and Stinson
+bound (19.2 kHz). Below 100 Hz the model is coupler-extrapolated. A
 `ValidityLimit` has no lower bound, so this appears only in the criterion
 text.
 
@@ -329,7 +361,10 @@ reference plane. `<id>.drp` is the microphone plane.
 `type33` puts a cylindrical ear-canal extension in front of `iec60318_4`: bore
 7.5 mm and length 10.0 mm, between `<id>.eep` and `<id>.ref`.
 
-- The bore is the P.57 principal-cavity diameter (clause 6.4.4.4.1).
+- The 7.5 mm bore is the spec's value (p. 26). It equals the 60318-4 main
+  cavity (7.5 mm per the COMSOL documentation; 2 × 3.77 mm in Luan
+  Table 1). P.57 does not state the Type 3.3 extension bore; its clause
+  6.4.4.4 gives the similar cylindrical cavity of Type 4.4.
 - ITU-T P.57 clause 6.3.1 states the 10.0 mm length for Type 3.1.
   Nielsen & Herring Jensen (DAGA 2022) used 10 mm for Type 3.3. It is
   still **to be verified for Type 3.3**.
@@ -346,31 +381,42 @@ ITU-T P.57 (06/2021) is free from <https://www.itu.int/rec/T-REC-P.57-202106-I>.
 The script reads the following from the PDF:
 
 - Table 6: centre-line points 0–28 mm in 0.5 mm steps, the DRP, the
-  reference plane at 17.33 mm and the EEP projections.
+  reference plane at 17.33 mm and the EEP projections. The script checks
+  that all 57 centre-line points are read.
+- Table B.1: the 28 mm centre-line point and the point of the last
+  concha-bottom plane.
 - Table B.2: the periphery points of the cross sections at 0.5, 2, 4, …,
-  28 mm, the reference plane, and the concha-bottom planes at 29.5, 31 and
-  32.5 mm.
+  28 mm, the reference plane, and the concha-bottom planes labelled 29.5, 31
+  and 32.5 mm.
 
 It writes only derived quantities: each polygon's shoelace area and
-perimeter, and the plane positions. Positions are the Recommendation's plane
-labels, measured from the tip along the curved centre line. The polyline
-through the Table 6 points is 27.90 mm long from 0 to 28 mm, 0.35 % shorter
-than the labels, and the labels are used.
+perimeter, and the plane positions. Up to 28 mm the positions are the
+Recommendation's plane labels, measured from the tip along the curved centre
+line. The polyline through the Table 6 points is 27.92 mm long from 0 to
+28 mm, 0.3 % shorter than the labels, and the labels are used.
+
+Beyond 28 mm the centre line is not defined and the concha-bottom labels are
+names, not distances. Annex B.1 places the two intermediate planes evenly on
+the straight line from the 28 mm point to the last plane's point, which are
+D = 4.023 mm apart (Table B.1). The planes therefore sit at 29.34, 30.68 and
+32.02 mm. The EEP is taken at the plane labelled 31 mm (30.68 mm), the plane
+nearest to it. Table B.1's printed normal of the last plane has the opposite
+z sign to the one its point implies; only the points are used.
 
 The DRP (105.5, 42.02, 53.76) is not on the centre line. Its axial position
 is where the plane normal to the centre line passes through it: 4.02 mm from
 the tip. The DRP is 4.48 mm from the tip point.
 
 Resulting areas: 4.5 mm² at 0.5 mm, 20.8 at 4, 29.4 at 8, 41.6 at the
-reference plane, 44.2 at 20, 56.8 at 28, and 99.8 at the EEP (31 mm).
+reference plane, 44.2 at 20, 56.8 at 28, and 99.8 at the EEP (30.68 mm).
 Volumes: tip to DRP 44.4 mm³, DRP to reference plane 451.3 mm³, reference
-plane to EEP 705.4 mm³.
+plane to EEP 682.2 mm³.
 
 ### Model
 
 ```
-EEP (31 mm) ── canal ── ref (17.33 mm) ── canal ── DRP (4.02 mm) ─┬─ drum (type43 fit)
-                                                                   └─ tip stub to 0.5 mm, rigid end
+EEP (30.68 mm) ── canal ── ref (17.33 mm) ── canal ── DRP (4.02 mm) ─┬─ drum (type43 fit)
+                                                                      └─ tip stub to 0.5 mm, rigid end
 ```
 
 - The inclined drum is lumped at the DRP's axial position, the
@@ -379,7 +425,9 @@ EEP (31 mm) ── canal ── ref (17.33 mm) ── canal ── DRP (4.02 mm)
   microphone-plane pressure.
 - The wedge between the DRP plane and the tip is a rigid-ended conical stub
   in parallel with the drum. The last 0.5 mm, about 1 mm³, is omitted.
-- The 48 segments are shared out over 0.5–31 mm in proportion to length.
+- The 48 segments are shared out over 0.5–30.68 mm in proportion to length
+  (21 to the reference plane–DRP section and 6 to the tip stub, as when the
+  drum was fitted).
 - `input: "ref"` drives the reference plane directly and omits the outer
   canal, as for an insert earphone or the Table 5-c measurement. `<id>.eep`
   then does not exist.
@@ -399,9 +447,11 @@ EEP (31 mm) ── canal ── ref (17.33 mm) ── canal ── DRP (4.02 mm)
   absent (CLAUDE.md, erratum E41).
 - Validity: "ITU-T P.57 Type 4.3: specified 20 Hz to 20 kHz" (begin 20 kHz).
   The canal's line bounds are taken at its widest modelled section:
-  - from the reference plane (`input: "ref"`): r = 3.75 mm at 20 mm, giving
-    the Stinson bound 19.2 kHz (spec p.26, "about 19 kHz") and cut-on 26.8 kHz;
-  - from the EEP: the concha-bottom section at 31 mm (99.8 mm², r = 5.64 mm)
+  - from the reference plane (`input: "ref"`): only the reference
+    plane–DRP section is modelled, widest at 16 mm (42.5 mm², r = 3.68 mm),
+    giving the Stinson bound 19.5 kHz (spec p.26, "about 19 kHz") and cut-on
+    27.5 kHz;
+  - from the EEP: the concha-bottom section at the EEP (99.8 mm², r = 5.64 mm)
     gives a Stinson bound of 14.6 kHz and cut-on 17.8 kHz, which is honest
     but pessimistic for the flaring concha region.
 
@@ -429,14 +479,18 @@ power, and every ear part absorbs power.
 - **E36.** The ISO 11904-2 conversion data cover only 20 Hz–10 kHz. No such
   conversion is implemented here.
 - **E41.** The standard tables stay out of the repository. The Table 5-c
-  test runs only when `private/p57_table5c.json` is present.
+  test runs only when `private/p57_table5c.json` is present, and the IEC
+  60318-4 curve test only when `private/iec60318_4_comsol_fig3.json` is.
 
 ## Open issues
 
 1. **IEC 60318-4 volume deficit.** The published RA0045 micro-CT geometry
-   gives 1068 mm³ at 500 Hz against 1260. The fitted side-volume scale of
-   1.63 is not physically confirmed. A measured transfer impedance of an IEC
-   60318-4 coupler, from a clone-calibration session, would settle it.
+   has a static volume of 1080 mm³, and with the COMSOL slit heights the
+   model gives 1122 mm³ at 500 Hz against 1260. The fitted side-volume
+   scale of 1.281 is not physically confirmed. The model follows the IEC
+   curve as digitised from a published figure (±0.1 dB), not the standard's
+   table itself. A measured transfer impedance of an IEC 60318-4 coupler
+   (clone calibration), or Table 1 in `private/`, would settle it.
 2. **Hudde & Engel phase above 1 kHz.** The phase differs from COMSOL's
    plotted curve by up to 28° at 13.5 kHz. The 1998 papers were not
    available to resolve this.
@@ -458,7 +512,8 @@ power, and every ear part absorbs power.
 ```sh
 python3 tools/ear/p57_geometry.py      # downloads P.57 into private/, writes data/ear/type43_geometry.json
 python3 tools/ear/fit_type43.py        # needs private/p57_table5c.json; writes data/ear/type43_drum.json
-python3 tools/ear/fit_iec60318_4.py    # writes data/ear/iec60318_4.json
+python3 tools/ear/digitize_comsol_711.py  # downloads COMSOL's Fig. 3, writes private/iec60318_4_comsol_fig3.json
+python3 tools/ear/fit_iec60318_4.py    # writes data/ear/iec60318_4.json (and the curve check, if the file above exists)
 python3 tools/ear/gen_fixtures.py      # writes crates/acoustilab/tests/data/ear_reference.json
 ```
 

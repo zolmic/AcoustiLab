@@ -103,9 +103,11 @@ def main():
     # --- IEC 60318-4 ----------------------------------------------------------------------
     d711 = json.loads((ROOT / "data" / "ear" / "iec60318_4.json").read_text())
     s = d711["fit"]["side_volume_scale"]
+    h2 = d711["slit_heights_mm"]["h2"] * 1e-3
+    h4 = d711["slit_heights_mm"]["h4"] * 1e-3
     base = em.Iec711()
-    m711 = em.Iec711(d1=base.d1 * s, d2=base.d2 * s)
-    m711_rigid = em.Iec711(d1=base.d1 * s, d2=base.d2 * s, mic="rigid")
+    m711 = em.Iec711(d1=base.d1 * s, d2=base.d2 * s, h2=h2, h4=h4)
+    m711_rigid = em.Iec711(d1=base.d1 * s, d2=base.d2 * s, h2=h2, h4=h4, mic="rigid")
     cf = [20.0, 100.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0, 13500.0, 20000.0]
     out["iec60318_4"] = [
         {

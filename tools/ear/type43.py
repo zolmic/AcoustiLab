@@ -2,7 +2,7 @@
 
 Layout along the curved centre line (positions from the canal tip, P.57 Table 6):
 
-    EEP (31 mm) --outer canal--> reference plane (17.33 mm) --inner canal--> DRP (4.02 mm)
+    EEP (30.68 mm) --outer canal--> reference plane (17.33 mm) --inner canal--> DRP (4.02 mm)
                                                                              |  drum impedance
                                                                              |  tip stub (DRP -> 0.5 mm, rigid end)
 

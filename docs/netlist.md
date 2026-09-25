@@ -100,7 +100,7 @@ sources, fits and validation are in `docs/ear-loads.md`.
 |---|---|---|
 | `canal` | [entrance, drum] | Profile, exactly one form: `positions_mm` + `areas_mm2` (arrays; positions run from the first node to the second, strictly monotonic, radius linear between knots); or `length_mm` + `area_entrance_mm2` + `area_end_mm2` [+ *`profile`*: `conical` (default) \| `exponential`]; or `length_mm` + `area_mm2` (mid-canal) [+ *`taper`*: end/entrance area ratio, default 1]. Optional: *`segments`* (40), *`wall_loss`* (true), *`entrance_offset_mm`* (trims the canal from the entrance side). One two-port whatever the segment count |
 | `eardrum` | [drum, *back*] | *`model`*: `hudde_engel` (default) \| `type43` \| `iec60318_4` \| `rigid`; *`R_scale`*, *`M_scale`*, *`C_scale`* (default 1); *`middle_ear_volume_cm3`* (tympanic cavity; `hudde_engel` and `type43` only) |
-| `iec60318_4` | [entrance] | *`microphone`*: `bk4192` (default) \| `rigid`; *`side_volume_scale`* (default: the fitted 1.631). Literature model, not verified against the IEC table |
+| `iec60318_4` | [entrance] | *`microphone`*: `bk4192` (default) \| `rigid`; *`side_volume_scale`* (scale on Luan et al.'s side-cavity volumes; default: the fitted 1.281). Literature model, not verified against the IEC table |
 | `type33` | [entrance] | As `iec60318_4`, plus *`extension_length_mm`* (10.0) and *`extension_diameter_mm`* (7.5) |
 | `type43` | [entrance] | *`input`*: `eep` (default) \| `ref` (drive the reference plane; the canal lateral to it is omitted); *`segments`* (48); *`wall_loss`* (true); *`drum`*: `type43` (default) \| `hudde_engel` \| `iec60318_4` \| `rigid`, with the `eardrum` scale keys |
 

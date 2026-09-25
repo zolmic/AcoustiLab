@@ -5,10 +5,11 @@
 //! spec and the standards state.
 
 use acoustilab::elements::ear::{
-    chain_abcd, cone_abcd, AreaFunction, Cone, HuddeEngel, Iec711, Type43Drum,
+    chain_abcd, cone_abcd, AreaFunction, Cone, HuddeEngel, Iec711, Type43Drum, Type43Geometry,
 };
 use acoustilab::mna::abcd_mul;
 use acoustilab::thermoviscous::{self, Section};
+use acoustilab::validity;
 use acoustilab::{AirState, Circuit, C64};
 use serde_json::{json, Value};
 use std::f64::consts::PI;
@@ -391,6 +392,15 @@ fn hudde_engel_is_passive_to_40_khz_and_scales_act_where_expected() {
     let db = |f: f64| 20.0 * (he.impedance(w(f), g).norm() / 8e6).log10();
     assert!((db(165.0) - 26.5).abs() < 0.3, "{}", db(165.0));
     assert!((db(865.0) - 12.2).abs() < 0.3, "{}", db(865.0));
+    // The same plot pins the log base of the phase laws (natural log, as in
+    // COMSOL's expression syntax): it reads 26.0 dB at 2.5 kHz and 25.7 dB
+    // at 3 kHz, where ln gives 25.3 and 26.1 dB and log10 would give 22.5
+    // and 23.6 dB; and phase -9 deg at 860 Hz and +11 deg at 1 kHz.
+    assert!((db(2500.0) - 26.0).abs() < 1.0, "{}", db(2500.0));
+    assert!((db(3000.0) - 25.7).abs() < 1.0, "{}", db(3000.0));
+    let deg = |f: f64| he.impedance(w(f), g).arg().to_degrees();
+    assert!((deg(860.0) + 9.0).abs() < 3.0, "{}", deg(860.0));
+    assert!((deg(1000.0) - 11.0).abs() < 3.0, "{}", deg(1000.0));
     // Doubling the drum compliances lowers the low-frequency impedance.
     let soft = he.scaled(acoustilab::elements::ear::DrumScales {
         r: 1.0,
@@ -519,9 +529,56 @@ fn iec60318_4_headline_values() {
         "half-wave at {} Hz",
         best.0
     );
-    // The literature model's unfitted geometry is ~15 % short of 1260 mm^3
+    // The literature model's unfitted geometry is ~11 % short of 1260 mm^3
     // (docs/ear-loads.md); the side-volume scale restores it.
     assert!(Iec711::fitted_side_volume_scale() > 1.0);
+    // Input and transfer effective volumes differ only by the short main
+    // cavity at 500 Hz (kL = 0.12): about 1 %.
+    let vin = effective_volume_cm3(probe(&ckt, "zin", 500.0), 500.0);
+    assert!((vin / v - 1.0).abs() < 0.02, "input {vin} vs transfer {v}");
+}
+
+/// The IEC 60318-4 standard curve (Table 1 levels with tolerances) as plotted
+/// in the COMSOL "Generic 711 Coupler" documentation, Fig. 3, digitised by
+/// tools/ear/digitize_comsol_711.py into the untracked private/ directory.
+/// Runs only when that file is present (it reproduces the standard's table,
+/// so it is never committed). The digitising accuracy is about 0.1 dB.
+#[test]
+fn iec60318_4_follows_the_published_standard_curve_when_available() {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../private/iec60318_4_comsol_fig3.json");
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        eprintln!("skipping: {} not present", path.display());
+        return;
+    };
+    let table: Value = serde_json::from_str(&text).unwrap();
+    let ckt = driven(
+        json!([{"id": "e", "type": "iec60318_4", "node": "a"}]),
+        &[],
+        Some("e.drp"),
+    );
+    let rows = table["rows"].as_array().unwrap();
+    assert_eq!(
+        rows.len(),
+        21,
+        "21 third-octave frequencies, 100 Hz to 10 kHz"
+    );
+    let reading = 0.1;
+    let mut fails = Vec::new();
+    for r in rows {
+        let f = r["f_Hz"].as_f64().unwrap();
+        // Absolute level, dB re 1 MPa s/m^3.
+        let level = 20.0 * (transfer(&ckt, f).norm() / 1e6).log10();
+        let up = r["upper_dB"].as_f64().unwrap();
+        let lo = r["lower_dB"].as_f64().unwrap();
+        if level > up + reading || level < lo - reading {
+            fails.push((f, level, lo, up));
+        }
+    }
+    assert!(
+        fails.is_empty(),
+        "outside the IEC 60318-4 tolerance: {fails:?}"
+    );
 }
 
 #[test]
@@ -608,14 +665,54 @@ fn type43_headline_values() {
     let v = effective_volume_cm3(z, 500.0);
     assert!((v / 1.63 - 1.0).abs() < 0.05, "V = {v} cm3");
     // The model reports the thermoviscous line bound near 19 kHz at the
-    // widest section between the reference plane and the drum.
-    let lim = ckt.validity();
-    let st = lim
+    // widest modelled section: from the reference plane that is 42.5 mm^2
+    // at 16 mm (19.5 kHz); from the EEP it is the EEP plane itself.
+    let geo = Type43Geometry::p57();
+    let stinson = |ckt: &Circuit| {
+        ckt.validity()
+            .iter()
+            .find(|l| l.criterion.contains("Stinson"))
+            .unwrap()
+            .deep_hz
+            .unwrap()
+    };
+    let r_ref = geo.profile.sub(geo.x_ref, geo.x_drp).max_radius();
+    assert!((r_ref - (42.492e-6 / PI).sqrt()).abs() < 1e-9, "{r_ref}");
+    let f = stinson(&ckt);
+    assert!((f / validity::stinson_bound(r_ref) - 1.0).abs() < 1e-12);
+    assert!((19_400.0..19_600.0).contains(&f), "{f}");
+    let at_eep = driven(
+        json!([{"id": "e", "type": "type43", "node": "a"}]),
+        &[],
+        Some("e.drp"),
+    );
+    let r_eep = geo.profile.sub(geo.x_eep, geo.x_drp).max_radius();
+    assert!((stinson(&at_eep) / validity::stinson_bound(r_eep) - 1.0).abs() < 1e-12);
+}
+
+#[test]
+fn type43_geometry_places_the_concha_planes_by_annex_b1() {
+    // Up to 28 mm the positions are the P.57 labels along the centre line.
+    // Beyond it the concha-bottom planes (labelled 29.5, 31, 32.5 mm) are
+    // evenly spaced on the 4.023 mm segment between the two points of
+    // Table B.1, so the EEP plane (label 31 mm, 99.8 mm^2) is at
+    // 28 + 2 x 4.023/3 = 30.68 mm, not at 31 mm.
+    let geo = Type43Geometry::p57();
+    let x = geo.profile.positions();
+    let a = geo.profile.areas();
+    assert!(x.windows(2).all(|w| w[1] > w[0]));
+    assert!((geo.x_eep - 30.682e-3).abs() < 1e-6, "{}", geo.x_eep);
+    let i = x
         .iter()
-        .find(|l| l.criterion.contains("Stinson"))
+        .position(|&v| (v - geo.x_eep).abs() < 1e-9)
         .unwrap();
-    let f = st.deep_hz.unwrap();
-    assert!((18_000.0..20_500.0).contains(&f), "{f}");
+    assert!((a[i] - 99.778e-6).abs() < 1e-9);
+    let spacing: Vec<f64> = x[x.len() - 4..].windows(2).map(|w| w[1] - w[0]).collect();
+    for s in spacing {
+        assert!((s - 1.3409e-3).abs() < 2e-6, "{s}");
+    }
+    assert!((geo.x_ref - 17.33e-3).abs() < 1e-12);
+    assert!((geo.x_drp - 4.021e-3).abs() < 1e-12);
 }
 
 /// ITU-T P.57 Table 5-c: runs only when the verbatim table is present in the

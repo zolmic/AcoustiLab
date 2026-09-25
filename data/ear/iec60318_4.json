@@ -21,6 +21,11 @@
     "parts": 3,
     "part_angle_deg": 95.33
   },
+  "slit_heights_mm": {
+    "source": "COMSOL 'Generic 711 Coupler -- An Occluded Ear-Canal Simulator' model documentation (6.0): 'The slit heights are h1 = 69 um and h2 = 170 um' (170 um rectangular duct, 69 um annular slit). They replace Luan's h2 = 0.16 +- 0.06 mm and h4 = 0.05 +- 0.02 mm, inside those ranges (spec p. 25: slit heights whose cube is uncertain are not trusted).",
+    "h2": 0.17,
+    "h4": 0.069
+  },
   "microphone_bk4192": {
     "source": "COMSOL Generic 711 Coupler model documentation (B&K Microphone Handbook, Falcon range, 1995, pp. 6-18)",
     "C_m3_per_Pa": 6.2e-14,
@@ -29,11 +34,23 @@
   },
   "fit": {
     "parameter": "side_volume_scale (multiplies both side-cavity thicknesses d1, d2)",
-    "side_volume_scale": 1.6313746910432487,
+    "side_volume_scale": 1.2814428907460076,
     "target": "effective volume 1260 mm^3 at 500 Hz (GRAS RA0045 product data)",
     "air": "standard_23C",
-    "unfitted_effective_volume_500Hz_mm3": 1067.9090805810422,
-    "half_wave_resonance_Hz": 13551.0,
-    "half_wave_resonance_unfitted_Hz": 13551.0
+    "unfitted_effective_volume_500Hz_mm3": 1121.5717510058869,
+    "half_wave_resonance_Hz": 13573.0,
+    "side_volume_scale_with_luan_slit_heights": 1.6313746910432487,
+    "unfitted_effective_volume_500Hz_with_luan_slit_heights_mm3": 1067.9090805810422
+  },
+  "check_against_published_curve": {
+    "curve": "IEC 60318-4 standard curve as plotted in the COMSOL Generic 711 Coupler documentation Fig. 3, digitised by tools/ear/digitize_comsol_711.py (private/)",
+    "reading_margin_dB": 0.1,
+    "points_within_tolerance": 21,
+    "points": 21,
+    "max_deviation_over_tolerance": 0.86,
+    "with_luan_slit_heights": {
+      "points_within_tolerance": 9,
+      "max_deviation_over_tolerance": 4.25
+    }
   }
 }

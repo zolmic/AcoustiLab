@@ -86,36 +86,64 @@ def parse_table6(doc) -> dict:
     points = []
     landmarks = {}
     i = 0
+
+    def xyz_follows(i: int) -> bool:
+        return i + 3 < len(lines) and all(NUM_RE.match(lines[i + k]) for k in (1, 2, 3))
+
     while i < len(lines):
         ln = lines[i]
-        if NUM_RE.match(ln) and i + 3 < len(lines) and all(
-            NUM_RE.match(lines[i + k]) for k in (1, 2, 3)
-        ):
+        # Landmark rows first, consuming their three coordinates, so that the
+        # next centre-line row starts in step (the DRP row sits between the
+        # 0.5 mm and 1 mm rows).
+        key = None
+        if ln in ("DRP", "EEP", "ERP"):
+            key = ln
+        m = re.match(r"Ref\. Plane \((\d+(?:\.\d+)?)\)", ln)
+        if m:
+            landmarks["ref_plane_s_mm"] = float(m.group(1))
+            key = "ref_plane"
+        m = re.match(r"EEP Projection (\d+(?:\.\d+)?) mm", ln)
+        if m:
+            key = f"eep_projection_{m.group(1)}"
+        if key is not None and xyz_follows(i):
+            landmarks[key] = [num(lines[i + k]) for k in (1, 2, 3)]
+            i += 4
+            continue
+        if NUM_RE.match(ln) and xyz_follows(i):
             s = num(ln)
             xyz = [num(lines[i + k]) for k in (1, 2, 3)]
             if 0.0 <= s <= 28.0 and abs(s * 2 - round(s * 2)) < 1e-9:
                 points.append((s, *xyz))
             i += 4
             continue
-        for key in ("DRP", "EEP", "ERP"):
-            if ln == key and i + 3 < len(lines) and all(
-                NUM_RE.match(lines[i + k]) for k in (1, 2, 3)
-            ):
-                landmarks[key] = [num(lines[i + k]) for k in (1, 2, 3)]
-        m = re.match(r"Ref\. Plane \((\d+(?:\.\d+)?)\)", ln)
-        if m:
-            landmarks["ref_plane_s_mm"] = float(m.group(1))
-            landmarks["ref_plane"] = [num(lines[i + k]) for k in (1, 2, 3)]
-        m = re.match(r"EEP Projection (\d+(?:\.\d+)?) mm", ln)
-        if m:
-            landmarks[f"eep_projection_{m.group(1)}"] = [
-                num(lines[i + k]) for k in (1, 2, 3)
-            ]
         i += 1
     # De-duplicate (the table header repeats across pages) and sort.
     uniq = {p[0]: p for p in points}
     pts = [uniq[k] for k in sorted(uniq)]
+    if len(pts) != 57:
+        raise RuntimeError(f"Table 6: {len(pts)} centre-line points read, expected 57 (0 to 28 mm)")
     return {"points": pts, "landmarks": landmarks}
+
+
+# ----- Table B.1: the planes bounding the concha bottom ------------------------
+
+
+def parse_table_b1(doc) -> dict:
+    """Points of the 28 mm plane (r_First) and of the last concha plane (r_Last).
+
+    Annex B.1: the two intermediate concha planes are "evenly distributed"
+    on the straight line between these points, r_i = r_First + (r_Last -
+    r_First) i/3. Only the points are used; the printed normals are not
+    needed (and n_Last's z component carries the opposite sign to the one
+    that r_Last = r_First + n_Last D_First-Last implies).
+    """
+    page = page_index(doc, "Table B.1 – The points and normal vectors")[0]
+    text = doc[page].get_text()
+    text = text[text.index("Table B.1 – The points and normal vectors"):]
+    vals = [num(t.strip()) for t in text.splitlines() if NUM_RE.match(t.strip()) and "." in t]
+    if len(vals) < 12:
+        raise RuntimeError("Table B.1: expected two points and two normals")
+    return {"r_first": vals[0:3], "n_first": vals[3:6], "r_last": vals[6:9], "n_last": vals[9:12]}
 
 
 # ----- Table B.2: cross-section polygons -------------------------------------
@@ -272,17 +300,28 @@ def main() -> None:
     s_drp = drp_axial_position(pts, lm["DRP"])
     d_drp_tip = math.dist(lm["DRP"], pts[0][1:])
 
+    # Concha-bottom planes (labels 29.5, 31 and 32.5 mm): beyond the 28 mm
+    # plane the labels are names, not distances. Annex B.1 places the planes
+    # evenly on the straight line from the 28 mm centre-line point to the
+    # last plane's point, so their axial positions are 28 + i*D/3.
+    b1 = parse_table_b1(doc)
+    d_first_last = math.dist(b1["r_first"], b1["r_last"])
+    concha = {29.5: 1, 31.0: 2, 32.5: 3}
+
     polys = parse_table_b2(doc)
     sections = []
     for label, poly in polys.items():
         area, perim = polygon_area_perimeter(poly)
         if label == "ref":
             pos = lm["ref_plane_s_mm"]
+        elif float(label) in concha:
+            pos = 28.0 + concha[float(label)] * d_first_last / 3.0
         else:
             pos = float(label)
         sections.append(
             {
-                "position_mm": pos,
+                "position_mm": round(pos, 3),
+                "label_mm": None if label == "ref" else float(label),
                 "area_mm2": round(area, 3),
                 "perimeter_mm": round(perim, 3),
                 "points": len(poly),
@@ -290,18 +329,25 @@ def main() -> None:
             }
         )
     sections.sort(key=lambda s: s["position_mm"])
+    # The EEP is taken at the concha plane labelled 31 mm, the plane nearest
+    # to it (its "EEP projection" lies about 1 mm from the EEP).
+    eep = next(s["position_mm"] for s in sections if s["label_mm"] == 31.0)
 
     geometry = {
         "source": "ITU-T P.57 (06/2021), clause 6.4.3.4, Table 6 and Annex B Table B.2; "
         "https://www.itu.int/rec/T-REC-P.57-202106-I",
         "derived_by": "tools/ear/p57_geometry.py (shoelace area and perimeter of each "
-        "Table B.2 polygon; positions are the Recommendation's plane labels along the "
-        "curved centre line, measured from the canal tip)",
+        "Table B.2 polygon; positions up to 28 mm are the Recommendation's plane labels "
+        "along the curved centre line, measured from the canal tip; the concha-bottom "
+        "planes labelled 29.5, 31 and 32.5 mm sit at 28 + i*D/3 with D the distance "
+        "between the two points of Table B.1 (Annex B.1))",
         "note": "Areas and perimeters are computed from the tabulated periphery points; the "
         "Recommendation's point lists themselves are not reproduced here.",
         "positions_measured_from": "tip of the ear canal (centre-line origin, Table 6)",
         "ref_plane_mm": lm["ref_plane_s_mm"],
-        "eep_mm": 31.0,
+        "eep_mm": eep,
+        "eep_note": "EEP taken at the concha plane labelled 31 mm, the plane nearest to it",
+        "concha_plane_spacing_mm": round(d_first_last / 3.0, 4),
         "drp_axial_mm": round(s_drp, 3),
         "drp_to_tip_distance_mm": round(d_drp_tip, 3),
         "centre_line_polyline_length_0_to_28_mm": round(s_arc[-1], 3),
