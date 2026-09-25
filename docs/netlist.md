@@ -118,8 +118,8 @@ Accuracy of the numerics, checked against mpmath (`tools/refgen/`,
 
 | quantity | agreement |
 |---|---|
-| R1, X1 of the baffled piston, 0 ≤ 2ka ≤ 500 | ≤ 3e-15 relative |
-| −ln\|R\| and L/a of the unflanged pipe, 0 ≤ ka ≤ 3.8 | ≤ 3e-15 relative |
+| R1, X1 of the baffled piston, 0 ≤ 2ka ≤ 500 | ≤ 5e-15 relative |
+| −ln\|R\| and L/a of the unflanged pipe, 0 ≤ ka ≤ 3.8 | ≤ 1e-14 relative |
 
 ### Duct cross-sections (`thermoviscous::Section`)
 

@@ -2,10 +2,12 @@
 //! mpmath implementation of the Zwikker–Kosten / Stinson model
 //! (tools/refgen/thermo_refs.py), closed-form limits and textbook series.
 
+use acoustilab::elements::ducts::Duct;
 use acoustilab::special::{shape_rect, shape_slit};
 use acoustilab::thermoviscous::{
     abcd, lumped_series_impedance, medium, poiseuille, propagation, Section,
 };
+use acoustilab::validity::stinson_bound;
 use acoustilab::{AirState, Circuit, C64};
 use serde_json::json;
 use std::f64::consts::PI;
@@ -406,11 +408,32 @@ fn power_balances_with_ducts_and_radiation() {
 
 #[test]
 fn rect_duct_limits_are_reported() {
-    // A Rect section's first transverse mode is set by its longer side.
     let air = AirState::spec_reference();
     let sec = Section::Rect { a: 2e-3, b: 6e-3 };
     assert_eq!(sec.shape_length(), 1e-3);
     assert!((sec.area() - 12e-6).abs() < 1e-18);
     let s = sec.shear_wavenumber(&air, 2.0 * PI * 1000.0);
     assert!((s - 1e-3 * (2.0 * PI * 1000.0 * air.rho / air.mu).sqrt()).abs() < 1e-12);
+    // At L1 a Rect duct's first transverse mode is set by its longer side,
+    // f = c/(2b) (rigid walls), and Stinson's bound by half the shorter one,
+    // as for a slit; the sides may be given in either order.
+    for sec in [sec, Section::Rect { a: 6e-3, b: 2e-3 }] {
+        let duct = Duct {
+            section: sec,
+            length: 1e-2,
+            count: 1,
+            end_length: 0.0,
+        };
+        let limits = duct.limits("r", &air, 1);
+        let deep = |c: &str| {
+            limits
+                .iter()
+                .find(|l| l.criterion.contains(c))
+                .unwrap_or_else(|| panic!("no {c} limit in {limits:?}"))
+                .deep_hz
+                .unwrap()
+        };
+        assert!((deep("transverse") / (air.c / (2.0 * 6e-3)) - 1.0).abs() < 1e-12);
+        assert!((deep("Stinson") / stinson_bound(1e-3) - 1.0).abs() < 1e-12);
+    }
 }

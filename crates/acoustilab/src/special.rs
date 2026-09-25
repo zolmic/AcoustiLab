@@ -171,8 +171,9 @@ const SLIT_COEFFS: [f64; 13] = [
 /// Slit of half-gap h/2: F = tanh(z)/z with z = k·h/2.
 ///
 /// Relative error of F and of 1 − F ≤ 1e-14 at z = sqrt(j)·x,
-/// x in [1e-4, 1e4]; the worst case is 1 − F just above the series switch,
-/// where it costs a factor |F/(1 − F)| ≈ 33 over the tanh rounding.
+/// x in [1e-4, 1e4], and ≤ 2e-14 for 0 ≤ arg z ≤ 0.49π; the worst case is
+/// 1 − F just above the series switch, where it costs a factor
+/// |F/(1 − F)| ≈ 33 over the tanh rounding.
 pub fn shape_slit(z: C64) -> Shape {
     if z.norm() < SLIT_SERIES {
         let z2 = z * z;
@@ -214,8 +215,12 @@ pub fn shape_circle(z: C64) -> Shape {
 /// Rectangular duct with sides `a` and `b` (full lengths), for the complex
 /// wavenumber `k` (k_v for the viscous function, k_t for the thermal one).
 ///
-/// Stinson (1991), JASA 89(2), 550–558, Eqs. (21)–(22) and Stinson &
-/// Champoux (1992), JASA 91(2), 685–695, give the double series
+/// Stinson (1991), JASA 89(2), 550–558, works the rectangle as his example
+/// of an arbitrary section, and Stinson & Champoux (1992), JASA 91(2),
+/// 685–695, use the same series for the thermal function. Expanding the
+/// uniform forcing (pressure gradient, or heat input) of
+/// (∇² − k²)v = const in the sine modes of the section, with v = 0 on the
+/// walls, gives the double series
 /// 1 − F = Σ_{m,n odd} 64/(π⁴m²n²) · k²/(k² + α_m² + β_n²),
 /// α_m = mπ/a, β_n = nπ/b. Summing over n in closed form (the partial-
 /// fraction series of tanh) leaves, with κ_m² = k² + α_m²,
@@ -536,8 +541,12 @@ pub fn bessel_j1(x: f64) -> f64 {
 /// Series for x < 2, Gauss–Legendre on (2x/π)∫_0^{π/2} cos²θ sin(x sin θ) dθ
 /// for 2 ≤ x < 25, and H1 = Y1 + K1 above, with Y1 from the Hankel
 /// expansion and K1(x) = H1 − Y1 = (2/π)∫_0^∞ e^{−u}·sqrt(1 + u²/x²) du
-/// (DLMF 11.5.2). H1 is positive for x > 0; relative error ≤ 1e-14.
+/// (DLMF 11.5.2). H1 is positive for x > 0; relative error ≤ 1e-14. H1 is
+/// even, so a negative argument is reflected rather than fed to the series.
 pub fn struve_h1(x: f64) -> f64 {
+    if x < 0.0 {
+        return struve_h1(-x);
+    }
     if x < 2.0 {
         // Σ (−1)^k (x/2)^{2k+2} / (Γ(k+3/2) Γ(k+5/2))   (DLMF 11.2.1)
         let h = 0.5 * x;
@@ -906,6 +915,11 @@ mod tests {
         assert!((bessel_j1(10.0) - 0.043_472_746_168_861_44).abs() < 1e-13);
         assert!((struve_h1(1.0) - 0.198_457_336_201_944_3).abs() < 1e-13);
         assert!((struve_h1(10.0) - 0.891_832_492_094_538).abs() < 1e-12);
+        // J1 is odd and H1 even, including past the series ranges.
+        for x in [0.5, 10.0, 30.0] {
+            assert_eq!(bessel_j1(-x), -bessel_j1(x));
+            assert_eq!(struve_h1(-x), struve_h1(x));
+        }
     }
 
     #[test]

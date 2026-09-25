@@ -61,6 +61,10 @@ def shape_rows():
     rows = []
     xs = sorted(set(float(x) for x in np.logspace(-4, 4, 8 * 12 + 1)))
     xs += [0.2 * (1 - 1e-9), 0.2 * (1 + 1e-9), 0.25, 0.5, 1.0, 2.0, 3.0]
+    # Around the slit's series switch (|z| = 0.3), where 1 - F is least
+    # accurate, and the circle's asymptotic switch (|z| = 18).
+    for c in (0.3, 0.31, 0.35, 18.0):
+        xs += [c * (1 - 1e-9), c, c * (1 + 1e-9)]
     for x in sorted(set(xs)):
         h = x * math.sqrt(0.5)
 
