@@ -79,10 +79,24 @@ export function scan(text: string): JNode {
           out += simple[e];
           i += 2;
         } else if (e === 'u') {
-          const hex = text.slice(i + 2, i + 6);
-          if (!/^[0-9a-fA-F]{4}$/.test(hex)) fail('bad \\u escape');
-          out += String.fromCharCode(parseInt(hex, 16));
+          const hex4 = (at: number) => {
+            const hex = text.slice(at, at + 4);
+            return /^[0-9a-fA-F]{4}$/.test(hex) ? parseInt(hex, 16) : -1;
+          };
+          const u = hex4(i + 2);
+          if (u < 0) fail('bad \\u escape');
           i += 6;
+          // A surrogate must come as an escaped high-low pair (serde_json
+          // rejects a lone one, so the engine would reject the text).
+          if (u >= 0xdc00 && u <= 0xdfff) fail('lone low surrogate in \\u escape');
+          if (u >= 0xd800 && u <= 0xdbff) {
+            const lo = text[i] === '\\' && text[i + 1] === 'u' ? hex4(i + 2) : -1;
+            if (lo < 0xdc00 || lo > 0xdfff) fail('lone high surrogate in \\u escape');
+            out += String.fromCharCode(u, lo);
+            i += 6;
+          } else {
+            out += String.fromCharCode(u);
+          }
         } else {
           i++;
           fail('bad escape');
@@ -226,15 +240,22 @@ export function setParam(text: string, name: string, value: Scalar): string {
   return setParams(text, [[name, value]]);
 }
 
-/** As `setParam` for several parameters at once (edits applied back to front). */
+/**
+ * As `setParam` for several parameters at once (edits applied back to
+ * front). A name given twice takes its last value: two edits of one token
+ * would otherwise splice the second into the first's leftovers.
+ */
 export function setParams(text: string, values: [string, Scalar][]): string {
   const root = scan(text);
-  const edits = values.map(([name, v]) => {
+  const edits = [...new Map(values).entries()].map(([name, v]) => {
     const node = paramValueNode(root, name);
     if (!node) throw new Error(`parameter '${name}' has no value in the netlist text`);
     return { ...node, text: scalarText(v) } as Span & { text: string };
   });
   edits.sort((a, b) => b.start - a.start);
+  for (let k = 1; k < edits.length; k++) {
+    if (edits[k].end > edits[k - 1].start) throw new Error('overlapping parameter values in the netlist text');
+  }
   let out = text;
   for (const e of edits) out = out.slice(0, e.start) + e.text + out.slice(e.end);
   return out;

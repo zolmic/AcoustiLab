@@ -88,6 +88,18 @@ test('scan accepts what JSON.parse accepts and rejects what it rejects', () => {
     expect(() => JSON.parse(t), t).toThrow();
     expect(() => scan(t), t).toThrow(JsonScanError);
   }
+  // Escaped surrogate pairs decode to one code point, as in JSON.parse.
+  // Lone surrogates JSON.parse accepts, but serde_json (the engine) rejects
+  // them ("unexpected end of hex escape", "lone leading surrogate in hex
+  // escape"), so the scanner does too: a control must not rewrite text the
+  // engine cannot read.
+  const pair = '{"t": "\\uD834\\uDD1E \\ud83c\\udfa7"}';
+  expect(plain(scan(pair))).toEqual(JSON.parse(pair));
+  expect((scan(pair) as { members: { value: { value: string } }[] }).members[0].value.value).toBe('\u{1D11E} \u{1F3A7}');
+  for (const lone of ['"\\uD834"', '"\\uD834x"', '"\\uD834\\u0041"', '"\\uDD1E"', '"\\uDD1E\\uD834"']) {
+    expect(() => JSON.parse(lone), lone).not.toThrow();
+    expect(() => scan(lone), lone).toThrow(JsonScanError);
+  }
   // The error offset points at the fault.
   const t = '{\n  "a": 1,\n  "b": ,\n}';
   expect(() => scan(t)).toThrow(JsonScanError);
@@ -231,6 +243,35 @@ test('setParam refuses what it cannot rewrite', () => {
   expect(() => setParam('{"parameters": {"a": 1,}}', 'a', 2)).toThrow(JsonScanError);
   expect(() => setParam('{"parameters": {"a": 1}}', 'a', Number.NaN)).toThrow(/not a JSON number/);
   expect(() => setParam('{"parameters": {"a": {"value": [1]}}}', 'a', 2)).toThrow(/no value/);
+});
+
+test('setParams: a name given twice takes its last value, other text untouched', () => {
+  // Two edits of one token used to be spliced into each other: 1 -> 100
+  // then -> 2 over the old span gave "200".
+  const text = '{"parameters": {"a": 1, "b": 22}}';
+  expect(
+    setParams(text, [
+      ['a', 100],
+      ['a', 2],
+    ]),
+  ).toBe('{"parameters": {"a": 2, "b": 22}}');
+  expect(
+    setParams(text, [
+      ['b', 7],
+      ['a', 100],
+      ['b', 8],
+    ]),
+  ).toBe('{"parameters": {"a": 100, "b": 8}}');
+  // Only the root's "parameters" block is read, and a parameter may be named
+  // like a JSON key used elsewhere.
+  expect(setParam('{"elements": [{"parameters": {"a": 1}}], "parameters": {"a": 2}}', 'a', 5)).toBe(
+    '{"elements": [{"parameters": {"a": 1}}], "parameters": {"a": 5}}',
+  );
+  expect(setParam('{"parameters": {"value": {"value": 1, "label": "value"}}}', 'value', 5)).toBe(
+    '{"parameters": {"value": {"value": 5, "label": "value"}}}',
+  );
+  // Duplicate "parameters" blocks: the last, as serde_json reads them.
+  expect(setParam('{"parameters": {"a": 1}, "parameters": {"a": 2}}', 'a', 5)).toBe('{"parameters": {"a": 1}, "parameters": {"a": 5}}');
 });
 
 test('several parameters at once, on the design template', () => {
