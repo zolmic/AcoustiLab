@@ -970,8 +970,8 @@ function loadExample(name: string): void {
     ['Design templates', true],
     ['Example netlists', false],
   ];
-  for (const [label, parametric] of groupsOf) {
-    const list = EXAMPLES.filter((e) => e.parametric === parametric);
+  for (const [label, template] of groupsOf) {
+    const list = EXAMPLES.filter((e) => e.template === template);
     if (!list.length) continue;
     const og = document.createElement('optgroup');
     og.label = label;

@@ -76,19 +76,26 @@ test('the template opens in Design mode with its groups, sketch and primary prob
   await expect(page.locator('#panel-netlist')).toBeHidden();
   expect(await text(page)).toBe(TEMPLATE);
 
-  // Picker: design templates (examples with parameters) first.
+  // Picker: design templates (examples whose `ui` block names a `template`)
+  // first, every other example after them, parametric or not.
   const optgroups = await page.locator('#example-select optgroup').evaluateAll((gs) =>
     gs.map((g) => [(g as HTMLOptGroupElement).label, [...g.querySelectorAll('option')].map((o) => o.value)]),
   );
-  // Oracle: the examples directory, read here (every file declaring "parameters").
-  const parametric = readdirSync(`${repo}/examples`)
-    .filter((f) => f.endsWith('.json') && 'parameters' in JSON.parse(readFileSync(`${repo}/examples/${f}`, 'utf8')))
-    .map((f) => f.replace(/\.json$/, ''));
+  // Oracle: the examples directory, read here.
+  const examples = readdirSync(`${repo}/examples`)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => [f.replace(/\.json$/, ''), JSON.parse(readFileSync(`${repo}/examples/${f}`, 'utf8'))] as const);
+  const isTemplate = (d: { ui?: { template?: unknown } }) => typeof d.ui?.template === 'string' && d.ui.template !== '';
+  const templates = examples.filter(([, d]) => isTemplate(d)).map(([n]) => n);
+  const others = examples.filter(([, d]) => !isTemplate(d)).map(([n]) => n);
   expect(optgroups[0][0]).toBe('Design templates');
-  expect([...(optgroups[0][1] as string[])].sort()).toEqual(parametric.sort());
+  expect([...(optgroups[0][1] as string[])].sort()).toEqual(templates.sort());
   expect(optgroups[0][1]).toContain('design_over_ear');
   expect(optgroups[1][0]).toBe('Example netlists');
+  expect([...(optgroups[1][1] as string[])].sort()).toEqual(others.sort());
   expect(optgroups[1][1]).toContain('sealed_cup');
+  // A parametric example that is not a template lists with the others.
+  expect(others.some((n) => 'parameters' in examples.find(([m]) => m === n)![1])).toBe(true);
 
   // The template's description (its provenance), as written in the netlist.
   await page.locator('#design-about summary').click();
