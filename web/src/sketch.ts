@@ -258,8 +258,8 @@ export class Sketch {
     return [x, y];
   }
 
-  /** Text alternative: every dimension the drawing shows. */
-  private describe(g: Geo): string {
+  /** Text alternative: every dimension the drawing shows (`gapEnlarged`: the leak gap is drawn larger than to scale). */
+  private describe(g: Geo, gapEnlarged: boolean): string {
     const s: string[] = [
       `Cross-section through the cup axis, to scale. Front cavity: radius ${mm(g.R)}, depth ${mm(g.D)}` +
         (g.Vf !== undefined ? `, volume ${formatParam(g.Vf, 3)} cm³.` : '.'),
@@ -268,7 +268,11 @@ export class Sketch {
     if (g.W !== undefined || g.gap !== undefined) {
       s.push(
         `Pad: ${g.W !== undefined ? `${mm(g.W)} wide` : 'width not bound'}` +
-          (g.gap === undefined ? '.' : g.gap > 0 ? `, leak gap ${mm(g.gap)} (drawn enlarged).` : ', sealed (no leak gap).'),
+          (g.gap === undefined
+            ? '.'
+            : g.gap > 0
+              ? `, leak gap ${mm(g.gap)}${gapEnlarged ? ' (drawn enlarged)' : ''}.`
+              : ', sealed (no leak gap).'),
       );
     }
     if (g.open) {
@@ -294,7 +298,8 @@ export class Sketch {
     const svg = this.svg;
     svg.replaceChildren();
     const g = this.geometry(this.values);
-    this.desc.textContent = g ? this.describe(g) : '';
+    // Not laid out yet: the scale, and so whether the gap is enlarged, is unknown.
+    this.desc.textContent = g ? this.describe(g, true) : '';
     if (!g || !this.width) return;
 
     // The height depends on the width only, so the controls below never
@@ -383,7 +388,12 @@ export class Sketch {
     if (closed) part('rear').append(node('rect', { x: px(-g.R), y: top, width: 2 * g.R * s, height: Dr * s, class: 'sk-air' }));
 
     // Pad, with the leak gap under it enlarged to a few pixels.
-    const gapPx = g.gap === undefined || g.gap <= 0 ? 0 : Math.min(10, 3 + 25 * g.gap);
+    // Tenths of a millimetre are sub-pixel at this scale: the gap is drawn
+    // 3 to 10 px high, and says so only when that is more than its true size.
+    const trueGapPx = g.gap === undefined || g.gap <= 0 ? 0 : g.gap * s;
+    const gapPx = trueGapPx > 0 ? Math.max(trueGapPx, Math.min(10, 3 + 25 * g.gap!)) : 0;
+    const gapEnlarged = gapPx > trueGapPx + 0.5;
+    this.desc.textContent = this.describe(g, gapEnlarged);
     const gapMm = gapPx / s;
     if (g.W !== undefined) {
       const pad = part('pad');
@@ -408,7 +418,7 @@ export class Sketch {
       const ly = oy + 39;
       lab('leak').append(
         node('polyline', { points: `${xa},${oy - gapPx / 2} ${xa + 10},${ly - 12} ${Wp - 6},${ly - 12}`, class: 'sk-leader' }),
-        text(Wp - 6, ly, gapPx > 0 ? `leak gap ${mm(g.gap)} (drawn enlarged)` : 'pad sealed: no leak gap', 'end'),
+        text(Wp - 6, ly, gapPx > 0 ? `leak gap ${mm(g.gap)}${gapEnlarged ? ' (drawn enlarged)' : ''}` : 'pad sealed: no leak gap', 'end'),
       );
     }
 

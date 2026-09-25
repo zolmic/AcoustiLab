@@ -592,6 +592,20 @@ test('the sketch is drawn to scale and linked to the controls', async ({ page })
     return b.width / f.width.baseVal.value;
   });
   expect(drv).toBeCloseTo((2 * Math.sqrt(1000 / Math.PI)) / 50, 3);
+  // Every other drawn dimension, relative to the cup diameter (2r = 50 mm):
+  // the rear cavity's depth V/(pi r^2) = 12.73 mm, the pad width 15 mm, the
+  // vent diameter 3 mm (SVG lengths are single precision: 6 digits).
+  const rel = (sel: string, dim: 'width' | 'height') =>
+    page.locator(sel).first().evaluate((r: SVGRectElement, dm) => {
+      const f = document.querySelector<SVGRectElement>('#sketch-svg [data-part="front"] rect.sk-air')!;
+      return r[dm].baseVal.value / f.width.baseVal.value;
+    }, dim);
+  expect(await rel('#sketch-svg [data-part="rear"] rect.sk-air', 'height')).toBeCloseTo((25000 / (Math.PI * 625)) / 50, 6);
+  expect(await rel('#sketch-svg [data-part="pad"] rect.sk-pad', 'width')).toBeCloseTo(15 / 50, 6);
+  expect(await rel('#sketch-svg [data-part="vents"] rect.sk-hole', 'width')).toBeCloseTo(3 / 50, 6);
+  // The leak gap (0.08 mm, under a pixel) is drawn enlarged, and says so.
+  await expect(page.locator('#sketch-svg')).toContainText('leak gap 0.08 mm (drawn enlarged)');
+  await expect(page.locator('#sketch-desc')).toContainText('leak gap 0.08 mm (drawn enlarged).');
   await page.locator('#p-front_depth_mm').fill('20');
   await page.locator('#p-front_depth_mm').press('Enter');
   await solved(page);
