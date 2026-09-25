@@ -1,0 +1,40 @@
+{
+  "schema": "acoustilab-netlist/0.1",
+  "title": "Open-back cup radiating through a rear grille (theory-only example)",
+  "description": "The same 40 mm driver (Tymphany HPD-40N16PET00-32 primary set, docs/spec-errata.md E5) in an open-back cup. Behind the driver a 5 cm3 space opens through a grille of 50 holes, 1.5 mm in diameter in a 1 mm plate, into the air outside the cup; the grille's outer face radiates as a 20 mm radius opening without a baffle. The free-radiation model is the low-frequency unflanged approximation, so the result flags it above ka = 0.5 (about 1.4 kHz). The front cavity is a two-node depth line closed by a leakier pad than the closed-back example: a 0.15 mm slit whose Poiseuille RC corner with the front cavity is near 50 Hz. The bass barely drops below it, because this compliant diaphragm is force-driven: the front pressure is set by Sd*p = Bl*i until the leak impedance falls below the suspension stiffness reflected through Sd. u_rear_rad is the volume velocity that leaves the grille: multiplied by rho*f/(2r), it gives the monopole bleed estimate of spec Appendix C9 at distance r. Geometry is illustrative; there is no ear model.",
+  "air": {"preset": "standard_23C"},
+  "sweep": {"f_min_Hz": 10, "f_max_Hz": 20000, "points_per_octave": 24},
+  "level": 1,
+  "nodes": [
+    {"id": "e_in", "domain": "electrical"},
+    {"id": "e_coil", "domain": "electrical"},
+    {"id": "m_dia", "domain": "mechanical"},
+    {"id": "a_front", "domain": "acoustic"},
+    {"id": "a_ear", "domain": "acoustic"},
+    {"id": "a_rear", "domain": "acoustic"},
+    {"id": "a_grille", "domain": "acoustic"}
+  ],
+  "elements": [
+    {"id": "amp", "type": "vsource", "node": "e_in", "V_V": 1.0},
+    {"id": "coil", "type": "coil", "nodes": ["e_in", "e_coil"], "Re_ohm": 32.8},
+    {"id": "motor", "type": "motor", "nodes": ["e_coil", "gnd", "m_dia", "gnd"], "Bl_Tm": 2.24},
+    {"id": "susp", "type": "suspension", "node": "m_dia",
+     "Mms_g": 0.3, "Cms_mm_per_N": 12.6, "Rms_Ns_per_m": 0.057},
+    {"id": "dia", "type": "piston", "nodes": ["m_dia", "gnd", "a_front", "a_rear"], "Sd_cm2": 10},
+    {"id": "front", "type": "cavity", "nodes": ["a_front", "a_ear"], "radius_mm": 25, "depth_mm": 15},
+    {"id": "pad_leak", "type": "slit", "nodes": ["a_ear", "ambient"],
+     "gap_mm": 0.15, "width_mm": 40, "length_mm": 10},
+    {"id": "rear_space", "type": "cavity", "node": "a_rear", "volume_cm3": 5},
+    {"id": "grille", "type": "tube", "nodes": ["a_rear", "a_grille"],
+     "diameter_mm": 1.5, "length_mm": 1, "count": 50, "inlet": "flanged"},
+    {"id": "rear_rad", "type": "radiation", "node": "a_grille", "radius_mm": 20, "baffle": "free"}
+  ],
+  "probes": [
+    {"id": "p_ear", "quantity": "pressure", "node": "a_ear"},
+    {"id": "p_rear", "quantity": "pressure", "node": "a_rear"},
+    {"id": "zin", "quantity": "impedance", "element": "amp"},
+    {"id": "x", "quantity": "displacement", "node": "m_dia"},
+    {"id": "u_rear_rad", "quantity": "volume_velocity", "element": "rear_rad"},
+    {"id": "u_leak", "quantity": "volume_velocity", "element": "pad_leak"}
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "schema": "acoustilab-netlist/0.1",
+  "title": "Leak comparison at constant volume velocity (theory-only example)",
+  "description": "Four identical 30 cm3 cavities (with their thermal wall loss), each driven by its own 1 cm3/s volume-velocity source, differing only in their leak to ambient (spec Appendix C3). Sealed: p/U = 1/(j w C) falls 6 dB per octave. Resistive: the spec's 0.2 mm x 30 mm x 10 mm slit, Poiseuille corner 1/(2 pi R C) = 83 Hz, -3 dB near 73 Hz and a 0.8 dB bump, no resonance (errata E45). Inertive: the spec's 1 mm x 30 mm x 10 mm slit, inertive above about 24 Hz, Helmholtz peak near 523 Hz with Q about 9, far below the Poiseuille estimate because its resistance grows with the square root of frequency. Vent: a 2 mm x 10 mm tube with a flanged inner end and an unflanged outer end, a Helmholtz resonator at about 154 Hz with Q about 5 (165 Hz lossless: the viscous boundary layer adds mass). Relative to the sealed cavity each response is H = Z_L/(Z_L + 1/(j w C)).",
+  "air": {"preset": "spec_reference"},
+  "sweep": {"f_min_Hz": 10, "f_max_Hz": 20000, "points_per_octave": 24},
+  "level": 1,
+  "nodes": [
+    {"id": "a_sealed", "domain": "acoustic"},
+    {"id": "a_resistive", "domain": "acoustic"},
+    {"id": "a_inertive", "domain": "acoustic"},
+    {"id": "a_vent", "domain": "acoustic"}
+  ],
+  "elements": [
+    {"id": "u_sealed", "type": "flow_source", "node": "a_sealed", "U_cm3_per_s": 1},
+    {"id": "cup_sealed", "type": "cavity", "node": "a_sealed", "volume_cm3": 30},
+
+    {"id": "u_resistive", "type": "flow_source", "node": "a_resistive", "U_cm3_per_s": 1},
+    {"id": "cup_resistive", "type": "cavity", "node": "a_resistive", "volume_cm3": 30},
+    {"id": "slit_narrow", "type": "slit", "nodes": ["a_resistive", "ambient"],
+     "gap_mm": 0.2, "width_mm": 30, "length_mm": 10},
+
+    {"id": "u_inertive", "type": "flow_source", "node": "a_inertive", "U_cm3_per_s": 1},
+    {"id": "cup_inertive", "type": "cavity", "node": "a_inertive", "volume_cm3": 30},
+    {"id": "slit_wide", "type": "slit", "nodes": ["a_inertive", "ambient"],
+     "gap_mm": 1, "width_mm": 30, "length_mm": 10},
+
+    {"id": "u_vent", "type": "flow_source", "node": "a_vent", "U_cm3_per_s": 1},
+    {"id": "cup_vent", "type": "cavity", "node": "a_vent", "volume_cm3": 30},
+    {"id": "vent", "type": "tube", "nodes": ["a_vent", "ambient"],
+     "diameter_mm": 2, "length_mm": 10, "inlet": "flanged", "outlet": "unflanged"}
+  ],
+  "probes": [
+    {"id": "p_sealed", "quantity": "pressure", "node": "a_sealed"},
+    {"id": "p_resistive", "quantity": "pressure", "node": "a_resistive"},
+    {"id": "p_inertive", "quantity": "pressure", "node": "a_inertive"},
+    {"id": "p_vent", "quantity": "pressure", "node": "a_vent"},
+    {"id": "u_leak_resistive", "quantity": "volume_velocity", "element": "slit_narrow"},
+    {"id": "u_leak_inertive", "quantity": "volume_velocity", "element": "slit_wide"}
+  ]
+}

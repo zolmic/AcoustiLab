@@ -1,0 +1,44 @@
+{
+  "schema": "acoustilab-netlist/0.1",
+  "title": "Closed-back cup with a mesh-damped rear vent (theory-only example)",
+  "description": "40 mm driver with the Tymphany HPD-40N16PET00-32 primary set (fs 81.8 Hz, Qms 2.71, Qes 1.01, Re 32.8 ohm, Mms 0.3 g, Sd 10 cm2; Cms 12.6 mm/N, Rms 0.057 N.s/m and Bl 2.24 T.m derived from it, docs/spec-errata.md E5). The front cavity (radius 25 mm, depth 15 mm, 29.5 cm3) is a two-node depth line from the driver face to the ear face, sealed by the pad except for a narrow slit leak at the ear face. The 25 cm3 rear cavity breathes through a 3 mm hole in a 2 mm wall covered by a 160 MKS rayl woven mesh (the Saati Acoustex 160 grade the spec cites; 160 rayl over the 7.07 mm2 hole is 2.26e7 Pa.s/m3), which turns the rear Helmholtz resonance into a resistive leak with a corner near 40 Hz. The vent radiates from the cup shell, treated as a baffle. Geometry and leak are illustrative, not a measured product; there is no ear model, so p_ear is the pressure at the pad plane.",
+  "air": {"preset": "standard_23C"},
+  "sweep": {"f_min_Hz": 10, "f_max_Hz": 20000, "points_per_octave": 24},
+  "level": 1,
+  "nodes": [
+    {"id": "e_in", "domain": "electrical"},
+    {"id": "e_coil", "domain": "electrical"},
+    {"id": "m_dia", "domain": "mechanical"},
+    {"id": "a_front", "domain": "acoustic"},
+    {"id": "a_ear", "domain": "acoustic"},
+    {"id": "a_rear", "domain": "acoustic"},
+    {"id": "a_vent", "domain": "acoustic"},
+    {"id": "a_vent_out", "domain": "acoustic"}
+  ],
+  "elements": [
+    {"id": "amp", "type": "vsource", "node": "e_in", "V_V": 1.0, "Zs_ohm": 0},
+    {"id": "coil", "type": "coil", "nodes": ["e_in", "e_coil"], "Re_ohm": 32.8},
+    {"id": "motor", "type": "motor", "nodes": ["e_coil", "gnd", "m_dia", "gnd"], "Bl_Tm": 2.24},
+    {"id": "susp", "type": "suspension", "node": "m_dia",
+     "Mms_g": 0.3, "Cms_mm_per_N": 12.6, "Rms_Ns_per_m": 0.057},
+    {"id": "dia", "type": "piston", "nodes": ["m_dia", "gnd", "a_front", "a_rear"], "Sd_cm2": 10},
+    {"id": "front", "type": "cavity", "nodes": ["a_front", "a_ear"], "radius_mm": 25, "depth_mm": 15},
+    {"id": "pad_leak", "type": "slit", "nodes": ["a_ear", "ambient"],
+     "gap_mm": 0.1, "width_mm": 20, "length_mm": 8},
+    {"id": "rear", "type": "cavity", "node": "a_rear", "volume_cm3": 25},
+    {"id": "rear_vent", "type": "tube", "nodes": ["a_rear", "a_vent"],
+     "diameter_mm": 3, "length_mm": 2, "inlet": "flanged"},
+    {"id": "vent_mesh", "type": "acoustic_resistance", "nodes": ["a_vent", "a_vent_out"],
+     "R_Pa_s_per_m3": 2.26e7},
+    {"id": "vent_rad", "type": "radiation", "node": "a_vent_out", "radius_mm": 1.5, "baffle": "infinite"}
+  ],
+  "probes": [
+    {"id": "p_ear", "quantity": "pressure", "node": "a_ear"},
+    {"id": "p_front", "quantity": "pressure", "node": "a_front"},
+    {"id": "p_rear", "quantity": "pressure", "node": "a_rear"},
+    {"id": "zin", "quantity": "impedance", "element": "amp"},
+    {"id": "x", "quantity": "displacement", "node": "m_dia"},
+    {"id": "u_vent", "quantity": "volume_velocity", "element": "vent_rad"},
+    {"id": "u_leak", "quantity": "volume_velocity", "element": "pad_leak"}
+  ]
+}
