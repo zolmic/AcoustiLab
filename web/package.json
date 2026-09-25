@@ -1,0 +1,25 @@
+{
+  "name": "acoustilab-web",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AcoustiLab browser UI: netlist editor, WebAssembly solve in a Web Worker, Canvas 2D plots",
+  "type": "module",
+  "scripts": {
+    "build:wasm": "bash scripts/build-wasm.sh",
+    "dev": "npm run build:wasm && vite",
+    "build": "npm run build:wasm && tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173 --strictPort",
+    "test": "npm run build && playwright test",
+    "screenshot": "npm run build && UPDATE_DOCS_SCREENSHOT=1 playwright test -g screenshot"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.56.1",
+    "@types/node": "22.20.4",
+    "typescript": "5.9.3",
+    "vite": "7.3.6"
+  },
+  "overrides": {
+    "playwright-core": "1.56.1"
+  }
+}
