@@ -3,7 +3,8 @@
 //!
 //! ```text
 //! acoustilab validate <measurement dir> [--predictions DIR] [--no-anchor]
-//!                     [--max-evals N] [--json] [--out REPORT.json] [--set NAME=VALUE]...
+//!                     [--max-evals N] [--fit-ppo N] [--json] [--out REPORT.json]
+//!                     [--set NAME=VALUE]...
 //! acoustilab validate --session OUT_DIR [--predictions DIR]
 //! acoustilab validate --simulate OUT_DIR [--predictions DIR] [--seed S] [--ppo N]
 //!                     [--omit ID]... [--truth-netlist FILE] [--set NAME=VALUE]...
@@ -26,7 +27,7 @@ use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
 pub const USAGE: &str = "  acoustilab validate <measurement dir> [--predictions DIR] [--no-anchor] [--max-evals N]
-      [--json] [--out REPORT.json] [--set NAME=VALUE]...
+      [--fit-ppo N] [--json] [--out REPORT.json] [--set NAME=VALUE]...
                                                          a measurement session against the frozen predictions
   acoustilab validate --session OUT_DIR                  sidecar templates and the checklist of a session
   acoustilab validate --simulate OUT_DIR [--seed S] [--ppo N] [--omit ID]... [--truth-netlist FILE]
@@ -63,11 +64,8 @@ fn read_dir(dir: &Path) -> Result<Files, String> {
     Ok(files)
 }
 
-/// Writes files into a directory that must not exist or be empty.
-fn write_new_dir(
-    dir: &Path,
-    files: &std::collections::BTreeMap<String, String>,
-) -> Result<(), String> {
+/// Refuses a directory that exists and is not empty.
+fn check_new_dir(dir: &Path) -> Result<(), String> {
     if dir.exists() {
         let mut entries = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         if entries.next().is_some() {
@@ -77,6 +75,15 @@ fn write_new_dir(
             ));
         }
     }
+    Ok(())
+}
+
+/// Writes files into a directory that must not exist or be empty.
+fn write_new_dir(
+    dir: &Path,
+    files: &std::collections::BTreeMap<String, String>,
+) -> Result<(), String> {
+    check_new_dir(dir)?;
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     for (name, content) in files {
         let p = dir.join(name);
@@ -185,6 +192,7 @@ pub fn run(args: &[String], overrides: &Overrides) -> Result<(), String> {
     let mut json_out = false;
     let mut anchor = true;
     let mut max_evals: Option<usize> = None;
+    let mut fit_ppo: Option<f64> = None;
     let mut runs: Option<usize> = None;
     let mut netlist: Option<String> = None;
     let mut truth_netlist: Option<String> = None;
@@ -213,6 +221,7 @@ pub fn run(args: &[String], overrides: &Overrides) -> Result<(), String> {
             "--json" => json_out = true,
             "--no-anchor" => anchor = false,
             "--max-evals" => max_evals = Some(number(a, it.next())?.max(1.0) as usize),
+            "--fit-ppo" => fit_ppo = Some(number(a, it.next())?.max(1.0)),
             "--runs" => runs = Some(number(a, it.next())?.max(1.0) as usize),
             "--netlist" => netlist = Some(it.next().ok_or("--netlist needs a file")?.clone()),
             "--truth-netlist" => {
@@ -236,6 +245,7 @@ pub fn run(args: &[String], overrides: &Overrides) -> Result<(), String> {
             );
         }
         let out = PathBuf::from(out.ok_or("--predict needs --out DIR (a new version directory)")?);
+        check_new_dir(&out)?;
         let ptext = read(&protocol)?;
         let p = Protocol::parse(&ptext).map_err(|e| format!("{}: {e}", protocol.display()))?;
         let npath = normalise(&protocol.parent().unwrap_or(Path::new(".")).join(&p.netlist));
@@ -254,8 +264,11 @@ pub fn run(args: &[String], overrides: &Overrides) -> Result<(), String> {
             netlist_source: npath.display().to_string(),
             runs,
         };
-        let files = predict::predict(&ptext, &ntext, &opts, &mut |line| eprintln!("{line}"))
-            .map_err(|e| e.to_string())?;
+        let t0 = std::time::Instant::now();
+        let files = predict::predict(&ptext, &ntext, &opts, &mut |line| {
+            eprintln!("{line} after {:.0} s", t0.elapsed().as_secs_f64())
+        })
+        .map_err(|e| e.to_string())?;
         write_new_dir(&out, &files)?;
         eprintln!("wrote {} files to {}", files.len(), out.display());
         return Ok(());
@@ -293,6 +306,7 @@ pub fn run(args: &[String], overrides: &Overrides) -> Result<(), String> {
         }
         "session" => {
             let dir = PathBuf::from(target.ok_or("--session needs a directory")?);
+            check_new_dir(&dir)?;
             write_new_dir(&dir, &session::session_templates(&frozen))?;
             eprintln!(
                 "wrote the session templates to {}; see SESSION.txt",
@@ -302,6 +316,7 @@ pub fn run(args: &[String], overrides: &Overrides) -> Result<(), String> {
         }
         "simulate" => {
             let dir = PathBuf::from(target.ok_or("--simulate needs a directory")?);
+            check_new_dir(&dir)?;
             sim.truth = overrides.clone();
             sim.netlist_text = truth_netlist.map(|n| read(Path::new(&n))).transpose()?;
             sim.date = now_utc().chars().take(10).collect();
@@ -321,6 +336,7 @@ pub fn run(args: &[String], overrides: &Overrides) -> Result<(), String> {
             let mut opts = ValidateOptions {
                 extra_overrides: overrides.clone(),
                 anchor_driver: anchor,
+                fit_points_per_octave: fit_ppo,
                 ..ValidateOptions::default()
             };
             if let Some(n) = max_evals {

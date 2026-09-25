@@ -51,7 +51,7 @@ use super::{
 };
 use crate::expr::PValue;
 use crate::fit::{self, CurveSpec, FitParam, FitReport, FitSpec, Offset};
-use crate::io::curve::{unwrap_deg, wrap_deg};
+use crate::io::curve::wrap_deg;
 use crate::io::sidecar::{Averaging, Origin, Profile, Smoothing, Uncertainty};
 use crate::io::text::{self, Format};
 use crate::io::{Curve, Quantity, Sidecar};
@@ -80,8 +80,16 @@ pub struct ValidateOptions {
     /// Also run the acceptance test with the driver anchored by its own
     /// free-air impedance (needs the protocol's `driver_anchor`).
     pub anchor_driver: bool,
-    /// Cap on model evaluations of one fit.
+    /// Cap on model evaluations of one fit. A fit that reaches it is
+    /// reported as not converged, and the bounds are checked where it
+    /// stopped. A leak the data cannot see (a gasket that seals) is pushed
+    /// towards its bound one geometric step at a time when the model misses
+    /// something else, which is where the cap is usually reached.
     pub max_evaluations: usize,
+    /// Fit on the exchange grid at this density instead of every point of
+    /// the averaged curve (faster; the bounds are still checked at every
+    /// point).
+    pub fit_points_per_octave: Option<f64>,
 }
 
 impl Default for ValidateOptions {
@@ -89,7 +97,8 @@ impl Default for ValidateOptions {
         ValidateOptions {
             extra_overrides: Overrides::new(),
             anchor_driver: true,
-            max_evaluations: 400,
+            max_evaluations: 200,
+            fit_points_per_octave: None,
         }
     }
 }
@@ -178,6 +187,8 @@ pub struct Acceptance {
     pub reduced_chi2: Option<f64>,
     pub converged: bool,
     pub stop_reason: String,
+    /// Model evaluations of the fit.
+    pub evaluations: usize,
     /// One entry per bound, then the unbounded band above.
     pub bands: Vec<BandStats>,
     pub pass: bool,
@@ -584,7 +595,6 @@ fn average(seatings: &[Seating], env: &Envelope) -> VResult<Averaged> {
     let m = freqs.len();
     let mut level_db = vec![0.0; m];
     let mut sd_db = vec![f64::NAN; m];
-    // (smoothed below)
     for i in 0..m {
         let mean = levels.iter().map(|l| l[i]).sum::<f64>() / n as f64;
         level_db[i] = mean;
@@ -596,8 +606,9 @@ fn average(seatings: &[Seating], env: &Envelope) -> VResult<Averaged> {
     if n >= 2 {
         sd_db = smoothed_sd(&freqs, &sd_db);
     }
+    // Circular mean: the argument of the mean unit phasor.
     let phase_deg = with_phase.then(|| {
-        let mean: Vec<f64> = (0..m)
+        (0..m)
             .map(|i| {
                 phases
                     .iter()
@@ -606,8 +617,7 @@ fn average(seatings: &[Seating], env: &Envelope) -> VResult<Averaged> {
                     .arg()
                     .to_degrees()
             })
-            .collect();
-        unwrap_deg(&mean).into_iter().map(wrap_deg).collect()
+            .collect()
     });
     let first = &seatings[0].curve.sidecar;
     let budget = first.uncertainty.as_ref();
@@ -739,7 +749,7 @@ fn blind(a: &Averaged, env: &Envelope, protocol: &super::Protocol) -> Blind {
         let i = a.index[k];
         r[k] = a.level_db[k] - lvl(env.nominal[i]);
         let (p5, p95) = (lvl(env.p5[i]), lvl(env.p95[i]));
-        let u_p = ((p95 - p5).abs() / (2.0 * Z95)).max(0.0);
+        let u_p = (p95 - p5).abs() / (2.0 * Z95);
         let u = (u_p * u_p + a.u_db[k] * a.u_db[k]).sqrt().max(MIN_U_DB);
         z[k] = r[k] / u;
         inside[k] = a.level_db[k] >= p5.min(p95) && a.level_db[k] <= p5.max(p95);
@@ -856,6 +866,24 @@ impl Ctx<'_> {
         Ok(o)
     }
 
+    /// The curve a fit sees ([`ValidateOptions::fit_points_per_octave`]).
+    fn thinned(&self, curve: Curve) -> VResult<Curve> {
+        match self.opts.fit_points_per_octave {
+            None => Ok(curve),
+            Some(ppo) => {
+                let g = crate::io::curve::exchange_grid(
+                    curve.freqs_hz[0],
+                    curve.freqs_hz[curve.len() - 1],
+                    ppo,
+                );
+                if g.len() < 2 {
+                    return Ok(curve);
+                }
+                Ok(curve.resample(&g)?)
+            }
+        }
+    }
+
     fn fit_params(
         &self,
         c: &Configuration,
@@ -903,6 +931,7 @@ impl Ctx<'_> {
         let o = self.base_overrides(c, zs, anchor)?;
         let mut curve = Curve::from_db(Quantity::Pressure, &a.freqs, &a.level_db, None)?;
         curve.sidecar = a.sidecar.clone();
+        let curve = self.thinned(curve)?;
         let mut cs = CurveSpec::new(&m.probe, curve);
         cs.offset = Some(Offset::None);
         cs.use_phase = Some(false);
@@ -926,12 +955,16 @@ impl Ctx<'_> {
         let res: Vec<f64> = a.level_db.iter().zip(&model).map(|(x, y)| x - y).collect();
         let spec_bands = report_bands(protocol, a.freqs[0], a.freqs[a.freqs.len() - 1]);
         let nb = spec_bands.len();
+        // A bound holds only where the data reach both ends of its band
+        // (within 1/24 octave).
+        let edge = 2f64.powf(1.0 / 24.0);
+        let (f_first, f_last) = (a.freqs[0], a.freqs[a.freqs.len() - 1]);
         let bands: Vec<BandStats> = spec_bands
             .into_iter()
             .enumerate()
             .filter(|(_, b)| b.2.is_some() || b.0 >= protocol.acceptance.report_above)
             .map(|(j, b)| {
-                band_stats(
+                let mut s = band_stats(
                     &a.freqs,
                     &res,
                     None,
@@ -939,7 +972,11 @@ impl Ctx<'_> {
                     b,
                     b.2.is_none() && j + 1 == nb,
                     false,
-                )
+                );
+                if b.2.is_some() && (f_first > b.0 * edge || f_last < b.1 / edge) {
+                    s.pass = None;
+                }
+                s
             })
             .collect();
         let bounded: Vec<&BandStats> = bands.iter().filter(|b| b.bound_db.is_some()).collect();
@@ -950,6 +987,7 @@ impl Ctx<'_> {
             reduced_chi2: rep.reduced_chi2,
             converged: rep.converged,
             stop_reason: rep.stop_reason.to_string(),
+            evaluations: rep.evaluations,
             bands,
             pass,
             residual: Residual {
@@ -980,6 +1018,7 @@ impl Ctx<'_> {
         let mag: Vec<f64> = a.level_db.iter().map(|l| 10f64.powf(l / 20.0)).collect();
         let mut curve = Curve::new(q, &a.freqs, &mag, a.phase_deg.as_deref())?;
         curve.sidecar = a.sidecar.clone();
+        let curve = self.thinned(curve)?;
         let cs = CurveSpec::new(&m.probe, curve);
         let mut spec = FitSpec::new(self.fit_params(c, &da.parameters, &o)?, vec![cs]);
         spec.overrides = without(&o, &da.parameters);
@@ -1230,9 +1269,21 @@ pub fn validate(
             }
         }
     }
+    // Sidecar templates still waiting for their curve, and the checklist,
+    // belong to the session.
+    let template = |n: &str| {
+        n == "SESSION.txt"
+            || n.strip_suffix(".sidecar.json").is_some_and(|stem| {
+                protocol.measurements().any(|(_, m)| {
+                    stem.strip_prefix(m.id.as_str())
+                        .and_then(|r| r.strip_prefix("_s"))
+                        .is_some_and(|k| k.parse::<u32>().is_ok())
+                })
+            })
+    };
     let unrecognised: Vec<String> = files
         .keys()
-        .filter(|n| !used.contains(*n))
+        .filter(|n| !used.contains(*n) && !template(n))
         .cloned()
         .collect();
     let verdict = verdict(protocol, &reports, anchor.is_some());
@@ -1470,7 +1521,7 @@ impl Report {
             for a in &m.acceptance {
                 let _ = writeln!(
                     s,
-                    "  {} [{}]: {}  (fit: {}; reduced chi-square {})",
+                    "  {} [{}]: {}  (fit: {}; reduced chi-square {}; {} evaluations{})",
                     m.id,
                     a.variant,
                     if a.pass { "PASS" } else { "FAIL" },
@@ -1479,7 +1530,13 @@ impl Report {
                         .map(|f| format!("{} {:.4} (start {:.4})", f.name, f.value, f.start))
                         .collect::<Vec<_>>()
                         .join(", "),
-                    a.reduced_chi2.map_or("n/a".into(), |x| format!("{x:.2}"))
+                    a.reduced_chi2.map_or("n/a".into(), |x| format!("{x:.2}")),
+                    a.evaluations,
+                    if a.converged {
+                        String::new()
+                    } else {
+                        format!(", not converged: {}", a.stop_reason)
+                    }
                 );
                 for b in &a.bands {
                     let _ = writeln!(

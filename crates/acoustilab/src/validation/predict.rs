@@ -342,7 +342,6 @@ pub fn predict(
     let mut files: BTreeMap<String, String> = BTreeMap::new();
     let mut confs = Vec::new();
     for c in &protocol.configurations {
-        let t0 = std::time::Instant::now();
         let freqs: Vec<f64> = grid
             .iter()
             .copied()
@@ -509,13 +508,7 @@ pub fn predict(
             },
             "measurements": measurements,
         }));
-        progress(format!(
-            "{}: {} runs ({} failed) in {:.1} s",
-            c.id,
-            runs,
-            failed,
-            t0.elapsed().as_secs_f64()
-        ));
+        progress(format!("{}: {runs} runs ({failed} failed)", c.id));
     }
     files.insert(PROTOCOL_FILE.into(), protocol_text.to_string());
     files.insert(NETLIST_FILE.into(), netlist_text.to_string());
@@ -830,11 +823,18 @@ fn drift_of(frozen: &Frozen, netlist_text: &str) -> VResult<Vec<DriftEntry>> {
 
 /// Drift report (see [`Drift`]).
 pub fn drift(frozen: &Frozen, current_netlist: Option<&str>) -> VResult<Drift> {
+    let engine = drift_of(frozen, &frozen.netlist_text)?;
+    // An unchanged netlist drifts exactly as the engine does.
+    let model = match current_netlist {
+        None => None,
+        Some(t) if t == frozen.netlist_text => Some(engine.clone()),
+        Some(t) => Some(drift_of(frozen, t)?),
+    };
     Ok(Drift {
         frozen_engine: frozen.engine().to_string(),
         engine_now: crate::solve::ENGINE.to_string(),
-        engine: drift_of(frozen, &frozen.netlist_text)?,
-        model: current_netlist.map(|t| drift_of(frozen, t)).transpose()?,
+        engine,
+        model,
     })
 }
 
