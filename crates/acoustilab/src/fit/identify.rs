@@ -4,7 +4,8 @@
 //!
 //! Let J be the Jacobian of the weighted residuals with respect to the
 //! fitting variables in "report space": ln p for log-scale parameters,
-//! p/|p| for linear-scale ones (a relative change), dB for level offsets.
+//! p/r for linear-scale ones (a relative change, r = |p| but at least 1 %
+//! of the parameter's range), dB for level offsets.
 //! With J = U·Σ·Vᵀ, the right singular vector v_i is a direction in
 //! parameter space along which the residuals change at rate σ_i. Under
 //! the usual linearised least-squares assumptions (residuals independent,
@@ -131,6 +132,9 @@ fn describe(components: &[Component], status: Level, sd: Option<f64>) -> String 
         (Level::Unidentifiable, _) => {
             format!("{together}: no curve changes along this direction, so the data cannot determine it")
         }
+        (Level::Undetermined, Some(sd)) if (Z95 * sd).exp() > 1000.0 => format!(
+            "{together}: the data do not fix this combination even within a factor of 1000 (95 %)"
+        ),
         (Level::Undetermined, Some(sd)) => format!(
             "{together}: the data fix this combination only within a factor of {:.3} (95 %)",
             (Z95 * sd).exp()
@@ -245,5 +249,22 @@ mod tests {
         assert!(an.null_loading[0] > 0.8 && an.null_loading[1] > 0.4);
         assert!(an.null_loading[2] < 1e-9);
         assert!(an.covariance.get(2, 2) > 0.0);
+    }
+
+    #[test]
+    fn a_very_wide_direction_is_not_given_a_factor_of_1e30() {
+        // Column b responds 1e-4 as strongly as a: resolved (not null at
+        // 1e-9) but sd = 1/σ ≈ 3000 in ln units.
+        let rows: Vec<Vec<f64>> = (0..10).map(|i| vec![1.0 + i as f64, 1e-4]).collect();
+        let names = vec!["a".to_string(), "b".to_string()];
+        let an = analyse(&names, &Mat::from_rows(&rows), 1.0, 1e-9);
+        let d = &an.directions[1];
+        assert_eq!(d.status, Level::Undetermined);
+        assert!(
+            d.text
+                .contains("not fix this combination even within a factor of 1000"),
+            "{}",
+            d.text
+        );
     }
 }

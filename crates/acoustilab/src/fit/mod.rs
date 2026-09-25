@@ -22,7 +22,9 @@
 //!   unknown time of flight.
 //! * The weights come from the curve's uncertainty budget
 //!   ([`crate::io::sidecar::Uncertainty`]); without one, 1 % (0.086 dB) for
-//!   impedance and 0.5 dB for other curves are assumed.
+//!   impedance and 0.5 dB for other curves are assumed. The budget's sensor
+//!   calibration term is one error shared by all points, so it becomes a
+//!   level offset with that prior instead of a per-point weight.
 //! * A pressure curve without a stated drive, or declared uncalibrated,
 //!   gets a free level offset (a nuisance parameter, reported).
 //!
@@ -77,10 +79,16 @@ pub const DEFAULT_LEVEL_DB: f64 = 0.5;
 pub const MIN_LEVEL_DB: f64 = 1e-3;
 
 /// Singular value of the weighted Jacobian below which the optimiser does
-/// not step along a direction: moving e-fold along it changes χ² by less
-/// than 1, so the data do not determine it and the fit leaves it at its
-/// start ([`lm::LmOptions::min_sigma`]).
+/// not step along a direction while the fit is acceptable: moving e-fold
+/// along it changes χ² by less than 1, so the data barely determine it,
+/// and the fit leaves it where it is instead of chasing noise
+/// ([`lm::LmOptions::min_sigma`]).
 pub const MIN_SIGMA: f64 = 1.0;
+
+/// Reduced χ² above which the optimiser steps along the directions of
+/// [`MIN_SIGMA`] too rather than stop ([`lm::LmOptions::unfreeze_above`]);
+/// the report warns above the same value.
+pub const GROSS_CHI2: f64 = 10.0;
 
 /// The fit has converged when three accepted steps together lower χ² by
 /// less than this: far below the Δχ² = 1 of a one-standard-deviation move.
@@ -526,7 +534,21 @@ impl Var {
             Scale::Linear => v / self.unit_u,
         }
     }
+
+    /// Reference of a linear-scale parameter's relative uncertainty:
+    /// |value|, but at least [`LINEAR_REFERENCE`] of `unit_u`, so that a
+    /// value at or near zero is judged against the parameter's own scale
+    /// rather than against zero (which would make any uncertainty look
+    /// infinite, and the parameter unidentifiable).
+    fn reference(&self, value: f64) -> f64 {
+        value.abs().max(LINEAR_REFERENCE * self.unit_u)
+    }
 }
+
+/// Fraction of a linear-scale parameter's unit (its bounded range, else
+/// max(|start|, 1)) below which |value| is not used as the reference of its
+/// relative uncertainty ([`Var::reference`]).
+pub const LINEAR_REFERENCE: f64 = 0.01;
 
 /// A measurement condition: overrides and drive shared by some curves.
 #[derive(Debug, Clone)]
@@ -732,8 +754,9 @@ pub struct ParamReport {
     /// 95 % interval; absent unless the parameter is determined or weakly
     /// determined.
     pub ci95: Option<[f64; 2]>,
-    /// Standard deviation of ln(value) (log scale) or of value/|value|
-    /// (linear scale), from the covariance.
+    /// Standard deviation of ln(value) (log scale) or of value/r (linear
+    /// scale, r = |value| but at least 1 % of the parameter's range), from
+    /// the covariance.
     pub sd: Option<f64>,
     pub status: Status,
     /// Driver roles of the parameter (e.g. "Mms of 'drv'").
@@ -1117,7 +1140,6 @@ pub fn fit(p: &Parametric, spec: &FitSpec) -> Result<FitReport, FitError> {
                 offset = Some(Offset::Free);
             }
         }
-        let offset = offset.unwrap_or(Offset::None);
         let use_phase = cs
             .use_phase
             .unwrap_or(q != Quantity::Pressure && curve.phase_deg.is_some());
@@ -1159,12 +1181,45 @@ pub fn fit(p: &Parametric, spec: &FitSpec) -> Result<FitReport, FitError> {
             DEFAULT_LEVEL_DB
         };
         let unc = sc.uncertainty.as_ref().filter(|u| !u.is_empty());
+        // The sensor calibration error is one level offset shared by every
+        // point, not independent noise: weighting each point by it would
+        // let it average down over the points and make any parameter that
+        // sets the absolute level look far better determined than the
+        // calibration allows. Its common part (the smallest value over the
+        // band) becomes a level offset with that prior, unless the curve
+        // already has a free offset or the spec sets the offset; what is
+        // left of it, and the other terms, weight the points.
+        let common_db = unc
+            .and_then(|u| u.microphone_calibration_db.as_ref())
+            .map(|p| freqs.iter().map(|&f| p.at(f)).fold(f64::INFINITY, f64::min))
+            .filter(|c| *c > 0.0);
+        let offset = match (cs.offset, offset, common_db) {
+            (None, None, Some(c)) => Offset::Prior(c),
+            (_, o, _) => o.unwrap_or(Offset::None),
+        };
+        let absorbed = if offset == Offset::None {
+            0.0
+        } else {
+            common_db.unwrap_or(0.0)
+        };
         let u_level: Vec<f64> = freqs
             .iter()
             .map(|&f| {
-                unc.and_then(|u| u.level_db(f, seat))
-                    .unwrap_or(default_db)
-                    .max(MIN_LEVEL_DB)
+                match unc {
+                    Some(u) if absorbed > 0.0 => {
+                        // Without another term the scatter of the points
+                        // is unstated: the default stands in for it.
+                        let mut others = u.clone();
+                        let cal = others
+                            .microphone_calibration_db
+                            .take()
+                            .map_or(0.0, |p| p.at(f));
+                        let o = others.level_db(f, seat).unwrap_or(default_db);
+                        (o * o + (cal * cal - absorbed * absorbed).max(0.0)).sqrt()
+                    }
+                    _ => unc.and_then(|u| u.level_db(f, seat)).unwrap_or(default_db),
+                }
+                .max(MIN_LEVEL_DB)
             })
             .collect();
         let u_phase: Vec<f64> = freqs
@@ -1248,6 +1303,13 @@ pub fn fit(p: &Parametric, spec: &FitSpec) -> Result<FitReport, FitError> {
             .collect();
         f.sort_by(f64::total_cmp);
         f.dedup();
+        if f.len() > crate::grid::MAX_POINTS {
+            return Err(spec_err(format!(
+                "the curves of one condition hold {} distinct frequencies; the limit of a solve is {} (resample them, e.g. to the exchange grid)",
+                f.len(),
+                crate::grid::MAX_POINTS
+            )));
+        }
         c.freqs = f;
     }
     for pc in &mut prepared {
@@ -1336,6 +1398,7 @@ pub fn fit(p: &Parametric, spec: &FitSpec) -> Result<FitReport, FitError> {
             cost_floor: 0.0,
             null_tolerance: 0.1 * spec.rank_tolerance,
             min_sigma: MIN_SIGMA,
+            unfreeze_above: GROSS_CHI2,
             stall: (3, STALL_CHI2),
             mu0: 1e-3,
         };
@@ -1423,7 +1486,8 @@ fn report(
         .jacobian(&u, &r, &bounds)
         .map_err(|e| spec_err(format!("Jacobian at the fitted point: {e}")))?;
     evaluations += used;
-    // Report space: linear parameters as relative changes.
+    // Report space: linear parameters as changes relative to their
+    // reference (|value|, at least 1 % of the range).
     let values: Vec<f64> = model
         .vars
         .iter()
@@ -1432,7 +1496,7 @@ fn report(
         .collect();
     let col_scale: Vec<f64> = (0..n)
         .map(|k| match model.vars.get(k) {
-            Some(v) if v.scale == Scale::Linear => values[k].abs().max(1e-300) / v.unit_u,
+            Some(v) if v.scale == Scale::Linear => v.reference(values[k]) / v.unit_u,
             _ => 1.0,
         })
         .collect();
@@ -1549,11 +1613,8 @@ fn report(
             _ => 1e-3,
         };
         let at_bound = v.bound.near_bound(u[k], near.max(1e-12));
-        let sd_ln = match v.scale {
-            Scale::Log => var_sd,
-            // relative change of p
-            Scale::Linear => var_sd,
-        };
+        // ln p, or p relative to its reference on a linear scale.
+        let sd_ln = var_sd;
         let mut status = if unidentifiable {
             Status::Unidentifiable
         } else {
@@ -1585,7 +1646,7 @@ fn report(
         let ci95 = status.is_determined().then(|| match v.scale {
             Scale::Log => [value * (-Z95 * sd_ln).exp(), value * (Z95 * sd_ln).exp()],
             Scale::Linear => {
-                let h = Z95 * sd_ln * value.abs();
+                let h = Z95 * sd_ln * v.reference(value);
                 [value - h, value + h]
             }
         });
@@ -1745,7 +1806,7 @@ fn report(
     for f in &findings {
         summary.push(f.message.clone());
     }
-    if let Some(x) = reduced.filter(|x| *x > 10.0) {
+    if let Some(x) = reduced.filter(|x| *x > GROSS_CHI2) {
         warnings.push(format!(
             "the residuals are far above the stated uncertainty (reduced chi-square {x:.4}): a local minimum, a model that cannot follow the data, or an optimistic budget; try more starts or check the model"
         ));

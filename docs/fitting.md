@@ -53,7 +53,8 @@ One reader serves every format; the format supplies defaults.
 Reading:
 
 * Lines starting with `*`, `#`, `;`, `%`, `'`, `!` or `//` are comments;
-  blank lines, a byte-order mark and CRLF endings are accepted.
+  blank lines, a byte-order mark and CRLF or lone-CR line endings are
+  accepted.
 * A data line begins with a number (REW's rule). Other lines are text and
   are kept as comments; anything after the last number of a data line is a
   comment (`27.0, 68.31, this line has a comment`). Every data line must
@@ -66,7 +67,10 @@ Reading:
   as ambiguous. Surrounding double quotes are removed.
 * The column header is the last text or comment line before the data whose
   first field names the frequency (`Freq(Hz)`, `frequency_Hz`, `Frequency
-  [kHz]`, `f`). Units in parentheses, brackets or a `_unit` suffix set the
+  [kHz]`, `f`), or which names it in another field and has one field per
+  data column and no numbers (`SPL (dB),Frequency (Hz)`). A row of bare
+  units under the names (`Hz;dB;deg`) serves as the header. Units in
+  parentheses, brackets or a `_unit` suffix set the
   scale: Hz, kHz; dB, ohm, Pa, mPa, m, mm, µm, m/s, mm/s; degrees, radians.
   Magnitude columns are recognised by name (`SPL`, `level`, `magnitude`,
   `Z`, `impedance`, `raw` as in AutoEq CSVs, ...) or by a magnitude unit;
@@ -144,7 +148,9 @@ interpolated linearly in ln f and held beyond its ends:
 The combined level uncertainty of a curve averaged over N seatings is
 u = sqrt(coupler² + calibration² + fixture² + numerical² + (repositioning² +
 noise²)/N), and the phase uncertainty is phase_deg/√N. The per-seating terms
-average down, the systematic ones do not.
+average down, the systematic ones do not. A fit does not weight the points
+by the calibration term but gives the curve a level offset with that prior
+(see Fitting, "Weights").
 
 **Compatibility.** `io::sidecar::compare(a, b)` lists the fields in which two
 curves differ. Differences in quantity, fixture, ear simulator, pinna,
@@ -223,12 +229,28 @@ curves. Without a phase term the phase uncertainty is the level's
 equivalent, u_φ = u_L·(ln 10/20)·(180/π) degrees. The smallest uncertainty
 used is 0.001 dB.
 
+The sensor calibration term (`microphone_calibration_dB`) is not noise: it
+is one level error shared by every point. Divided into each point's
+weight it would average down over the points, and a parameter that sets
+the absolute level (Bl from a laser or calibrated SPL curve) would be
+reported many times more precise than the calibration allows (a 0.5 dB
+calibration gave Bl within ±1.2 % while the error reached 8 %). Its common
+part c, the smallest value of the term over the curve's band, is therefore
+a level offset with the Gaussian prior c (below), and the points are
+weighted by the other terms and what is left of the calibration term,
+sqrt(u_cal² − c²). A budget with no other level term leaves the scatter of
+the points unstated, and the default uncertainty stands in for it. The
+other systematic terms (coupler, fixture-to-human, numerical) vary with
+frequency and are still treated as independent per point (Limitations).
+
 **Drive and level offsets.** A pressure (or displacement, velocity) curve
 is simulated at the drive its sidecar states, whatever the netlist's. A
 curve without a stated drive, or with `calibrated: false`, gets a free level
-offset in dB, a nuisance parameter reported with its interval; `offset` may
-also be `"none"`, `"free"` or `{"prior_dB": σ}` (free with a Gaussian prior,
-e.g. a microphone calibration uncertainty). A curve whose sidecar states a
+offset in dB, a nuisance parameter reported with its interval. A curve
+whose budget has a calibration term gets an offset with that prior (see
+"Weights"). `offset` may also be set to `"none"` (the calibration term
+then weights the points as before), `"free"` or `{"prior_dB": σ}` (free
+with a Gaussian prior). A curve whose sidecar states a
 compensation other than `none` is refused (the model's probe is
 uncompensated) unless the curve's `allow` lists `compensation`. The fit
 warns when a curve is smoothed coarser than 1/6 octave, when its source
@@ -241,8 +263,16 @@ Each step solves the Marquardt-damped normal equations in u within the
 directions the Jacobian resolves: right singular vectors with σ above
 1e-7·σ_max and above 1 (in units of the weighted residuals, σ < 1 means
 moving e-fold changes χ² by less than 1). Directions the data do not
-determine are never stepped along, so those combinations stay at their
-start instead of drifting on noise to a bound. The parameters' `min`/`max`
+determine are not stepped along, so those combinations stay where they
+are instead of drifting on noise to a bound. The test is made where the
+fit stands: a direction that is still resolved at the start and becomes
+flat on the way (the fs–Qms–Qes direction of the over-ear case below) can
+end far from its start, and is reported as undetermined. The σ > 1 condition holds
+only at an acceptable misfit: if the iteration would stop with such
+directions left out and a reduced χ² above 10, it continues along them. A
+parameter that starts where the data hardly respond to it (a pad leak
+starting nearly closed, σ = 0.02) would otherwise stop at once with a
+reduced χ² of 350 and be reported converged. The parameters' `min`/`max`
 become bounds on u, kept by the fraction-to-the-boundary rule of
 interior-point methods: a step component that would cross a bound goes 90 %
 of the way to it. Trial points never reach a bound, so a parameter is never
@@ -254,8 +284,9 @@ parameters that started on one, such as a coil inductance starting at 0.) A
 trial point where the network cannot be built or solved (a singular system,
 a value an element rejects) is a rejected step, not an error. Convergence:
 a relative cost reduction below 1e-10, a step below 1e-9, no descending
-step, or three accepted steps lowering χ² by less than 1e-3 in total (a
-change far below the Δχ² = 1 of one standard deviation).
+step (`no_further_reduction`, or `flat` when directions below σ = 1 were
+left out), or three accepted steps lowering χ² by less than 1e-3 in total
+(a change far below the Δχ² = 1 of one standard deviation).
 
 **Jacobian.** Central differences of full solves, step 1e-4 in u, one-sided
 at a bound or where one side cannot be evaluated
@@ -283,7 +314,7 @@ passes the report's `fitted` values as the next call's `start` values.
 |---|---|
 | `converged`, `stop`, `stop_reason`, `iterations`, `evaluations`, `failed_evaluations`, `starts` | how the optimiser ended; failed evaluations are rejected trial points |
 | `cost`, `degrees_of_freedom`, `reduced_chi2`, `covariance_scale` | χ² of the weighted residuals, χ²/(m − n), and s² = max(χ²/(m − n), 1) |
-| `parameters` | per parameter: `value`, `start`, `ci95` (95 %), `sd` (of ln value, or of value/|value| on a linear scale), `status`, driver `roles`, `notes` |
+| `parameters` | per parameter: `value`, `start`, `ci95` (95 %), `sd` (of ln value, or on a linear scale of value/r, r = |value| but at least 1 % of the range), `status`, driver `roles`, `notes` |
 | `offsets` | level offsets with intervals and priors |
 | `correlation` | correlation matrix of the fitted variables (null for unidentifiable ones) |
 | `curves` | per curve: points and band, RMS residual in dB, degrees and ohm, weighted RMS, lag-1 autocorrelation, runs test, `structured`, `inflation`, and the residuals themselves |
@@ -293,7 +324,7 @@ passes the report's `fitted` values as the next call's `start` values.
 
 **Intervals.** The covariance of the fitted variables is
 C = s²·(J̃ᵀJ̃)⁺, with J̃ the Jacobian of the weighted residuals in "report
-space" (ln p; p/|p| for linear parameters; dB for offsets), the pseudo-inverse
+space" (ln p; p/r for linear parameters, r as for `sd`; dB for offsets), the pseudo-inverse
 taken over the identifiable directions, and s² = max(χ²_ν, 1). The 95 %
 interval is ln p ± 1.96·sd (symmetric in ln p) or p ± 1.96·sd·|p|.
 Assumptions: the model is right, the linearisation holds over the interval,
@@ -320,7 +351,11 @@ within a factor of 2, `undetermined` beyond; `unidentifiable` when it has a
 component above 0.05 in a numerically null direction (σ below
 `rank_tolerance`·σ_max, default 1e-6); `at_bound` when it ended within
 0.1 % of the range from a bound; `scale_ambiguous` by the Section 12 rule.
-Only determined and weakly determined parameters carry an interval.
+Only determined and weakly determined parameters carry an interval. A
+linear-scale parameter is judged by its sd relative to r = |value|, but at
+least 1 % of its range (or of max(|start|, 1) without both bounds), so a
+signed parameter fitted near zero is judged on its own scale rather than
+against zero.
 
 ## Identifiability (spec Section 12)
 
@@ -362,7 +397,7 @@ The data that fix the scale:
 | method | what the fit needs | why it works |
 |---|---|---|
 | added mass (`added_mass`) | impedance curves under two conditions that differ in a known `mass` element on the driver's mechanical node (`<driver>.m`), the mass not fitted | Mms = Δm/((fs/fs′)² − 1) |
-| known volume (`known_volume`) | impedance curves under two conditions that differ in a cavity on the driver's face (free air and a sealed box), Sd not fitted | the box adds the known stiffness Sd²·ρc²/V, which separates Cms from Bl (one curve in the box is not enough: erratum E48) |
+| known volume (`known_volume`) | impedance curves under two conditions that differ in a cavity on the driver's face (free air and a sealed box), Sd not fitted | the box adds the known stiffness Sd²·ρc²/V, which separates Cms from Bl (one curve in the box is not enough: erratum E51) |
 | laser (`displacement`) | a displacement or velocity curve of the diaphragm at a stated drive | x = Bl·i/(jω·Z_m) fixes Bl/Z_m, which impedance does not |
 | calibrated SPL (`spl_known_load`) | a pressure curve with an absolute level at a stated drive, Sd not fitted | p ∝ Sd·Bl/Z_m in a known load |
 
@@ -386,7 +421,10 @@ times stiffer than the suspension, so the free-air fs, Qms and Qes cannot be
 told apart from impedance and drum pressure measured on the fixture: the
 report names the direction "driver_fs_Hz, driver_Qms and driver_Qes move
 together (ratio about 1 : 1 : 1)", which changes only Cms; Qes/fs and
-Qms/fs (Bl and Rms, given Mms) are determined.
+Qms/fs (Bl and Rms, given Mms) are determined: over five seeds about
+±1.5 % and ±10 % (95 %, from the sds and the correlation), each covering
+the truth, while fs itself ended anywhere from 34 to 123 Hz (truth 90 Hz)
+and is reported as undetermined.
 
 ## Virtual rig (`fit::rig`)
 
@@ -511,7 +549,10 @@ module, `crates/acoustilab-wasm/tests/fit.rs` and
 | Jacobian of network solves (d level and d phase by d ln fs of a driver) | closed-form derivative of the D0 impedance | 1e-6 relative (measured: 1.6e-7 next to the resonance, ≤ 1e-8 elsewhere) |
 | model-form error (creep and Le in the data, not the model) | runs z < −3, ρ > 0.5, inflation > 3, intervals ≥ 5× the right model's | — |
 | complex averaging | exp(−(2πfσ_τ)²/2) with 4000 seatings | 0.04 |
-| case study (over-ear template, impedance + drum, 5 seatings, calibration and coupler errors) | leak gap, front depth, Re within 99 %; the fs–Qms–Qes direction named; Qes/fs within 2 %, Qms/fs within 5 % | — |
+| case study (over-ear template, impedance + drum, 5 seatings, calibration and coupler errors) | leak gap, front depth, Re within 99 %; the fs–Qms–Qes direction named; Qes/fs and Qms/fs within 2.576 of their sds from the correlation matrix, sds below 1.5 % and 10 % | — |
+| sensor calibration (laser curve with 0.5 dB calibration in its budget), 12 seeds | Bl's sd at least the calibration's 0.058 in ln; covered in at least 10 of 12 | measured: 12 of 12 (29 of 30 over 30 seeds; 6 of 30 before the offset) |
+| a start 24× from the optimum along a flat direction (pad leak) | converges to the truth | — |
+| a signed linear parameter at 0 | determined, interval containing 0 | — |
 
 Cost of the case-study fit (6 parameters, impedance and drum response,
 native release build, `fit_cost`): 0.8–0.9 s for 72 points per curve,
@@ -522,7 +563,15 @@ about 0.06 ms per frequency point and solve; the ranges are two runs).
 
 * The intervals are linearised and assume independent residuals; the
   autocorrelation inflation only partly corrects correlated errors, and a
-  structured residual means the model is missing something.
+  structured residual means the model is missing something. Of the
+  systematic budget terms only the calibration's common part is modelled
+  (as a level offset); the coupler, fixture-to-human and numerical terms
+  weight the points as if independent, so a parameter that responds to a
+  broad level trend can come out more precise than those terms allow, and
+  a trend absorbed by a parameter leaves no structure in the residuals.
+* A trial point is rejected when the network cannot be solved there, but
+  a Jacobian that cannot be formed at an accepted point (both sides of a
+  difference fail) ends that start with an error.
 * The Section 12 rules recognise drivers by element type and the scale keys
   of the D0 set; the D2 surround keys are not part of the scale rule.
 * A test mass counts only when it is a `mass` element set by a parameter

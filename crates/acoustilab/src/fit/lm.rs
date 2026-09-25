@@ -12,9 +12,17 @@
 //! [`LmOptions::min_sigma`]: with δu = V_r·y,
 //! (Σ_r² + μ·V_rᵀ·D·V_r)·y = −Σ_r·U_rᵀ·r. Directions the data do not
 //! constrain (a numerically null or statistically flat singular value)
-//! are thus never stepped along, so parameters that only move along them
-//! stay where they started instead of wandering on noise. With every
+//! are thus not stepped along, so parameters that only move along them
+//! stay where they are instead of wandering on noise. With every
 //! direction kept this is the ordinary Marquardt step.
+//!
+//! Flat directions are frozen only while the fit is statistically
+//! acceptable: if the iteration would stop with some left out and a cost
+//! per degree of freedom above [`LmOptions::unfreeze_above`], it continues
+//! with every direction that is not numerically null. A weakly sensitive
+//! parameter that starts far from its optimum (a leak that starts nearly
+//! closed) thus still gets there, where freezing it would stop at once
+//! with a gross misfit.
 //!
 //! Bounds are kept by the fraction-to-the-boundary rule of interior-point
 //! methods, per variable: a component of the step that would cross a bound
@@ -116,6 +124,10 @@ pub enum Stop {
     ExactFit,
     /// No damped step lowers the cost: a (local) minimum.
     NoFurtherReduction,
+    /// No step lowers the cost along the directions left, and those left
+    /// out are statistically flat ([`LmOptions::min_sigma`]) at an
+    /// acceptable misfit ([`LmOptions::unfreeze_above`]).
+    Flat,
     MaxIterations,
     MaxEvaluations,
 }
@@ -134,6 +146,9 @@ impl Stop {
             Stop::ExactFit => "converged: the residuals vanish",
             Stop::NoFurtherReduction => {
                 "converged: no step lowers the cost further (a local minimum)"
+            }
+            Stop::Flat => {
+                "converged: no step lowers the cost along the directions the data determine; along the others (moving e-fold changes chi-square by less than 1) the parameters stay where they are"
             }
             Stop::MaxIterations => "stopped at the iteration limit before converging",
             Stop::MaxEvaluations => "stopped at the evaluation limit before converging",
@@ -154,12 +169,18 @@ pub struct LmOptions {
     /// step (see the module documentation). 0 keeps every direction.
     pub null_tolerance: f64,
     /// Directions whose singular value is at most this are also left out of
-    /// the step. For residuals weighted by their standard
-    /// uncertainties, σ < 1 means that moving one unit along the direction
-    /// changes χ² by less than 1: the data do not determine it, and
-    /// stepping along it only chases noise (the fit then leaves that
-    /// combination at its starting value). 0 disables it.
+    /// the step while [`LmOptions::unfreeze_above`] allows. For residuals
+    /// weighted by their standard uncertainties, σ < 1 means that moving
+    /// one unit along the direction changes χ² by less than 1: the data
+    /// barely determine it, and stepping along it near the optimum only
+    /// chases noise (the fit then leaves that combination where it is).
+    /// 0 disables it.
     pub min_sigma: f64,
+    /// Cost per degree of freedom, Σr²/(m − n), above which a stop with
+    /// directions left out by `min_sigma` is not accepted: the iteration
+    /// continues with them. For weighted residuals this is a reduced χ²; a
+    /// value far above 1 is a gross misfit, not noise.
+    pub unfreeze_above: f64,
     /// Converged when the last `stall.0` accepted steps together lowered
     /// the cost by less than `stall.1` (absolute). For residuals weighted
     /// by their standard uncertainties the cost is χ², and a change far
@@ -181,6 +202,7 @@ impl Default for LmOptions {
             cost_floor: 0.0,
             null_tolerance: 1e-9,
             min_sigma: 0.0,
+            unfreeze_above: f64::INFINITY,
             stall: (0, 0.0),
             mu0: 1e-3,
         }
@@ -258,6 +280,8 @@ pub fn minimize(
     let mut failed = 0;
     let mut iterations = 0;
     let mut history: Vec<f64> = vec![c];
+    let dof = (r.len() as f64 - n as f64).max(1.0);
+    let mut frozen = o.min_sigma > 0.0;
     let stop = 'outer: loop {
         if c <= o.cost_floor {
             break Stop::ExactFit;
@@ -276,11 +300,24 @@ pub fn minimize(
         evaluations += used;
         let d = dense::svd(&jac);
         let smax = d.s.first().copied().unwrap_or(0.0);
-        let keep: Vec<usize> = (0..n)
-            .filter(|&i| d.s[i] > 0.0 && d.s[i] > o.null_tolerance * smax && d.s[i] > o.min_sigma)
+        let resolved: Vec<usize> = (0..n)
+            .filter(|&i| d.s[i] > 0.0 && d.s[i] > o.null_tolerance * smax)
             .collect();
+        let keep: Vec<usize> = resolved
+            .iter()
+            .copied()
+            .filter(|&i| !frozen || d.s[i] > o.min_sigma)
+            .collect();
+        let left_out = keep.len() < resolved.len();
         if keep.is_empty() {
-            break Stop::NoFurtherReduction;
+            if resolved.is_empty() {
+                break Stop::NoFurtherReduction;
+            }
+            if c / dof > o.unfreeze_above {
+                frozen = false;
+                continue;
+            }
+            break Stop::Flat;
         }
         let diag: Vec<f64> = (0..n)
             .map(|k| (0..jac.rows).map(|i| jac.get(i, k).powi(2)).sum())
@@ -304,6 +341,7 @@ pub fn minimize(
             })
             .collect();
         let mut accepted = false;
+        let mut converged = None;
         while mu < 1e14 {
             if evaluations >= o.max_evaluations {
                 break 'outer Stop::MaxEvaluations;
@@ -347,16 +385,14 @@ pub fn minimize(
                         if c <= o.cost_floor {
                             break 'outer Stop::ExactFit;
                         }
-                        if rel < o.ftol {
-                            break 'outer Stop::SmallReduction;
-                        }
                         history.push(c);
                         let (w, atol) = o.stall;
-                        if w > 0 && history.len() > w && history[history.len() - 1 - w] - c < atol {
-                            break 'outer Stop::SmallReduction;
-                        }
-                        if small {
-                            break 'outer Stop::SmallStep;
+                        let stalled =
+                            w > 0 && history.len() > w && history[history.len() - 1 - w] - c < atol;
+                        if rel < o.ftol || stalled {
+                            converged = Some(Stop::SmallReduction);
+                        } else if small {
+                            converged = Some(Stop::SmallStep);
                         }
                         break;
                     }
@@ -369,7 +405,21 @@ pub fn minimize(
             }
         }
         if !accepted {
-            break Stop::NoFurtherReduction;
+            converged = Some(if left_out {
+                Stop::Flat
+            } else {
+                Stop::NoFurtherReduction
+            });
+        }
+        if let Some(stop) = converged {
+            if left_out && c / dof > o.unfreeze_above {
+                frozen = false;
+                mu = o.mu0;
+                history.clear();
+                history.push(c);
+                continue;
+            }
+            break stop;
         }
     };
     Ok(LmResult {
@@ -461,6 +511,31 @@ mod tests {
         let r = minimize(&mut q, &[0.0], &[Bound::Free], &LmOptions::default()).unwrap();
         assert!(r.failed_evaluations > 0);
         assert!(r.u[0] <= 2.5 && r.u[0] > 2.4, "{r:?}");
+    }
+
+    #[test]
+    fn flat_directions_are_frozen_only_at_an_acceptable_misfit() {
+        // 50 residuals 0.1·(u − a): σ = 0.1·√50 = 0.71, below min_sigma.
+        let run = |a: f64, unfreeze_above: f64| {
+            let mut p = FnProblem {
+                f: move |u: &[f64]| -> Result<Vec<f64>, String> { Ok(vec![0.1 * (u[0] - a); 50]) },
+                steps: vec![1e-6],
+            };
+            let o = LmOptions {
+                min_sigma: 1.0,
+                unfreeze_above,
+                ..LmOptions::default()
+            };
+            minimize(&mut p, &[0.0], &[Bound::Free], &o).unwrap()
+        };
+        // χ²/(m − n) = 50·0.01·a²/49 at the start: 4.1 for a = 20 stays
+        // frozen, 16.3 for a = 40 (a gross misfit) does not.
+        let r = run(20.0, 10.0);
+        assert_eq!((r.stop, r.u[0]), (Stop::Flat, 0.0));
+        let r = run(40.0, 10.0);
+        assert!(r.stop.converged() && (r.u[0] - 40.0).abs() < 1e-6, "{r:?}");
+        let r = run(40.0, f64::INFINITY);
+        assert_eq!((r.stop, r.u[0]), (Stop::Flat, 0.0));
     }
 
     #[test]

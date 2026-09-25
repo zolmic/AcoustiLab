@@ -823,9 +823,22 @@ fn design_template_case_study() {
     for n in ["driver_fs_Hz", "driver_Qms", "driver_Qes"] {
         assert!(!param(&rep, n).status.is_determined(), "{n}");
     }
+    // Qes/fs and Qms/fs, with the standard deviations of their logarithms
+    // from the reported sds and correlation: the truth within 2.576 of
+    // them (99 %). Over five seeds the sd is about 0.8 % for Qes/fs and 5 %
+    // for Qms/fs; a fixed tolerance would hold for some seeds only.
     let v = |n: &str| param(&rep, n).value;
-    assert!((v("driver_Qes") / v("driver_fs_Hz") / (0.95 / 90.0) - 1.0).abs() < 0.02);
-    assert!((v("driver_Qms") / v("driver_fs_Hz") / (3.0 / 90.0) - 1.0).abs() < 0.05);
+    let at = |n: &str| rep.correlation.names.iter().position(|x| x == n).unwrap();
+    let ratio_sd = |a: &str, b: &str| {
+        let (sa, sb) = (param(&rep, a).sd.unwrap(), param(&rep, b).sd.unwrap());
+        let rho = rep.correlation.matrix[at(a)][at(b)].unwrap();
+        (sa * sa + sb * sb - 2.0 * rho * sa * sb).sqrt()
+    };
+    for (q, truth, sd_max) in [("driver_Qes", 0.95, 0.015), ("driver_Qms", 3.0, 0.1)] {
+        let sd = ratio_sd(q, "driver_fs_Hz");
+        let z = (v(q) / v("driver_fs_Hz") / (truth / 90.0)).ln() / sd;
+        assert!(sd < sd_max && z.abs() < 2.576, "{q}/fs: sd {sd}, z {z}");
+    }
     // The pressure residuals carry the smooth coupler and repositioning
     // errors: flagged as structured, with inflated intervals.
     assert!(rep.curves[1].structured);
@@ -919,6 +932,144 @@ fn multi_start_escapes_a_local_minimum() {
         recovered(&many, n, t);
     }
     assert!(many.cost < 0.01 * one.cost);
+}
+
+#[test]
+fn a_weakly_sensitive_start_far_from_the_optimum_still_converges() {
+    // Over-ear template, drum response only: the pad leak starts nearly
+    // closed (0.005 mm against 0.12 mm), where the response hardly depends
+    // on it (singular value 0.02, below MIN_SIGMA). Frozen there, the fit
+    // stopped at once and reported convergence at a reduced chi-square of
+    // 350; above GROSS_CHI2 it steps along the flat direction too.
+    let p = example("design_over_ear.json");
+    let grid = exchange_grid(20.0, 10_000.0, 8.0);
+    let pd = measure(
+        &p,
+        "p_drp",
+        &[("leak_gap_mm", 0.12)],
+        &[],
+        &grid,
+        Noise {
+            seed: 5,
+            level_db: 0.1,
+            ..Noise::default()
+        },
+    );
+    let spec = FitSpec::new(
+        vec![FitParam {
+            start: Some(0.005),
+            ..FitParam::new("leak_gap_mm")
+        }],
+        vec![CurveSpec::new("p_drp", pd)],
+    );
+    let rep = fit::fit(&p, &spec).unwrap();
+    assert!(rep.converged, "{:?}", rep.stop);
+    assert!(rep.reduced_chi2.unwrap() < 2.0, "{:?}", rep.reduced_chi2);
+    recovered(&rep, "leak_gap_mm", 0.12);
+}
+
+#[test]
+fn a_sensor_calibration_error_is_one_offset_not_point_noise() {
+    // A laser displacement curve whose budget states a 0.5 dB sensor
+    // calibration uncertainty. Its absolute level is what fixes the scale
+    // (Bl), so Bl can be known no better than 0.5 dB allows: sd of ln Bl
+    // at least 0.5·ln 10/20 = 0.058. Weighted as independent noise at every
+    // point, the calibration averaged down over the points: Bl was reported
+    // within ±1.2 % while off by up to 8 %, covering the truth in 6 of 30
+    // seeds.
+    let p = example("driver_bench.json");
+    let n = 12;
+    let mut covered = 0;
+    for seed in 0..n {
+        let z = measure(
+            &p,
+            "zin",
+            &BENCH_TRUTH,
+            &[],
+            &exchange_grid(10.0, 20_000.0, 12.0),
+            impedance_noise(100 + seed),
+        );
+        let x = measure(
+            &p,
+            "x",
+            &BENCH_TRUTH,
+            &[],
+            &exchange_grid(10.0, 2000.0, 12.0),
+            Noise {
+                seed: 300 + seed,
+                level_db: 0.1,
+                phase_deg: 0.5,
+                microphone_offset_db: 0.5,
+                ..Noise::default()
+            },
+        );
+        let rep = fit::fit(
+            &p,
+            &FitSpec::new(
+                params(&BENCH_TRUTH),
+                vec![CurveSpec::new("zin", z), CurveSpec::new("x", x)],
+            ),
+        )
+        .unwrap();
+        assert_eq!(rep.offsets.len(), 1);
+        assert_eq!(rep.offsets[0].prior_db, Some(0.5));
+        let bl = param(&rep, "Bl_Tm");
+        let sd = bl.sd.unwrap();
+        assert!(sd > 0.9 * 0.5 * std::f64::consts::LN_10 / 20.0, "sd {sd}");
+        let [lo, hi] = bl.ci95.unwrap();
+        if lo <= 2.5 && 2.5 <= hi {
+            covered += 1;
+        }
+    }
+    assert!(covered >= 10, "Bl covered in {covered} of {n} fits");
+}
+
+#[test]
+fn a_signed_parameter_near_zero_is_judged_on_its_own_scale() {
+    // R = 10 + x ohm with x in [−5, 5] and the truth x = 0: relative to |x|
+    // every interval is infinitely wide (and a value of exactly 0 made the
+    // direction look null); relative to 1 % of the range the fit determines
+    // x to a few milliohm.
+    let text = r#"{
+      "parameters": {"x": {"value": 1, "min": -5, "max": 5},
+                     "L_mH": {"value": 1, "min": 0.1, "max": 10}},
+      "sweep": {"frequencies_Hz": [100, 1000]},
+      "nodes": [{"id": "a", "domain": "electrical"}, {"id": "b", "domain": "electrical"}],
+      "elements": [
+        {"id": "src", "type": "vsource", "node": "a"},
+        {"id": "r", "type": "resistor", "nodes": ["a", "b"], "R_ohm": "=10 + x"},
+        {"id": "l", "type": "inductor", "node": "b", "L_mH": "=L_mH"}
+      ],
+      "probes": [{"id": "z", "quantity": "impedance", "element": "src"}]
+    }"#;
+    let p = Parametric::parse(text).unwrap();
+    let z = measure(
+        &p,
+        "z",
+        &[("x", 0.0), ("L_mH", 2.0)],
+        &[],
+        &exchange_grid(100.0, 10_000.0, 12.0),
+        Noise {
+            seed: 1,
+            level_db: 0.01,
+            phase_deg: 0.05,
+            ..Noise::default()
+        },
+    );
+    let rep = fit::fit(
+        &p,
+        &FitSpec::new(
+            vec![FitParam::new("x"), FitParam::new("L_mH")],
+            vec![CurveSpec::new("z", z)],
+        ),
+    )
+    .unwrap();
+    let x = param(&rep, "x");
+    assert_eq!(x.scale, "linear");
+    assert_eq!(x.status, Status::Determined, "{x:?}");
+    let [lo, hi] = x.ci95.unwrap();
+    assert!(lo <= 0.0 && 0.0 <= hi && hi - lo < 0.02, "[{lo}, {hi}]");
+    recovered(&rep, "L_mH", 2.0);
 }
 
 // ----- Specification and conditions ------------------------------------------
@@ -1185,6 +1336,13 @@ fn rig_json_spec() {
         assert!(RigSpec::from_json(&bad).is_err(), "{bad}");
     }
     assert!(rig::measure(&p, &RigSpec::new("nope")).is_err());
+    // An empty or one-point grid is an error, not a panic (the CLI's
+    // `measure --ppo 0` gave one).
+    for freqs in [vec![], vec![100.0, 100.0], vec![-1.0, 100.0]] {
+        let mut s = RigSpec::new("zin");
+        s.freqs = freqs;
+        assert!(rig::measure(&p, &s).is_err());
+    }
 }
 
 /// Cost of the case-study fit on three grid densities; run with

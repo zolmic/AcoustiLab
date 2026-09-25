@@ -340,11 +340,21 @@ fn quantity_of(c: &Circuit, probe: &str) -> Result<Quantity, FitError> {
 
 /// Generates one virtual measurement (module documentation).
 pub fn measure(p: &Parametric, spec: &RigSpec) -> Result<Curve, FitError> {
-    let mut c = Circuit::from_parametric(p, &spec.overrides)?;
-    let q = quantity_of(&c, &spec.probe)?;
     let mut freqs = spec.freqs.clone();
+    if freqs.iter().any(|f| !(f.is_finite() && *f > 0.0)) {
+        return Err(spec_err("rig: frequencies must be positive and finite"));
+    }
     freqs.sort_by(f64::total_cmp);
     freqs.dedup();
+    if freqs.len() < 2 || freqs.len() > crate::grid::MAX_POINTS {
+        return Err(spec_err(format!(
+            "rig: the grid needs 2 to {} distinct frequencies, got {}",
+            crate::grid::MAX_POINTS,
+            freqs.len()
+        )));
+    }
+    let mut c = Circuit::from_parametric(p, &spec.overrides)?;
+    let q = quantity_of(&c, &spec.probe)?;
     c.freqs = freqs.clone();
     let r = c.solve()?;
     let truth: Vec<C64> = r

@@ -651,6 +651,7 @@ pub fn fit_impedance(
         cost_floor: 1e-28,
         null_tolerance: 0.0,
         min_sigma: 0.0,
+        unfreeze_above: f64::INFINITY,
         stall: (0, 0.0),
         mu0: 1e-3,
     };
