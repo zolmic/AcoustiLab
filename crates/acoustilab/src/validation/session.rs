@@ -1559,6 +1559,19 @@ impl Report {
     }
 }
 
+/// A drive as the analyser is set: the convention and, for a power into
+/// the rated impedance, the open-circuit voltage sqrt(P·R).
+fn drive_text(d: &crate::io::sidecar::Drive) -> String {
+    match d.spec {
+        crate::drive::DriveSpec::Power { watts, rated_ohm } => format!(
+            "{} ({:.2} mV RMS open-circuit)",
+            d.label(),
+            (watts * rated_ohm).sqrt() * 1e3
+        ),
+        _ => d.label(),
+    }
+}
+
 /// The empty session: a sidecar template for every file to be measured,
 /// and `SESSION.txt`, the ordered checklist (spec Section 17: "the tool
 /// lists the measurements a session must produce").
@@ -1584,7 +1597,7 @@ pub fn session_templates(frozen: &Frozen) -> BTreeMap<String, String> {
                 m.id,
                 nominal.quantity.name(),
                 m.reference_point,
-                exp.drive.as_ref().map_or("?".into(), |d| d.label()),
+                exp.drive.as_ref().map_or("?".into(), drive_text),
                 stems.join(", ")
             );
             for stem in stems {
