@@ -221,6 +221,13 @@ ports that balance in `Circuit::power_absorbed`.
 | `vent` | [inner, *outer*] | `radius_mm` or `diameter_mm`, `length_mm` (wall thickness), *`count`*, *`inlet`* (`flanged` default, `piston`, `unflanged`, `none`), *`baffle`* (`infinite` default \| `free`) for the outer radiation load, *`end_resistance`* (`maa` default), *`mesh`*: a material id or an object of `mesh` keys (area defaults to the total hole area). Internal nodes `<id>.mouth` and `<id>.mesh` |
 | `leak` | [inside, *outside*] | `perimeter_mm`, `depth_mm` (pad face width), `gap_mm` (uniform, with *`segments`*, default 8) or `gaps_mm: [..]` (one per segment; 0 = sealed), *`ends`*: `flanged` (default; baffled rectangular-piston correction per end) \| `none`. Each segment is a thermoviscous slit of breadth perimeter/N and needs breadth ≥ 5 × gap |
 
+Very narrow gaps are solved at L1 too. A transfer matrix grows like
+e^{|Γl|}, so the MNA stamp switches from transmission rows to admittance rows
+for long lossy lines (|A| or |D| > 1e3), and a line with Re Γl > 300 is held
+there (it transmits e^{−300} of its input; `thermoviscous::line_abcd`). A 15 mm
+deep slit solves down to gaps of 0.1 µm, far below where the continuum model
+itself stops being physical (the mean free path of air is about 0.07 µm).
+
 `vent` is a tube with the inner end correction, the optional mesh and the
 exact baffled-piston radiation impedance (whose reactance is the outer end
 correction) in series. Probe port 0 is the flow entering at the inner node,
