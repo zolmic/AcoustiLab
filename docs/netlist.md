@@ -127,16 +127,21 @@ D0 set, one of:
 
 Creep, at every level (erratum E18): *`creep_lambda`* (λ ≥ 0) and
 *`creep_f0_Hz`* (default fs) give the Knudsen–Jensen compliance
-C(jω) = C0·[1 − λ·log10(jω/ω0)] (complex form per Klippel AN49). It is causal
-and passive for λ ≥ 0. λ must keep Re C > 0 up to 40 kHz, i.e.
-λ < 1/log10(40 kHz/f0) (0.37 for f0 = 81.8 Hz). In D2 it scales both springs.
+C(jω) = C0·[1 − λ·log10(jω/ω0)] (complex form per Klippel AN49). The
+compliance is causal, and the spring is passive on the jω axis, for λ ≥ 0.
+λ must keep Re C > 0 up to 40 kHz, i.e. λ < 1/log10(40 kHz/f0) (0.37 for
+f0 = 81.8 Hz). Where Re C crosses zero, f0·10^(1/λ), the stiffness has a
+real right-half-plane pole, so a driver with creep is causal only to about
+1e-7 of |Z| in band at the largest allowed λ (1e-13 for λ up to half of it).
+That is negligible for frequency-domain solves but rules the law out for
+time-domain use. In D2 it scales both springs.
 
 D2 derives the split from the D0 set so that the free-air (motor-driven)
 behaviour is unchanged at low frequency: C_outer = Cms − Cbend,
 r = C_outer/Cms, dome mass Mms − r²·Msur, dome area Sd − r·Ssur, dome damping
-Rms − (1 − r)²·Rbend (each must stay positive). The effective area
-U/v_dome = S1 + S2·v2/v1 is complex and dips where the surround moves in
-antiphase. Under acoustic load the surround adds a pressure compliance
+Rms − (1 − r)²·Rbend (each must stay positive; checked at every level when
+the surround keys are given). The effective area U/v_dome = S1 + S2·v2/v1 is
+complex and dips where the surround moves in antiphase. Under acoustic load the surround adds a pressure compliance
 r·(1 − r)·Ssur²·Cms that free-air data cannot see. The surround keys have no
 datasheet source; mark them as estimates.
 

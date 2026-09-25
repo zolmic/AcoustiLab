@@ -240,10 +240,12 @@ fn synthetic_record(primary: Value, datasheet: Value) -> String {
 }
 
 #[test]
-fn governance_detects_a_microgram_moving_mass() {
+fn governance_detects_a_milligram_for_gram_moving_mass() {
     // A consistent driver (Mms 0.3 g, Cms 12.618 mm/N, Bl 2.2377 T·m) whose
     // mass is printed as 0.3 mg: resonance and electrical-Q identities both
-    // fail, and multiplying Mms by 1000 repairs both.
+    // fail, and multiplying Mms by 1000 repairs both. (The spec's µg-for-mg
+    // slip is the same factor, but `Dim::Mass` has no `ug` suffix, so a
+    // record cannot carry a microgram value as printed.)
     let rec = parse_record(&synthetic_record(
         json!({"fs_Hz": 81.8, "Qms": 2.71, "Qes": 1.01, "Re_ohm": 32.8, "Mms_mg": 0.3, "Sd_cm2": 10}),
         json!({"Bl_Tm": 2.2377, "Cms_mm_per_N": 12.6186}),
@@ -258,6 +260,61 @@ fn governance_detects_a_microgram_moving_mass() {
     );
     assert_eq!(a.repairs, vec!["resonance", "electrical_q"]);
     assert!(a.primary && rep.primary_anomaly().is_some());
+}
+
+#[test]
+fn governance_reports_every_field_when_the_slip_is_ambiguous() {
+    // Cms printed in um/N with neither Bl nor Vas: only the resonance
+    // identity can fail, and scaling Mms or Cms by 1000 repairs it equally,
+    // so both candidates are reported (the element then refuses the record
+    // and names both).
+    let rec = parse_record(&synthetic_record(
+        json!({"fs_Hz": 81.8, "Qms": 2.71, "Qes": 1.01, "Re_ohm": 32.8, "Mms_g": 0.3, "Sd_cm2": 10}),
+        json!({"Cms_um_per_N": 12.6186}),
+    ))
+    .unwrap();
+    let rep = governance(&rec);
+    assert_eq!(rep.check("resonance").unwrap().status, CheckStatus::Fail);
+    let mut fields: Vec<&str> = rep.anomalies.iter().map(|a| a.field).collect();
+    fields.sort_unstable();
+    assert_eq!(fields, vec!["Cms", "Mms"], "{:?}", rep.anomalies);
+    assert!(rep
+        .anomalies
+        .iter()
+        .all(|a| a.repairs == vec!["resonance"] && a.factor == 1e3));
+}
+
+#[test]
+fn record_model_block_cannot_carry_the_d0_set() {
+    // Bl, Cms and Rms are derived from the primary set; a `model` key naming
+    // any D0 quantity would be overwritten or clash at build time.
+    for key in [
+        "fs_Hz",
+        "Mms_g",
+        "Bl_Tm",
+        "Cms_mm_per_N",
+        "Rms_Ns_per_m",
+        "model",
+    ] {
+        let mut v: Value = serde_json::from_str(&synthetic_record(
+            json!({"fs_Hz": 81.8, "Qms": 2.71, "Qes": 1.01, "Re_ohm": 32.8, "Mms_g": 0.3, "Sd_cm2": 10}),
+            json!({}),
+        ))
+        .unwrap();
+        v["model"] = json!({ key: 1 });
+        let err = parse_record(&v.to_string()).unwrap_err();
+        assert!(err.contains(key), "{key}: {err}");
+    }
+    // Element keys beyond the D0 set are fine, including ones that merely
+    // start with the same letters.
+    let mut v: Value = serde_json::from_str(&synthetic_record(
+        json!({"fs_Hz": 81.8, "Qms": 2.71, "Qes": 1.01, "Re_ohm": 32.8, "Mms_g": 0.3, "Sd_cm2": 10}),
+        json!({}),
+    ))
+    .unwrap();
+    v["model"] = json!({"Le_uH": 20, "R2_ohm": 15, "L2_uH": 60, "Rbend_Ns_per_m": 0.01,
+                        "Ssur_cm2": 3, "Msur_mg": 20, "Kbend_N_per_m": 2000, "creep_lambda": 0.05});
+    assert!(parse_record(&v.to_string()).is_ok());
 }
 
 #[test]
@@ -764,9 +821,7 @@ fn added_mass_on_the_dome_node_shifts_fs_and_keeps_the_balance() {
 #[test]
 fn input_impedance_is_passive() {
     // E17: Re(Zin) ≥ Re for a single moving coil driven directly (creep at
-    // its largest allowed λ included). E16: the general condition is
-    // Re(Z) ≥ 0 at every port, here the electrical port behind a source
-    // impedance and the acoustic port.
+    // its largest allowed λ included).
     let lmax = Creep::max_lambda(80.0);
     for model in ["D0", "D1", "D2"] {
         let mut p = d2_params(0.005, Some(0.99 * lmax));
@@ -781,14 +836,62 @@ fn input_impedance_is_passive() {
                 {"id": "rear", "type": "cavity", "node": "ar", "volume_cm3": 20},
                 {"id": "vent", "type": "acoustic_resistance", "node": "ar", "R_Pa_s_per_m3": 5e6}]),
             json!([
-                {"id": "zin", "quantity": "impedance", "element": "drv", "port": 0},
-                {"id": "zac", "quantity": "impedance", "element": "front"}
+                {"id": "zin", "quantity": "impedance", "element": "drv", "port": 0}
             ]),
         );
         for &f in &c.freqs {
             let z = probe(&c, "zin", f);
             assert!(z.re >= 32.8 * (1.0 - 1e-12), "{model} {f} Hz: {z}");
-            assert!(probe(&c, "zac", f).re >= 0.0);
+        }
+    }
+}
+
+#[test]
+fn acoustic_port_of_the_driver_is_passive() {
+    // E16: Re(Z) ≥ 0 at every port. The driver's acoustic port is driven by
+    // a volume-velocity source with the electrical port shorted through a
+    // 0 or 10 Ω source, or left open, so the only power entering is the
+    // source's: Re(p/U) ≥ 0 must hold with creep at its largest allowed λ,
+    // at every level, over 10 Hz–40 kHz. The motor, the D2 two-mass branch
+    // and the creep spring are all inside the port.
+    let lmax = Creep::max_lambda(80.0);
+    for model in ["D0", "D1", "D2"] {
+        for lambda in [0.0, 0.99 * lmax] {
+            for termination in [Some(0.0), Some(10.0), None] {
+                let mut p = d2_params(0.005, Some(lambda));
+                p["model"] = json!(model);
+                p["creep_f0_Hz"] = json!(80.0);
+                p["Le_uH"] = json!(20);
+                p["L2_uH"] = json!(60);
+                p["R2_ohm"] = json!(15);
+                let mut d = drv(p);
+                d["nodes"] = json!(["e1", "gnd", "af", "ambient"]);
+                let mut els = vec![
+                    d,
+                    json!({"id": "q", "type": "flow_source", "node": "af", "U_m3_per_s": 1e-6}),
+                ];
+                if let Some(zs) = termination {
+                    let mut s = source(zs);
+                    s["V_V"] = json!(0.0);
+                    els.push(s);
+                }
+                let doc = json!({
+                    "air": {"preset": "spec_reference"},
+                    "sweep": {"f_min_Hz": 10, "f_max_Hz": 40000, "points_per_octave": 24},
+                    "nodes": [{"id": "e1", "domain": "electrical"}, {"id": "af", "domain": "acoustic"}],
+                    "elements": els,
+                    "probes": [{"id": "p", "quantity": "pressure", "node": "af"}]
+                });
+                let c = Circuit::from_json(&doc.to_string()).unwrap();
+                let r = c.solve().unwrap();
+                for (f, pf) in r.freqs_hz.iter().zip(&r.probe("p").unwrap().values) {
+                    let z = pf / 1e-6;
+                    assert!(
+                        z.re >= 0.0,
+                        "{model} λ={lambda} Zs={termination:?} {f} Hz: {z}"
+                    );
+                }
+            }
         }
     }
 }
@@ -971,6 +1074,63 @@ fn creep_law_satisfies_kramers_kronig_and_the_real_only_law_does_not() {
     }
     .factor(1.0);
     assert!((fac.im + 0.1 * PI / (2.0 * LN_10)).abs() < 1e-15);
+}
+
+#[test]
+fn creep_kramers_kronig_holds_in_band_over_the_allowed_lambda_range() {
+    // The compliance C0·[1 − λ·log10(s/ω0)] is analytic for Re s > 0, but it
+    // vanishes at the real s = ω0·10^(1/λ), so the stiffness 1/(sC) has a
+    // pole there and the driver has one right-half-plane pole just above it
+    // (42.6 kHz for this driver at 0.99·λmax; mpmath root search in review).
+    // The λ limit keeps that point above 40 kHz. In band its share of the
+    // impedance is tiny: the Hilbert transform of the solver's impedance
+    // (D0, free air, same grid as above) agrees to quadrature accuracy up to
+    // λmax/2 and to ~3e-8 of |Z| at 0.99·λmax, where the residual is
+    // independent of the grid (it is the non-causal pole term, ≤ 4.4e-8
+    // of |Z| in 10 Hz–40 kHz by the residue).
+    let fs = 81.8;
+    let lmax = Creep::max_lambda(fs);
+    let (a, b) = ((2.0 * PI * 1.07e-3f64).ln(), (2.0 * PI * 1.07e10f64).ln());
+    let n = 1300;
+    for (frac, bound) in [(0.5, 1e-10), (0.99, 1e-6)] {
+        let lambda = frac * lmax;
+        let creep = Creep { lambda, f0: fs };
+        assert!(creep.validate().is_ok());
+        assert!(creep.zero_crossing_hz() > Creep::BAND_HZ.1);
+        let c = free_air(
+            json!({"model": "D0", "fs_Hz": fs, "Qms": 2.71, "Qes": 1.01, "Re_ohm": 32.8,
+                   "Mms_g": 0.3, "Sd_cm2": 10, "creep_lambda": lambda}),
+            0.0,
+        );
+        let im_z = |w: f64| probe(&c, "zin", w / (2.0 * PI)).im;
+        let table: Vec<(f64, f64)> = (0..=n)
+            .map(|k| {
+                let u = a + k as f64 * (b - a) / n as f64;
+                (u, im_z(u.exp()))
+            })
+            .collect();
+        let lookup = |w: f64| {
+            let u = w.ln();
+            table
+                .iter()
+                .find(|(uu, _)| (uu - u).abs() < 1e-12)
+                .map_or_else(|| im_z(w), |(_, v)| *v)
+        };
+        let w2 = 2.0 * PI * 20.0;
+        let z2 = probe(&c, "zin", 20.0);
+        let mut worst: f64 = 0.0;
+        for f1 in [5.0, 50.0, fs, 150.0, 1000.0, 10000.0, 30000.0] {
+            let w1 = 2.0 * PI * f1;
+            let predicted = kk_real_difference(&lookup, w1, w2, a, b, n);
+            let actual = probe(&c, "zin", f1).re - z2.re;
+            worst = worst.max((predicted - actual).abs() / z2.norm());
+        }
+        assert!(worst < bound, "λ = {lambda}: KK residual {worst}");
+        if frac > 0.9 {
+            // The residual is real (the pole term), not quadrature noise.
+            assert!(worst > 1e-9, "λ = {lambda}: KK residual {worst}");
+        }
+    }
 }
 
 // ----- Thiele–Small identification --------------------------------------------
@@ -1171,7 +1331,13 @@ fn rejects_inconsistent_parameters() {
     assert!(build(p).is_err(), "mixed primary and physical sets");
     let mut p = d2_params(0.0, None);
     p["Kbend_N_per_m"] = json!(50);
-    assert!(build(p).is_err(), "bending compliance above Cms");
+    assert!(build(p.clone()).is_err(), "bending compliance above Cms");
+    // The split is checked at every level, so a netlist that builds at D0
+    // also builds at D2.
+    for model in ["D0", "D1"] {
+        p["model"] = json!(model);
+        assert!(build(p.clone()).is_err(), "invalid surround at {model}");
+    }
     let mut p = d2_params(0.0, None);
     p["Ssur_cm2"] = json!(20);
     assert!(build(p).is_err(), "surround area above Sd");

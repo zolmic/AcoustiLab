@@ -295,6 +295,40 @@ fn drive_scaling_needs_a_single_voltage_source() {
 }
 
 #[test]
+fn drive_inputs_are_validated() {
+    // Levels in dB SPL need a pressure probe: a velocity or impedance probe
+    // is refused rather than read as a pressure.
+    let c = tymphany(1.0, 0.0);
+    assert!(drive::characteristic_voltage(&c, "v", 94.0, 500.0).is_err());
+    assert!(drive::sensitivity(&c, "zin", 32.0).is_err());
+    let r = c.solve().unwrap();
+    assert!(drive::characteristic_voltage_from(&r, 1.0, "v", 94.0, 500.0).is_err());
+    assert!(drive::sensitivity_from(&r, 1.0, "i", 32.0).is_err());
+    assert!(drive::drive_result(&Drive::characteristic("zin"), &r, 1.0).is_err());
+    // Non-physical scalars.
+    assert!(drive::sensitivity(&c, "p", 0.0).is_err());
+    assert!(drive::sensitivity_from(&r, 0.0, "p", 32.0).is_err());
+    assert!(drive::scale_factors(&Drive::one_volt(), &r, 0.0).is_err());
+    assert!(drive::scale_factors(&Drive::one_milliwatt(-32.0), &r, 1.0).is_err());
+    assert!(drive::scale_factors(
+        &Drive::Power {
+            watts: 0.0,
+            rated_ohm: 32.0
+        },
+        &r,
+        1.0
+    )
+    .is_err());
+    assert!(drive::scale_factors(&Drive::Voltage(f64::NAN), &r, 1.0).is_err());
+    // A source at 0 V has nothing to scale.
+    let silent = tymphany(0.0, 0.0);
+    assert!(drive::characteristic_voltage(&silent, "p", 94.0, 500.0).is_err());
+    assert!(drive::sensitivity(&silent, "p", 32.0).is_err());
+    // Valid inputs still work.
+    assert!(drive::sensitivity(&c, "p", 32.0).is_ok());
+}
+
+#[test]
 fn interpolation_is_exact_on_the_grid() {
     let c = tymphany(1.0, 0.0);
     let r = c.solve().unwrap();

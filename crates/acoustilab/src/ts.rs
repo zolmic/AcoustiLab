@@ -201,12 +201,23 @@ pub fn vas(air: &AirState, sd: f64, cms: f64) -> f64 {
 /// with ω0 = 2π·f0 the reference frequency (the driver's fs by default), at
 /// which C0 is the real part of the compliance. Because
 /// log10(jω/ω0) = log10(ω/ω0) + j·π/(2 ln 10), the imaginary part is the
-/// constant −λ·π/(2 ln 10)·C0: a loss that makes the law causal (it is
-/// analytic in the right half s-plane) and passive for λ ≥ 0, since
-/// Re{1/(jωC)} = λ·π/(2 ln 10)·C0/(ω|C|²) ≥ 0. The real-only law
-/// C0·[1 − λ·log10(ω/ω0)] violates the Kramers–Kronig relations (erratum
-/// E18). Re C still falls through zero at ω0·10^(1/λ), so λ is limited to
-/// keep Re C > 0 over the engine band [`Creep::BAND_HZ`].
+/// constant −λ·π/(2 ln 10)·C0: a loss that makes the compliance causal (it
+/// is analytic in the right half s-plane) and the spring passive on the jω
+/// axis for λ ≥ 0, since Re{1/(jωC)} = λ·π/(2 ln 10)·C0/(ω|C|²) ≥ 0. The
+/// real-only law C0·[1 − λ·log10(ω/ω0)] violates the Kramers–Kronig
+/// relations (erratum E18).
+///
+/// Re C still falls through zero at f0·10^(1/λ) ([`Creep::zero_crossing_hz`]),
+/// so λ is limited to keep Re C > 0 over the engine band [`Creep::BAND_HZ`].
+/// The same point limits causality: C(s) vanishes at the real
+/// s = ω0·10^(1/λ), so the stiffness 1/(s·C) has a pole there and a driver
+/// with creep has one right-half-plane pole just above it (for the
+/// Tymphany record, at 42.6 kHz when λ = 0.99·λmax). The λ limit keeps it
+/// above the band, and its in-band share of the input impedance stays below
+/// 1e-7 (a Hilbert transform of the solver's impedance agrees to 3e-8 at
+/// 0.99·λmax and to 1e-13 for λ ≤ λmax/2; tests/driver.rs). This is
+/// negligible in the frequency domain, but a time-domain model must replace
+/// the law by a realisable approximation.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Creep {
     /// Creep factor λ: relative compliance increase per decade of
@@ -228,6 +239,17 @@ impl Creep {
             1.0 - self.lambda * (omega / w0).log10(),
             -self.lambda * FRAC_PI_2 / LN_10,
         )
+    }
+
+    /// Frequency f0·10^(1/λ) where Re C crosses zero; also where the
+    /// stiffness 1/(s·C(s)) has its pole on the positive real s axis
+    /// (s = 2π·this). Infinite for λ = 0.
+    pub fn zero_crossing_hz(&self) -> f64 {
+        if self.lambda > 0.0 {
+            self.f0 * 10f64.powf(1.0 / self.lambda)
+        } else {
+            f64::INFINITY
+        }
     }
 
     /// Largest λ keeping Re C > 0 up to the top of [`Creep::BAND_HZ`]

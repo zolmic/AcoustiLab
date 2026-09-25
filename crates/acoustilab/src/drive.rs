@@ -16,6 +16,11 @@
 //! dB/V = dB/mW + 10·log10(1000/Z_rated) (Sections 3 and 4; erratum E32:
 //! Appendix C7's use of Re is wrong).
 //!
+//! Every voltage here is the source's open-circuit (EMF) voltage, applied
+//! through the netlist's source impedance; with a non-zero `Zs_ohm` the
+//! terminal voltage is lower by the divider |Z|/|Z + Zs|. Levels are read at
+//! acoustic pressure probes only.
+//!
 //! These are pure functions over a [`Circuit`] or a [`SolveResult`]; they do
 //! not change netlist parsing. Phasors are RMS, so dB SPL is
 //! 20·log10(|p|/20 µPa).
@@ -131,6 +136,40 @@ pub fn source_voltage(circuit: &Circuit) -> Result<f64> {
     }
 }
 
+fn not_pressure(probe: &str) -> Error {
+    Error::Probe {
+        id: probe.to_string(),
+        msg: "levels in dB SPL need an acoustic pressure probe".into(),
+    }
+}
+
+/// Errors unless `probe` is an acoustic pressure probe of `circuit`.
+fn require_pressure(circuit: &Circuit, probe: &str) -> Result<()> {
+    match circuit.probes.iter().find(|p| p.id == probe) {
+        Some(p) if !p.is_pressure => Err(not_pressure(probe)),
+        // A missing probe is reported by `probe_at`.
+        _ => Ok(()),
+    }
+}
+
+/// Errors unless `probe` is an acoustic pressure probe of `result`.
+fn require_pressure_in(result: &SolveResult, probe: &str) -> Result<()> {
+    match result.probe(probe) {
+        Some(p) if !p.is_pressure => Err(not_pressure(probe)),
+        _ => Ok(()),
+    }
+}
+
+fn positive_finite(x: f64, what: &str) -> Result<f64> {
+    if x.is_finite() && x > 0.0 {
+        Ok(x)
+    } else {
+        Err(Error::Netlist(format!(
+            "drive: {what} must be positive and finite, got {x}"
+        )))
+    }
+}
+
 /// Value of probe `probe` at frequency `f`, solved exactly at `f`.
 pub fn probe_at(circuit: &Circuit, probe: &str, f: f64) -> Result<C64> {
     let pr = circuit
@@ -191,7 +230,8 @@ pub fn characteristic_voltage(
     level_db: f64,
     f_hz: f64,
 ) -> Result<f64> {
-    let v = source_voltage(circuit)?;
+    require_pressure(circuit, probe)?;
+    let v = positive_finite(source_voltage(circuit)?, "the source voltage")?;
     let p = probe_at(circuit, probe, f_hz)?;
     scale_to_level(v, p, level_db, probe)
 }
@@ -205,6 +245,8 @@ pub fn characteristic_voltage_from(
     level_db: f64,
     f_hz: f64,
 ) -> Result<f64> {
+    require_pressure_in(result, probe)?;
+    let v_solve = positive_finite(v_solve, "the solve voltage")?;
     let p = interpolate(result, probe, f_hz)?;
     scale_to_level(v_solve, p, level_db, probe)
 }
@@ -224,11 +266,22 @@ fn scale_to_level(v: f64, p: C64, level_db: f64, probe: &str) -> Result<f64> {
 /// characteristic drives; for constant current, I_target/I_solve(f) from the
 /// drive's current probe.
 pub fn scale_factors(drive: &Drive, result: &SolveResult, v_solve: f64) -> Result<Vec<C64>> {
+    let v_solve = positive_finite(v_solve, "the solve voltage")?;
     let n = result.freqs_hz.len();
     let constant = |v: f64| vec![C64::new(v / v_solve, 0.0); n];
     Ok(match drive {
-        Drive::Voltage(v) => constant(*v),
-        Drive::Power { watts, rated_ohm } => constant(voltage_for_power(*watts, *rated_ohm)),
+        Drive::Voltage(v) => {
+            if !v.is_finite() {
+                return Err(Error::Netlist(format!(
+                    "drive: voltage must be finite, got {v}"
+                )));
+            }
+            constant(*v)
+        }
+        Drive::Power { watts, rated_ohm } => constant(voltage_for_power(
+            positive_finite(*watts, "the power")?,
+            positive_finite(*rated_ohm, "the rated impedance")?,
+        )),
         Drive::Characteristic {
             probe,
             level_db,
@@ -241,6 +294,21 @@ pub fn scale_factors(drive: &Drive, result: &SolveResult, v_solve: f64) -> Resul
                 id: probe.clone(),
                 msg: "no such probe in the result".into(),
             })?;
+            if !amps.is_finite() {
+                return Err(Error::Netlist(format!(
+                    "drive: current must be finite, got {amps}"
+                )));
+            }
+            if pr
+                .values
+                .iter()
+                .any(|i| i.norm() == 0.0 || !i.norm().is_finite())
+            {
+                return Err(Error::Probe {
+                    id: probe.clone(),
+                    msg: "zero or non-finite current; cannot scale to a constant current".into(),
+                });
+            }
             pr.values.iter().map(|i| C64::new(*amps, 0.0) / i).collect()
         }
     })
@@ -302,7 +370,9 @@ impl Sensitivity {
 /// Sensitivity at 500 Hz and 1 kHz at pressure probe `probe`, solved
 /// exactly at those frequencies.
 pub fn sensitivity(circuit: &Circuit, probe: &str, rated_ohm: f64) -> Result<[Sensitivity; 2]> {
-    let v = source_voltage(circuit)?;
+    require_pressure(circuit, probe)?;
+    let rated_ohm = positive_finite(rated_ohm, "the rated impedance")?;
+    let v = positive_finite(source_voltage(circuit)?, "the source voltage")?;
     let at = |f: f64| -> Result<Sensitivity> {
         Ok(Sensitivity::from_pressure_per_volt(
             probe_at(circuit, probe, f)? / v,
@@ -323,6 +393,9 @@ pub fn sensitivity_from(
     probe: &str,
     rated_ohm: f64,
 ) -> Result<[Sensitivity; 2]> {
+    require_pressure_in(result, probe)?;
+    let rated_ohm = positive_finite(rated_ohm, "the rated impedance")?;
+    let v_solve = positive_finite(v_solve, "the solve voltage")?;
     let at = |f: f64| -> Result<Sensitivity> {
         Ok(Sensitivity::from_pressure_per_volt(
             interpolate(result, probe, f)? / v_solve,

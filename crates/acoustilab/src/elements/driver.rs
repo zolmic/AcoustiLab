@@ -224,6 +224,11 @@ fn printed_key(m: &Map<String, Value>, base: &str, dim: Dim) -> Option<String> {
         .find(|k| m.contains_key(k))
 }
 
+/// Keys (bases) a record's `model` block may not contain.
+const RESERVED_MODEL_KEYS: &[&str] = &[
+    "fs", "Qms", "Qes", "Re", "Mms", "Sd", "Bl", "Cms", "Kms", "Rms", "record", "model",
+];
+
 /// Parses a driver record document.
 pub fn parse_record(text: &str) -> std::result::Result<DriverRecord, String> {
     let v: Value = serde_json::from_str(text).map_err(|e| format!("record JSON: {e}"))?;
@@ -388,6 +393,18 @@ pub fn parse_record(text: &str) -> std::result::Result<DriverRecord, String> {
         Some(Value::Object(m)) => m.clone(),
         Some(_) => return Err(format!("record '{name}': 'model' must be an object")),
     };
+    // The D0 set comes only from `primary` (Bl, Cms and Rms are derived from
+    // it); a `model` key naming one would be silently overwritten by
+    // `element_params` or clash with it at build time.
+    if let Some(k) = model.keys().find(|k| {
+        RESERVED_MODEL_KEYS
+            .iter()
+            .any(|b| *k == *b || k.strip_prefix(b).is_some_and(|s| s.starts_with('_')))
+    }) {
+        return Err(format!(
+            "record '{name}': 'model' key '{k}' is not allowed: the D0 set comes from 'primary' (fs, Qms, Qes, Re, Mms, Sd; Bl, Cms and Rms are derived), and 'record' and 'model' are netlist keys"
+        ));
+    }
     let strings = |key: &str| -> std::result::Result<Vec<String>, String> {
         match top.get(key) {
             None => Ok(Vec::new()),
@@ -1362,10 +1379,18 @@ fn driver(mut b: Build) -> Result<Box<dyn Element>> {
         None => None,
         Some(name) => {
             let rec = record(name).map_err(&err)?;
-            if let Some(a) = governance(&rec).primary_anomaly() {
+            let report = governance(&rec);
+            if report.primary_anomaly().is_some() {
+                // List every candidate: when two fields repair the same
+                // identities the data cannot say which one is misprinted.
+                let all: Vec<String> = report
+                    .anomalies
+                    .iter()
+                    .map(|a| format!("{} looks like {}", a.printed, a.likely))
+                    .collect();
                 return Err(err(format!(
-                    "record '{name}' fails governance: {} looks like {}",
-                    a.printed, a.likely
+                    "record '{name}' fails governance: {}",
+                    all.join(", or ")
                 )));
             }
             Some(Params::new(id.clone(), rec.element_params()))
@@ -1489,8 +1514,14 @@ fn driver(mut b: Build) -> Result<Box<dyn Element>> {
     };
     src.finish()?;
 
-    let two_dof = match (level, &surround) {
-        (DriverLevel::D2, Some(s)) => Some(TwoDof::split(&params, s).map_err(&err)?),
+    // The split is validated whenever surround keys are present, so a netlist
+    // that builds at one level builds at every level.
+    let split = match &surround {
+        Some(s) => Some(TwoDof::split(&params, s).map_err(&err)?),
+        None => None,
+    };
+    let two_dof = match (level, split) {
+        (DriverLevel::D2, Some(t)) => Some(t),
         (DriverLevel::D2, None) => {
             return Err(err(
                 "model D2 needs the surround keys 'Msur', 'Ssur' and 'Kbend' (or 'Cbend')".into(),
