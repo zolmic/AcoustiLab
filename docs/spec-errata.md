@@ -161,3 +161,26 @@ corrected statement. "p." is the PDF page.
 - **E43 — companion service.** Browsers have no LAN-discovery API, and Local
   Network Access, mixed-content and TLS rules apply. Use a paired or user-entered
   endpoint with token authentication.
+
+## Package `time` (impulse responses, minimum phase, isolation)
+
+- **E47 — causality test (Section 17, p. 58).** "The impulse response from
+  the full-band complex response has pre-response energy below −80 dB" fails
+  for a correct pipeline whenever the response is still significant at the
+  top of the band, however long N is. Band-limiting at the edge of the
+  solved band (Section 16's Tukey window and guard band, or Nyquist itself)
+  is zero-phase, so it spreads the impulse symmetrically in time. At fs =
+  48 kHz with the band solved to 20 kHz and tapered to Nyquist, a 100 Hz
+  high-pass (flat to 20 kHz) keeps −15.0 dB of its energy at negative times
+  and a 1 kHz, Q = 5 resonator (−52 dB at 20 kHz) −61.1 dB. A 100 Hz
+  resonator (−92 dB) meets −80 dB once N covers E46. The design template's
+  drum response rises into the simulator's 20 kHz resonance; its energy
+  above the solved band is −25 dB of the total (`tools/time/ir_refs.py`,
+  `tools/time/minphase_study.py`, `tests/time.rs`). Apply the −80 dB test
+  to the minimum-phase filter, which is causal by construction (−89 dB for
+  the high-pass), or to networks negligible above the solved band, and
+  report the band-edge energy with every mixed-phase IR.
+- **Note on E46.** An envelope falls 80 dB in (4·ln 10/π)·Q/f = 2.93·Q/f. At
+  exactly 2.9·Q/f the late energy of a Q = 20 resonator is −79.1 dB, so the
+  engine uses 2.93. A causal half of 2.2·Q/f (T60) leaves −60.1 dB, and a
+  buffer of one T60 −30.0 dB.

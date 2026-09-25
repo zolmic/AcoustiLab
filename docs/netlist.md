@@ -510,3 +510,44 @@ leak, vent) in a native release build:
 
 Run the test with
 `cargo test --release -p acoustilab --test cavity -- --ignored --nocapture`.
+
+## Cup wall, isolation and time-domain outputs
+
+### `shell` (cup-wall transmission)
+
+| type | nodes | parameters |
+|---|---|---|
+| `shell` | [inside, *outside*] | area: `area_cm2` \| `radius_mm` \| `diameter_mm`; mass: `surface_density_kg_per_m2` \| `mass_g` \| `thickness_mm` + `density_kg_per_m3`; *`profile`*: `piston` (default, κ = 1) \| `plate` (κ = 9/5) \| `membrane` (κ = 4/3); stiffness: *`resonance_Hz`* \| *`C_m3_per_Pa`* (neither: limp); loss: `Q` \| `R_Pa_s_per_m3` (required with a stiffness) |
+
+Z = R + jω·κ·m/A² + 1/(jωC_a): a panel between an inside and an outside
+node, referred to the volume velocity it displaces. `piston` is the cup
+assembly moving on its cushion (between the front cavity and `ambient`);
+`plate` is a wall clamped at its rim in its fundamental mode. Above its
+resonance it follows the mass law (6 dB per doubling of frequency or of
+mass). One port, passive. Details: `docs/isolation.md`.
+
+### Outside air: `ambient` versus `gnd`
+
+In a normal solve `ambient`, `a_amb`, `gnd`, `a_gnd` and omitted terminals
+are the same reference. Passive isolation (`acoustilab isolation`, wasm
+`isolation`) drives every terminal named **`ambient` or `a_amb`** with the
+outside pressure and keeps `gnd`, `a_gnd` and omitted terminals at zero.
+Name the outer end of every path to the outside air `ambient` (leaks,
+vents, grilles and radiation loads, an open driver's rear face, a `shell`).
+Isolation warns when such an element ends at the reference instead.
+Cavities and ear-simulator internals stay on the reference. See
+`docs/isolation.md`.
+
+### Impulse responses, poles and isolation
+
+`acoustilab ir`, `acoustilab poles` and `acoustilab isolation` (and the wasm
+exports `impulse`, `vector_fit` and `isolation`) work on any netlist:
+
+* `ir` re-solves the network on the FFT grid and reports impulse, step,
+  energy-time curve, minimum-phase filter, excess phase and the phase-mode
+  decision (`docs/time-domain.md`);
+* `poles` fits a probe with a rational model and reports poles, zeros and Q;
+* `isolation` reports the passive insertion loss at the drum
+  (`docs/isolation.md`).
+
+The drum or default probe is the netlist's `ui.primary_probe` when present.

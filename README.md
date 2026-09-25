@@ -46,5 +46,7 @@ cargo run -p acoustilab-cli -- params examples/design_over_ear.json
 cargo run -p acoustilab-cli -- solve examples/design_over_ear.json --set vent_count=3 --set rear=open --csv
 ```
 
+Impulse responses, pole/Q tables and passive isolation: `acoustilab ir | poles | isolation` (`docs/time-domain.md`, `docs/isolation.md`).
+
 To run the browser UI:
 `cd web && npm ci && npm run dev` (details in `docs/web.md`).

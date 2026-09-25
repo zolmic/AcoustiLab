@@ -1,0 +1,55 @@
+{
+  "schema": "acoustilab-netlist/0.2",
+  "title": "Closed cup with cushion and wall transmission: passive isolation example (theory-only)",
+  "description": "A 40 mm driver (Tymphany HPD-40N16PET00-32 record) in a closed over-ear cup on the IEC 60318-4 ear. Outside sound reaches the ear by three paths, each ending at 'ambient' so that isolation drives it: the pad leak, the whole cup assembly moving on its cushion (a 'shell' of piston profile between the front cavity and the outside), and the rear cup wall flexing (a 'shell' of plate profile between the rear cavity and the outside), which moves the diaphragm. Cup mass, cushion resonance and loss, and wall thickness, resonance and loss are illustrative estimates, not measured values. Run 'acoustilab isolation' on it for the insertion loss per path and 'acoustilab ir' for the impulse response.",
+  "ui": {"primary_probe": "p_drp"},
+  "parameters": {
+    "leak_gap_mm": {"value": 0.05, "min": 0, "max": 1, "step": 0.01,
+      "label": "Pad leak gap (0 = sealed)", "group": "Pad and leak",
+      "tolerance": {"rel": 0.5, "dist": "lognormal", "source": "estimate (fit variation)"}},
+    "cup_mass_g": {"value": 60, "min": 5, "max": 300, "step": 1,
+      "label": "Cup assembly mass on the cushion", "group": "Cup",
+      "description": "Cup, baffle and driver moving together on the cushion (estimate)."},
+    "cushion_resonance_Hz": {"value": 100, "min": 20, "max": 400, "step": 1, "log": true,
+      "label": "Cup-on-cushion resonance", "group": "Cup",
+      "description": "Resonance of the cup mass on the cushion stiffness against the head (estimate)."},
+    "cushion_Q": {"value": 2, "min": 0.3, "max": 20, "step": 0.1,
+      "label": "Cushion Q", "group": "Cup", "description": "Loss of the cushion (estimate)."},
+    "wall_thickness_mm": {"value": 2, "min": 0.5, "max": 6, "step": 0.1,
+      "label": "Rear wall thickness", "group": "Cup"},
+    "wall_resonance_Hz": {"value": 1500, "min": 200, "max": 8000, "step": 10, "log": true,
+      "label": "Rear wall fundamental", "group": "Cup",
+      "description": "Fundamental of the rear wall clamped at its rim (estimate)."},
+    "wall_Q": {"value": 20, "min": 1, "max": 100, "step": 1,
+      "label": "Rear wall Q", "group": "Cup", "description": "Loss of the rear wall (estimate)."}
+  },
+  "air": {"preset": "standard_23C"},
+  "sweep": {"f_min_Hz": 10, "f_max_Hz": 20000, "points_per_octave": 24},
+  "drive": {"power_mW": 1, "rated_ohm": 32},
+  "nodes": [
+    {"id": "e_in", "domain": "electrical"},
+    {"id": "a_front", "domain": "acoustic"},
+    {"id": "a_ear", "domain": "acoustic"},
+    {"id": "a_rear", "domain": "acoustic"}
+  ],
+  "elements": [
+    {"id": "amp", "type": "vsource", "node": "e_in", "V_V": 1},
+    {"id": "drv", "type": "driver", "nodes": ["e_in", "gnd", "a_front", "a_rear"],
+     "record": "tymphany_hpd_40n16pet00_32", "model": "D1"},
+    {"id": "front", "type": "cavity", "nodes": ["a_front", "a_ear"], "radius_mm": 25, "depth_mm": 15},
+    {"id": "leak", "type": "leak", "nodes": ["a_ear", "ambient"], "enabled": "=leak_gap_mm > 0",
+     "perimeter_mm": 157, "depth_mm": 15, "gap_mm": "=leak_gap_mm"},
+    {"id": "ear", "type": "iec60318_4", "node": "a_ear"},
+    {"id": "cushion", "type": "shell", "nodes": ["a_front", "ambient"], "radius_mm": 25,
+     "mass_g": "=cup_mass_g", "resonance_Hz": "=cushion_resonance_Hz", "Q": "=cushion_Q"},
+    {"id": "rear", "type": "cavity", "node": "a_rear", "volume_cm3": 25},
+    {"id": "rear_wall", "type": "shell", "nodes": ["a_rear", "ambient"], "radius_mm": 25,
+     "profile": "plate", "thickness_mm": "=wall_thickness_mm", "density_kg_per_m3": 1050,
+     "resonance_Hz": "=wall_resonance_Hz", "Q": "=wall_Q"}
+  ],
+  "probes": [
+    {"id": "p_drp", "quantity": "pressure", "node": "ear.drp"},
+    {"id": "p_front", "quantity": "pressure", "node": "a_front"},
+    {"id": "zin", "quantity": "impedance", "element": "amp"}
+  ]
+}
