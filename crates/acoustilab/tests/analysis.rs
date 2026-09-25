@@ -415,6 +415,38 @@ fn drive_case(method: Method) {
 }
 
 #[test]
+fn a_parameter_that_only_scales_the_level_raises_no_kink_warning() {
+    // The template's driver is given by fs, Qms, Qes and Re, so Bl follows
+    // √Re at a fixed Qes and Re scales every response by a real factor
+    // (−10/ln 10/100 dB per % under the power drive; the phase does not
+    // move). The phase's one-sided differences then disagree by h·|g''|
+    // (with forward sensitivities also by the chord step's h² error),
+    // which is far above half its zero derivative but far below that of
+    // ln y: no kink. The level derivative is checked to show the premise.
+    let d = design_with(
+        &serde_json::from_str::<Value>(TEMPLATE).unwrap(),
+        &[("points_per_octave", num(8.0))],
+    );
+    for m in METHODS {
+        let j = sensitivity::jacobian(
+            &d,
+            &SensitivityOptions {
+                parameters: Some(vec!["driver_Re_ohm".into()]),
+                probes: Some(vec!["p_drp".into()]),
+                ..with_method(m)
+            },
+        )
+        .unwrap();
+        let p = j.parameter("driver_Re_ohm").unwrap();
+        assert!(p.warnings.is_empty(), "{m:?}: {:?}", p.warnings);
+        for (db, deg) in p.db_per_pct[0].iter().zip(&p.deg_per_pct[0]) {
+            assert!((db + DB_PER_PCT / 2.0).abs() < 1e-8, "{m:?}: {db}");
+            assert!(deg.abs() < 1e-8, "{m:?}: {deg}");
+        }
+    }
+}
+
+#[test]
 fn forward_sensitivities_agree_with_complete_solves() {
     // The template under every drive convention (the forward method applies
     // the drive factor itself), at L1 and L0. The two methods have
@@ -1010,11 +1042,37 @@ fn template_readouts_are_consistent_with_the_drive() {
         .unwrap();
     let spl = exact.probe("p_drp").unwrap().spl_db();
     assert!((resp.level_500 - spl[0]).abs() < 1e-12 && (resp.level_1k - spl[1]).abs() < 1e-12);
-    // The in-situ impedance peak and the coupled resonance are close.
+    // The template's damping cloth leaves the coupled resonance overdamped
+    // (impedance Qms about 0.56): the |v/i| maximum is robust but a few
+    // percent from the flat in-situ |Z| peak, inside that peak's half-power
+    // band.
     let z = r.impedance.as_ref().unwrap();
     let c = resp.coupled_resonance.as_ref().unwrap();
-    assert!((z.resonance.unwrap().f_hz / c.f_hz - 1.0).abs() < 0.01);
+    let q = z.q.as_ref().unwrap();
+    assert!(c.robust && q.qms < 1.0, "{c:?} {q:?}");
+    assert!(q.f1 < c.f_hz && c.f_hz < q.f2, "{c:?} {q:?}");
     assert!(z.rated_check.as_ref().unwrap().pass);
+    // Without the cloth the resonance is lightly damped (Qms above 5) and
+    // the in-situ impedance peak and the coupled resonance coincide.
+    let bare = Design::parse(
+        TEMPLATE,
+        &[("damping_rayl".to_string(), PValue::Num(0.0))]
+            .into_iter()
+            .collect(),
+    )
+    .unwrap();
+    let rb = readouts::readouts(&bare, &Default::default()).unwrap();
+    let (zb, cb) = (
+        rb.impedance.as_ref().unwrap(),
+        rb.response
+            .as_ref()
+            .unwrap()
+            .coupled_resonance
+            .as_ref()
+            .unwrap(),
+    );
+    assert!(zb.q.as_ref().unwrap().qms > 5.0);
+    assert!((zb.resonance.unwrap().f_hz / cb.f_hz - 1.0).abs() < 0.01);
     // A rated impedance given as an option overrides the drive key's.
     let r50 = readouts::readouts(
         &d,

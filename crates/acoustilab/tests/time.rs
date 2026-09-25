@@ -1074,36 +1074,67 @@ fn attribution_names_the_parameters_that_set_a_resonance() {
     assert!(s("R_ohm").dlnf_dlnp.abs() < 0.01);
 }
 
-/// The design template's resonances: the coupled resonance near 936 Hz is
-/// set by the diaphragm area (d ln f/d ln Sd ≈ +1, the air springs scale
-/// as Sd²), its mass (−1/2) and the cup radius (the front air spring, about
-/// 45 % of the total stiffness with the rear cavity: −0.45); the 11.6 kHz
-/// pole by the front depth (a depth half-wave: −1); a 7.1 kHz resonance
-/// that no parameter moves belongs to the parameter-free ear simulator.
+/// The design template's resonances. Its damping cloth leaves no resonant
+/// pole (Q >= 1, weight >= -20 dB) near the coupled resonance, which is
+/// overdamped; the front chamber's depth half-wave (8.75 kHz at 20 mm)
+/// goes to the front depth. It lies 1.25 times above the ear simulator's
+/// 7.0 kHz resonance, and the two interact: d ln f/d ln depth is -0.93, not
+/// -1, and the ear's resonance moves by -0.08 per unit ln depth.
+///
+/// Without the cloth and at a 15 mm depth the three resonances are apart:
+/// the coupled resonance near 890 Hz is set by the diaphragm area
+/// (d ln f/d ln Sd ≈ +1, the air springs scale as Sd²), its mass (-1/2) and
+/// the cup radius (the front air spring); the 11.56 kHz pole by the front
+/// depth (a depth half-wave: -1); and the 7.1 kHz resonance, which no
+/// parameter moves, belongs to the parameter-free ear simulator.
 #[test]
 fn design_template_attribution() {
     let text = example("design_over_ear.json");
     let p = Parametric::parse(&text).unwrap();
-    let ov = Overrides::new();
-    let c = Circuit::from_parametric(&p, &ov).unwrap();
     let opts = PoleFitOptions::default();
-    let fit = fit_probe(&c, "p_drp", &opts).unwrap();
-    let a = attribute_poles(&p, &ov, &fit, &opts, &SensitivityOptions::default()).unwrap();
-    let find = |f: f64| {
+    let attribute = |ov: &Overrides| {
+        let c = Circuit::from_parametric(&p, ov).unwrap();
+        let fit = fit_probe(&c, "p_drp", &opts).unwrap();
+        attribute_poles(&p, ov, &fit, &opts, &SensitivityOptions::default()).unwrap()
+    };
+    let find = |a: &acoustilab::time::poles::Attribution, f: f64| {
         a.poles
             .iter()
             .find(|q| (q.f_hz / f - 1.0).abs() < 0.03)
             .unwrap_or_else(|| panic!("no resonant pole near {f}: {:?}", a.poles))
+            .clone()
     };
-    let coupled = find(936.0);
+
+    let a = attribute(&Overrides::new());
+    assert!(a.poles.iter().all(|q| q.f_hz > 2000.0), "{:?}", a.poles);
+    let depth = find(&a, 8_750.0);
+    assert_eq!(depth.parameters[0].parameter, "front_depth_mm");
+    assert!((depth.parameters[0].dlnf_dlnp + 0.93).abs() < 0.05);
+    let ear = find(&a, 7_020.0);
+    assert!(ear.parameters[0].dlnf_dlnp.abs() < 0.1, "{ear:?}");
+
+    let bare: Overrides = [
+        (
+            "damping_rayl".to_string(),
+            acoustilab::expr::PValue::Num(0.0),
+        ),
+        (
+            "front_depth_mm".to_string(),
+            acoustilab::expr::PValue::Num(15.0),
+        ),
+    ]
+    .into_iter()
+    .collect();
+    let a = attribute(&bare);
+    let coupled = find(&a, 890.0);
     assert_eq!(coupled.parameters[0].parameter, "driver_Sd_cm2");
     assert!((coupled.parameters[0].dlnf_dlnp - 1.0).abs() < 0.05);
     assert_eq!(coupled.parameters[1].parameter, "driver_Mms_g");
     assert!((coupled.parameters[1].dlnf_dlnp + 0.5).abs() < 0.02);
-    let depth = find(11_570.0);
+    let depth = find(&a, 11_560.0);
     assert_eq!(depth.parameters[0].parameter, "front_depth_mm");
     assert!((depth.parameters[0].dlnf_dlnp + 1.0).abs() < 0.05);
-    let ear = find(7_100.0);
+    let ear = find(&a, 7_100.0);
     assert!(ear.fixed_elements.contains(&"ear".to_string()), "{:?}", ear);
 }
 

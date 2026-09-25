@@ -1,7 +1,7 @@
 {
   "schema": "acoustilab-netlist/0.2",
   "title": "Over-ear headphone: parametric design template (theory-only)",
-  "description": "A 40 mm dynamic driver in an over-ear cup. The front cavity is a cylinder between the driver and the ear, sealed by the pad except for a leak gap around its inner edge. The back of the driver sees either a closed rear cavity vented through holes that can carry a mesh, or an open grille. The ear load is the IEC 60318-4 simulator or the ITU-T P.57 Type 4.3 ear. Driver defaults are the Tymphany HPD-40N16PET00-32 primary set (docs/spec-errata.md E5); tolerances are datasheet values where stated and estimates otherwise. Geometry is illustrative, not a measured product.",
+  "description": "A 40 mm dynamic driver in an over-ear (circumaural) cup, closed-back by default, open-back as an option. Modelled: the front cavity as a cylinder between the driver and the ear, sealed by an impermeable (protein-leather) pad except for a leak gap around its inner edge; a damping cloth over the driver's rear openings, with the air space between it and the diaphragm; behind it either a closed rear cavity vented through holes that can carry a mesh, or an open grille radiating into the room; the ear load, the IEC 60318-4 simulator (a flat-plate fixture) or the ITU-T P.57 Type 4.3 ear. Anchors: driver defaults are the Tymphany HPD-40N16PET00-32 primary set (docs/spec-errata.md E5); the front volume (47.5 cm3) lies in the range published for circumaural cups (about 50 cm3 in Bose US 6,597,792; 62 and 79 cm3 with uncompressed pads in Focal US 12,513,448). Estimates: the pad and cup geometry, the rear volume, the vent and the damping cloth; tolerances are datasheet values where stated and estimates otherwise. Not modelled: the pinna and concha, a porous (velour) pad path, the front chamber's transverse modes and diaphragm break-up, so above about 1 kHz (where the shading starts) the curves are the lumped model's, not a prediction of a real cup. docs/templates.md gives the sources and what the defaults produce.",
   "ui": {
     "template": "over_ear",
     "primary_probe": "p_drp",
@@ -22,11 +22,13 @@
         "vent_diameter_mm": "vent_diameter_mm",
         "vent_length_mm": "vent_length_mm",
         "vent_mesh_rayl": "vent_mesh_rayl",
-        "grille_rayl": "grille_rayl"
+        "grille_rayl": "grille_rayl",
+        "damping_rayl": "damping_rayl"
       },
       "parts": {
         "driver": ["driver_fs_Hz", "driver_Qms", "driver_Qes", "driver_Re_ohm", "driver_Mms_g",
-                   "driver_Le_uH", "driver_Xmax_mm", "driver_rated_power_mW"]
+                   "driver_Le_uH", "driver_Xmax_mm", "driver_rated_power_mW"],
+        "damping": ["damping_area_cm2", "driver_back_volume_cm3"]
       }
     }
   },
@@ -59,11 +61,12 @@
     "driver_rated_power_mW": {"value": 10, "min": 1, "max": 1000, "step": 1, "log": true,
       "label": "Rated power", "group": "Driver", "advanced": true},
 
-    "front_radius_mm": {"value": 25, "min": 15, "max": 40, "step": 0.5,
+    "front_radius_mm": {"value": 27.5, "min": 15, "max": 40, "step": 0.5,
       "label": "Cup inner radius", "group": "Front cavity",
-      "description": "Radius of the cylindrical space between the driver and the ear; also the pad's inner edge, which sets the leak perimeter."},
-    "front_depth_mm": {"value": 15, "min": 3, "max": 40, "step": 0.5,
+      "description": "Radius of the cylindrical space between the driver and the ear; also the pad's inner edge, which sets the leak perimeter. 27.5 mm (a 55 mm opening) is an estimate for a pad that fits around an adult pinna."},
+    "front_depth_mm": {"value": 20, "min": 3, "max": 40, "step": 0.5,
       "label": "Driver-to-ear depth", "group": "Front cavity",
+      "description": "Distance from the diaphragm to the head or fixture plate with the pad compressed (estimate). With the default radius the front volume is 47.5 cm3, within the published range for circumaural cups (docs/templates.md).",
       "tolerance": {"abs": 0.3, "source": "estimate (pad compression)"}},
     "front_volume_cm3": {"expr": "pi * front_radius_mm^2 * front_depth_mm / 1000",
       "label": "Front volume", "group": "Front cavity"},
@@ -83,6 +86,16 @@
       "label": "Back of the driver", "group": "Rear"},
     "open_back": {"expr": "rear == 'open'",
       "label": "Open back", "group": "Rear", "advanced": true},
+    "damping_rayl": {"value": 600, "min": 0, "max": 5000, "step": 10,
+      "label": "Damping cloth behind the driver (0 = none)", "group": "Rear",
+      "description": "Specific flow resistance, MKS rayl, of the felt or non-woven cloth over the driver's rear openings, between the diaphragm and the rear cavity or grille. It damps the resonance of the diaphragm on the cup's air springs; at 600 rayl it overdamps it, and the value sets the response from 300 Hz to 2 kHz (docs/templates.md). 600 rayl is the engineered-textile grade of the materials database (textile_acoustic_600, unverified); the value for a given product is not public.",
+      "tolerance": {"rel": 0.2, "source": "estimate (felt and non-woven; meshes are held to 10-15 %)"}},
+    "damping_area_cm2": {"value": 2, "min": 0.2, "max": 10, "step": 0.1,
+      "label": "Open area under the damping cloth", "group": "Rear", "advanced": true,
+      "description": "Total area of the driver's rear openings that the cloth covers (estimate). The acoustic resistance is the cloth's rayl value over this area."},
+    "driver_back_volume_cm3": {"value": 1, "min": 0.1, "max": 5, "step": 0.05,
+      "label": "Air space behind the diaphragm", "group": "Rear", "advanced": true,
+      "description": "Volume between the diaphragm and the driver's rear openings, inside the driver frame (estimate). Without a damping cloth it opens straight into the rear cavity or grille."},
     "rear_volume_cm3": {"value": 25, "min": 2, "max": 150, "step": 0.5, "log": true,
       "label": "Rear cavity volume", "group": "Rear",
       "tolerance": {"rel": 0.03, "source": "estimate (moulding)"}},
@@ -131,11 +144,12 @@
     {"id": "a_front", "domain": "acoustic"},
     {"id": "a_ear", "domain": "acoustic"},
     {"id": "a_rear", "domain": "acoustic"},
+    {"id": "a_back", "domain": "acoustic", "enabled": "=damping_rayl > 0"},
     {"id": "a_grille", "domain": "acoustic", "enabled": "=rear == 'open'"}
   ],
   "elements": [
     {"id": "amp", "type": "vsource", "node": "e_in", "V_V": 1, "Zs_ohm": "=source_impedance_ohm"},
-    {"id": "drv", "type": "driver", "nodes": ["e_in", "gnd", "a_front", "a_rear"], "model": "D1",
+    {"id": "drv", "type": "driver", "nodes": ["e_in", "gnd", "a_front", "=if(damping_rayl > 0, 'a_back', 'a_rear')"], "model": "D1",
      "fs_Hz": "=driver_fs_Hz", "Qms": "=driver_Qms", "Qes": "=driver_Qes", "Re_ohm": "=driver_Re_ohm",
      "Mms_g": "=driver_Mms_g", "Sd_cm2": "=driver_Sd_cm2", "Le_uH": "=driver_Le_uH",
      "Xmax_mm": "=driver_Xmax_mm", "rated_power_mW": "=driver_rated_power_mW"},
@@ -145,6 +159,10 @@
      "perimeter_mm": "=leak_perimeter_mm", "depth_mm": "=pad_width_mm", "gap_mm": "=leak_gap_mm"},
     {"id": "ear", "type": "iec60318_4", "node": "a_ear", "enabled": "=ear == 'iec60318_4'"},
     {"id": "ear", "type": "type43", "node": "a_ear", "enabled": "=ear == 'type43'"},
+    {"id": "back", "type": "cavity", "node": "=if(damping_rayl > 0, 'a_back', 'a_rear')",
+     "volume_cm3": "=driver_back_volume_cm3"},
+    {"id": "damping", "type": "mesh", "nodes": ["a_back", "a_rear"], "enabled": "=damping_rayl > 0",
+     "R_s_rayl": "=damping_rayl", "area_cm2": "=damping_area_cm2"},
     {"id": "rear", "type": "cavity", "node": "a_rear", "volume_cm3": "=rear_volume_cm3",
      "max_distance_mm": "=hypot(front_radius_mm, rear_depth_mm)", "enabled": "=rear == 'closed'"},
     {"id": "vent", "type": "vent", "nodes": ["a_rear", "ambient"],

@@ -923,9 +923,7 @@ impl PorousLayer {
     pub fn abcd(&self, air: &AirState, omega: f64) -> [C64; 4] {
         let (g, zc) = self.model.propagation(air, omega);
         let zc = zc / self.area;
-        let gl = g * self.thickness;
-        let (ch, sh) = (gl.cosh(), gl.sinh());
-        [ch, zc * sh, sh / zc, ch]
+        thermoviscous::line_abcd(g * self.thickness, zc)
     }
 
     /// Lumped (L0) series impedance jωρ_eq·t/A: flow resistance and

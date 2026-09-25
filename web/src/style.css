@@ -854,6 +854,24 @@ figure.plot canvas {
   stroke-width: 3;
   stroke-dasharray: 3 3;
 }
+/* Sketch parts of the on-ear and in-ear kinds (schematic shapes carry a
+   dashed outline as well as their fill). */
+.sk-pinna,
+.sk-tip {
+  fill: var(--sk-pad);
+  stroke: var(--sk-line);
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+}
+.sk-damping {
+  fill: url(#sk-meshp);
+  stroke: var(--sk-line);
+  stroke-width: 0.75;
+}
+.sk-leak-path {
+  fill: none;
+  stroke: var(--sk-leak);
+}
 .sk-axis {
   stroke: var(--ink-2);
   stroke-width: 1;
@@ -1415,6 +1433,37 @@ svg.has-glow .sk-part:not(.glow) {
 
 #validity-table {
   overflow-x: auto;
+}
+
+/* ----- parameters the design does not use (parameters() "active": false) ----- */
+
+/* Dimmed by colour, not opacity, so every text keeps its AA contrast. */
+.prow.inactive .plabel,
+.prow.inactive .pnum,
+.prow.inactive .punit,
+.prow.inactive .seg span,
+.prow.inactive .pselect,
+.prow.inactive .pswitch {
+  color: var(--ink-2);
+}
+.prow.inactive .pslider {
+  accent-color: var(--control-border);
+}
+.prow.inactive .pnum,
+.prow.inactive .seg span,
+.prow.inactive .pselect {
+  border-style: dashed;
+}
+.pinactive {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 6px;
+  border: 1px dashed var(--control-border);
+  border-radius: 8px;
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 400;
+  white-space: nowrap;
 }
 .validity-details .data-table td:nth-child(2) {
   min-width: 16em;

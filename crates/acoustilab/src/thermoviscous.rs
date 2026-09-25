@@ -112,9 +112,24 @@ pub fn propagation(section: &Section, air: &AirState, omega: f64) -> (C64, C64) 
 /// Transfer matrix of a uniform duct of the given length.
 pub fn abcd(section: &Section, air: &AirState, omega: f64, length: f64) -> [C64; 4] {
     let (gamma, zc) = propagation(section, air, omega);
-    let gl = gamma * length;
+    line_abcd(gamma * length, zc)
+}
+
+/// Real part of Γl above which a line is opaque to double precision.
+pub const OPAQUE_ATTENUATION: f64 = 300.0;
+
+/// Transfer matrix [[cosh Γl, Z_c sinh Γl], [sinh Γl / Z_c, cosh Γl]] of a
+/// uniform line.
+///
+/// For Re Γl > 710 cosh and sinh overflow. Beyond Re Γl = 300 the line
+/// transmits e^{−300} ≈ 5e-131 of its input, and its input admittance is
+/// coth(Γl)/Z_c = 1/Z_c to within e^{−600}; holding Re Γl at 300 there keeps
+/// the entries finite and changes nothing a double can represent. The MNA
+/// stamp uses the admittance form for such entries (`Mna::two_port_abcd`).
+pub fn line_abcd(gl: C64, zc: C64) -> [C64; 4] {
+    let gl = C64::new(gl.re.min(OPAQUE_ATTENUATION), gl.im);
     let (ch, sh) = (gl.cosh(), gl.sinh());
-    [ch, zc * sh, sh / zc, ch]
+    [ch, zc * sh, sh.fdiv(zc), ch]
 }
 
 /// Series impedance of a duct treated as lumped (L0): jωρ_eff·l/S, i.e. the

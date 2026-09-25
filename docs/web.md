@@ -30,8 +30,13 @@ web/
     plot.ts, series.ts    Canvas 2D plots, plot groups, overlays
     warnings.ts           warnings panel
     baselines.ts          frozen baselines
+    readouts.ts           readouts block of the Response tab (own worker)
     engine.ts, worker.ts  worker client (coalesced calls) and the worker
-  tests/                  Playwright tests (smoke, design mode, scanner)
+    views/                result views (below): registry, parameter table,
+                          sensitivity, tolerance and target views, and their
+                          shared pieces (analysis-ui.ts, analysis.css)
+  tests/                  Playwright tests (smoke, design mode, templates,
+                          scanner, views, analysis views)
   dist/                   production build (not committed)
 ```
 
@@ -205,6 +210,19 @@ serde_json does not.
   the focus to the page in Chromium).
 - **Help**: `description` is behind a "?" button (and linked to the control
   with `aria-describedby`).
+- **Parameters the design does not use.** `parameters()` reports `active:
+  false` for a parameter whose value does not reach the resolved netlist
+  (docs/parameters.md, "Which parameters matter"): the vent sizes with an
+  open back, the grille with a closed one. Its row stays where it is and
+  stays operable, but is dimmed (label and entry in the secondary ink,
+  dashed entry border, grey slider; by colour, not opacity, so the text
+  keeps its contrast) and shows "not used by this design" beside its label.
+  The same words are added to the accessible description of its controls
+  while they apply; the accessible name stays the label. The mark follows
+  every new description of the text, updated in place (the rows are never
+  rebuilt for it). `active: null` (a netlist that does not resolve) marks
+  nothing, and derived values are not marked (they are not controls; the
+  Parameter table view says which of them the netlist reads).
 - **Show detailed parameters** also shows the `advanced` parameters, each
   parameter's name, its tolerance ("±15 % (normal, 2σ), datasheet (...)"),
   derived expressions, and a "Show in netlist" button that selects the
@@ -226,24 +244,47 @@ serde_json does not.
 
 ### Cross-section sketch
 
-`sketch.ts` draws an SVG section through the cup axis from the resolved
-parameter values, bound by the netlist's `ui.sketch` block (below): the
-front cavity (radius, depth, volume), the diaphragm spanning its effective
-diameter, the pads with the leak gap under them, the closed rear cavity with
-its wall and vents (a hatch over each vent when it has a mesh) or the open
-grille, and the ear-load surface with its label. Dimensions are labelled in
-millimetres, with a scale bar. Nothing is invented: a slot left unbound is
-not drawn. Every dimension is to scale (the tests check the front and rear
-cavities, pad, diaphragm and vent widths against the parameters) except what
-the caption lists: the leak gap (tenths of a millimetre, drawn 3 to 10 px
-high with its true value, and labelled "drawn enlarged" only when that is
-larger than to scale), the positions of the vents along the section, and
-symbols that carry no dimension: the diaphragm's dome, the side walls (drawn
-as thick as the vented top wall, `vent_length_mm`), the open-back grille's
-height above the driver, and the head surface. The scale covers the template's
-geometry, so it stays put while you edit and only zooms out when the design
-grows beyond it; the sketch's height depends only on the panel width, so the
-controls below it never move during a drag.
+`sketch.ts` draws an SVG section of the design from the resolved parameter
+values, bound by the netlist's `ui.sketch` block (below). Its `kind` picks
+the drawing:
+
+- `over_ear`: a section through the cup axis, the head at the bottom: the
+  front cavity (radius, depth, volume), the diaphragm spanning its effective
+  diameter, the damping cloth behind it, the pads with the leak gap under
+  them, the closed rear cavity with its wall and vents (a hatch over each
+  vent when it has a mesh) or the open grille, and the ear-load surface with
+  its label.
+- `on_ear`: the same cup resting on the compressed pinna, with the concha
+  opening under the front chamber; the leak slit is drawn under one pad, as
+  deep as the modelled slit from the pad's inner edge, and
+  the rear cavity is as wide as the cup (`cup_radius_mm`), wider than the
+  front chamber.
+- `in_ear`: a section along the earphone's axis, the ear on the right: the
+  vents through the back wall, the rear volume, the damping and the air
+  space behind the diaphragm, the diaphragm, the front volume, the nozzle
+  bore (a hatch at its outlet when it has a mesh), the ear tip, the canal
+  bore of the ear load, and the leak tube past the tip. The tube keeps its
+  diameter and length to scale along a schematic route: through the tip, out
+  along the ear's surface and on under the earphone.
+
+Dimensions are labelled in millimetres, with a scale bar. Nothing is
+invented: a slot left unbound is not drawn. Every dimension is to scale (the
+tests check the drawn lengths against the parameters) except what the
+caption lists for the kind, which the text alternative repeats. Over- and
+on-ear: the leak gap (tenths of a millimetre, drawn 3 to 10 px high with its
+true value, and labelled "drawn enlarged" only when that is larger than to
+scale; on-ear, its position too), the positions of the vents along the
+section, and symbols that carry no dimension: the diaphragm's dome, the side
+walls (drawn as thick as the vented top wall, `vent_length_mm`), the damping
+cloth's thickness, the open-back grille's height above the driver, the head
+surface, and on-ear the pinna and concha. In-ear: the shell and nozzle walls,
+the ear tip, the length of canal shown, the vent positions, the dome and the
+damping's thickness. The scale covers the template's geometry, so it stays
+put while you edit and only zooms out when the design grows beyond it; the
+sketch's height depends only on the panel width, so the controls below it
+never move during a drag. Labels are kept inside the drawing; in-ear labels
+sit on rows above and below it, the leftmost part on the row farthest from
+the drawing, so no leader crosses a label.
 
 Pointing at or focusing a control glows the parts it drives, directly or
 through derived parameters (the rear depth follows the cup radius at fixed
@@ -300,6 +341,49 @@ The text alternative lists every dimension the drawing shows.
   difference plot shows live minus baseline SPL under the SPL plot. The data
   table lists baseline values where the grids agree. Baselines live in the
   page only.
+- **Readouts** (`readouts.ts`, above the crosshair readout): the engine's
+  `readouts` export (docs/analysis.md, "Readouts") for the text the plotted
+  result was solved from, at the stated drive: the coupled resonance
+  (marked "ambiguous" when another |v/i| peak lies within 3 dB, "not robust"
+  when it is not prominent, with the competing peak and any validity band
+  named), the in-situ |Z| peak (and the highest, when there are several),
+  Qms · Qes · Qts in situ ("not estimated" when the resonances overlap,
+  "indicative" when the engine notes that the resonance is not isolated:
+  several |Z| peaks, or √(f1·f2) off the peak),
+  |Z| at 1 kHz, the minimum |Z| with the rated-impedance check (pass, or
+  the ranges below 80 % of rated), the sensitivity in dB/mW at 500 Hz and
+  1 kHz with dB/V beside it (dB/V only without a rated impedance, erratum
+  E32), the bass extension with its reference level ("beyond the sweep"
+  when there is none) and the first driver's free-air fs, Qts, Qms, Qes and
+  Re. Each value has its unit and the short name of its method; the
+  engine's notes (why a value is missing) are under "Engine notes (n)", and
+  its method texts, with the probes it read, under "Probes and methods".
+  With a baseline as the Δ reference, every readout shows its change
+  against the baseline's readouts, computed from the baseline's netlist
+  text ("n/a" where either side has no value, e.g. an ambiguous
+  resonance). A Δ compares like with like: when either design has no
+  rated impedance (a baseline frozen under another drive), the
+  sensitivity's Δ is of dB/V, never a dB/V against a dB/mW (that would
+  add 10·log10(1000/Z_rated), 15 dB at 32 Ω). The block has its own worker, and its calls are coalesced
+  like the solves: at most one in flight, only the newest text queued, so
+  a drag never queues readouts. Until the readouts of the plotted text
+  arrive, the previous numbers stay in the secondary ink under "Updating
+  for the current design…", never shown as current.
+
+  The block sits above the plots and its readouts land after them, so its
+  height depends only on the width and on whether a baseline is the Δ
+  reference, never on the design: the same eight cells every time (a dash,
+  pointing to the notes, where a design has no such readout or the
+  readouts failed, placeholders before the first readouts), a status of
+  one line (two, on a row of its own, below 600 px), a line for the flag
+  in the three readouts that can carry one (coupled resonance, Q, rated
+  check), kept empty otherwise, and a qualifier line per cell clamped to
+  two lines on screen. "All readouts in full" lists every cell's whole
+  text, unclamped (the clamped text also stays in the page, for screen
+  readers, and in a tooltip). The plots below never move when readouts
+  land. When a run fails, the readouts of the last result are dimmed with
+  the plots. "Hide" folds the block (remembered per browser); it is open
+  by default.
 - **Crosshair.** Pointer or keyboard; it snaps to the nearest computed
   frequency (no interpolation) and reads every visible curve, with the phase
   for impedances, the dB difference between pressure curves and against the
@@ -343,6 +427,8 @@ everything through its `ViewHost`:
 | `cancel()` | terminates the view's worker, cancelling its running call |
 | `setParameters(values)` | writes parameter values into the netlist text as the design controls do, then re-solves |
 | `announce(text)` | a polite live-region message |
+| `highlight(range)` | picks out `{lo, hi, label}` on the Response plots as a selected warning does (null clears it); the next solve's warnings replace it |
+| `focusParameter(name)` | shows the Design tab and focuses the parameter's control |
 
 The worker's `call` operation reaches every export except the lifecycle and
 test hooks (`default`, `initSync`, `take_last_panic`).
@@ -353,11 +439,382 @@ with its value, the loaded template's value, and whether the netlist uses it
 with an open back, is marked unused), plus the resolved elements
 (`meta.elements`).
 
+#### Analysis views
+
+The Sensitivity, Tolerance and Target views (`sensitivity.view.ts`,
+`tolerance.view.ts`, `target.view.ts`, with their helpers `sensitivity-*.ts`,
+`tolerance-histogram.ts`, and the shared `analysis-ui.ts`,
+`analysis-types.ts`, `analysis.css`) show the engine's analyses of the
+design on the Response tab: the text the plotted result was solved from,
+not text still being edited. They share these rules:
+
+- Every number and sentence is the engine's (docs/analysis.md,
+  docs/targets.md). The views add labels, units, method descriptions taken
+  from those documents, and the plain words of the target flags; nothing
+  that claims a cause.
+- Long jobs run on the view's own worker (`ViewHost.call`), split into
+  bounded calls, with a progress bar and a Cancel button, which terminates
+  that worker (the next call starts a fresh one). The live solve is never
+  delayed. A cancelled run keeps the previous results and says so.
+- Results computed for an earlier design are **stale**: a banner says so,
+  with a one-click **Recompute**, and the output gets a dashed rule and
+  faded graphics (text keeps its contrast). They are never shown as the
+  current design's. The Target view recomputes by itself (one call,
+  coalesced).
+- Every chart has a text alternative, a numeric crosshair readout
+  (keyboard moves are announced) and a data table; colour is never the only
+  carrier (bars carry their values as text and sit in fixed positions,
+  bands have distinct edge patterns and a legend, greyed scores say
+  "greyed").
+
+**Sensitivity.** Choose a pressure probe (default `ui.primary_probe`) and
+the parameters (a checklist; default: every continuous parameter the design
+uses whose value is not zero, since a relative step of zero is undefined),
+then "Run sensitivity analysis". It computes, in order:
+
+1. the **sensitivity map**, `sensitivity` with `method:
+   "forward_sensitivity"` (the base factorisation is reused; the engine
+   checked it against complete solves to 4e-8 of each parameter's largest
+   sensitivity in the credible band, docs/analysis.md), four parameters per
+   call for progress;
+2. the **tornado chart** of the chosen metric, `tornado`: the level at a
+   frequency (default 1 kHz), the mean level over a band, or a scalar
+   readout (coupled resonance, bass extension, Q, ...; a readout is split
+   into calls of three parameters and the rows merged in the engine's order);
+   "Update tornado" recomputes only the tornado, for the same design
+   (disabled while the results are stale; Recompute runs everything);
+3. the **explain sentences**, `explain` with the probe and parameters.
+
+The explain panel comes first: each sentence as the engine wrote it, with a
+link to its parameter's control ("Go to …", `focusParameter`) and a button
+per band the sentence states (the others under "n more bands"). A band
+button marks the band on the map and, through `ViewHost.highlight`, on the
+Response plots, and puts the map's crosshair on the parameter's row at the
+band's largest change; pressing it again clears the mark, and so does a new
+design (its solve replaces the mark on the Response plots). Parameters below
+the threshold or beyond the top five are listed with their largest change,
+and skipped parameters with the engine's reason.
+
+The map has a row per parameter (its label) and a column per grid
+frequency on a log axis. The colour is dB per % on a diverging scale: warm
+for a level that rises as the parameter rises, cool for one that falls,
+neutral grey at zero (two arms of equal OKLab lightness through a grey
+midpoint, own tokens `--div-neg`, `--div-mid`, `--div-pos` per theme),
+symmetric about zero. By default the scale spans the largest magnitude in
+the unshaded band and larger values saturate (sensitivities next to a
+lightly damped resonance in the shaded band would otherwise wash out the
+rest); the legend's ends then read "≤" and "≥" and its text says so. "Fit
+the whole sweep" spans them all. The mapping is linear by default; "square
+root" sets the colour's distance from grey to the square root of the
+value's share of the scale, so small sensitivities show (on the template,
+the coil resistance's −0.043 dB/% is 8 % of the way to the end colour
+linearly, 28 % with the square root). The legend's five ticks give the
+values at the ends, half-way and zero under the chosen mapping. The validity shading is marked as on the plots: the strip
+above the map has the plots' fills and labels, the band edges are dashed
+through the map, and shaded columns are hatched (denser in the dark band)
+rather than tinted, so their colours stay readable. A marked band has solid
+edges and a bar in the strip, with no tint over the cells. The crosshair
+reads a cell in numbers (parameter, frequency, value, grid point, validity
+band). Scheme notes (one-sided differences at a bound), the engine's
+per-parameter warnings and its exclusions are listed under the map.
+
+The tornado chart puts each parameter's low-end bar in the upper half of
+its row and the high-end bar in the lower half, so they never cover each
+other, each labelled with its change; under each label, its range: the
+tolerance ("±5 % (normal, 2σ)") or "assumed ±10 %", clipping at a bound and
+a topology change. Rows are the engine's order (largest change first).
+Below 520 px the labels sit above the bars.
+
+**Tolerance.** Choose the probe (pressures and impedances), the number of
+runs N (default 200, at most 5000 here; the engine allows 100 000) and the
+seed (shown and editable; "New seed" draws one below 2³¹), then "Run Monte
+Carlo": `mc_plan` (a Latin hypercube over every continuous parameter with a
+tolerance), `mc_run` in calls of 20 runs with the pressure and impedance
+probes and the readouts, then `mc_envelope` over all runs. The same seed
+gives the same runs on every platform (docs/analysis.md). The view shows:
+
+- the envelopes of the chosen probe around the nominal curve (the plotted
+  design): median (dashed), 10–90 % (solid edges), 5–95 % (dashed edges)
+  and min–max (dotted edges), as filled bands on a `PlotPanel`, with a
+  legend, crosshair readout, the validity shading and a data table. A
+  spread of a few dB is invisible on a level axis of 80 dB, so a second
+  plot draws the same statistics minus the nominal (dB; for an impedance,
+  relative to it in %: a percentile of the runs minus a fixed value is
+  that value's percentile minus it, so the engine's statistics transform
+  exactly), with its axis fitted to the unshaded band (`PlotGroup.
+  fitUnshaded`): on the template a sharp resonance near 11 kHz, in the
+  dark shading, spreads by tens of dB and runs off it, as the plot says.
+  The probe choice lists the probes of the runs on screen (after a run of
+  another netlist, that run's);
+- the runs, failures, the plan, the clipped-sample count and the
+  percentile method;
+- the varied parameters: nominal, distribution (normal and log-normal at
+  2σ, uniform full width), bounds, clipped samples and source, and "not
+  used by this design" where the parameter is inactive;
+- every readout over the runs (median, 10–90 %, 5–95 %, min–max and how
+  many runs have it: a readout can be undefined for a run, e.g. an
+  ambiguous coupled resonance), and a histogram of one of them (equal bins
+  of the runs that have it, the engine's median and 5 / 95 % points
+  marked; the bin counts in a table);
+- the design-of-experiments table as CSV (`mc_csv`): run, reproducibility
+  hash, engine, the sampled parameters, every readout and the error.
+
+The runs' curves and readouts stay in the page (about 6 MB of JSON for 200
+runs of the template with four probes).
+
+**Target.** Choose a target (`targets_list`, grouped, the recommended one
+first; imported ones under "Imported (this page only)"), the pressure probe
+and the smoothing (none, 1/48 to 1/3 octave). The view calls
+`probe_fixture` for the response's fixture (inferred from the ear load)
+and `target_metrics` with the solve result, and shows:
+
+- first, the **fixture rule**: "Same fixture", "Same ear simulator,
+  different pinna, head or canal extension", "Fixture mismatch" or
+  "Response fixture unknown", with both fixtures, the engine's flag message
+  and the rule itself (docs/targets.md);
+- the target's provenance class (with its meaning), licence, source, DOI,
+  URL, attribution, valid range and flags (with their meanings);
+- the response and the target, both 0 dB at 500 Hz, with the target's
+  preference band, and the error in a second plot, on the report's grid,
+  with crosshair and data table;
+- the error statistics per band (RMS, SD, slope in dB per octave, mean,
+  mean |e|, largest |e| and where), each with its band, the range used and
+  whether it is partial, and BS.708 and preference-band compliance with
+  the worst excursion;
+- the preference scores, each with its value and state: "applies", or
+  "greyed: not a valid prediction here" before the value, which is then
+  not set in bold, with the greying flags in a few words followed by the engine's
+  message ("fixture differs from the model's training fixture: the
+  response is on 'iec60318_4'; …"), then the notices (simulated,
+  coupler-extrapolated, outside the 0–100 scale); formula, variables, fit
+  and source under a disclosure;
+- the report's flags.
+
+"Import a target curve (CSV)" reads a file or pasted text with
+`import_target_csv`; the fixture is required, from the file's `# fixture:`
+tag or chosen beside it, and a refusal shows the engine's message.
+
+#### Time, Isolation and Fit views
+
+Three views run the engine's time-domain, isolation and fitting exports
+(docs/time-domain.md, docs/isolation.md, docs/fitting.md) on the view's own
+worker, for the netlist as last solved (a note says so when the text has
+been edited since). They share `views/measure-kit.ts` and
+`views/measure.css`:
+
+- **Figures.** A figure is a plot panel with its view buttons, a legend
+  (show or hide each curve), a crosshair readout above the plots (moves
+  made with the keyboard are announced through `announce`) and a data
+  table of the values in view (at most 1000 rows, with a validity column on
+  frequency axes). Frequency figures are `PlotPanel`s of `plot.ts`, with the
+  validity shading of the result the numbers come from; time figures use
+  `views/time-plot.ts` (below).
+- **Calls.** Reports that follow the design are requested when the tab is
+  shown and whenever the solved text or an option changes; as for the live
+  solve, at most one call per kind is in flight and only the newest request
+  waits. A status line with a progress bar, the elapsed time and Cancel
+  shows while they run. A cancel terminates the view's worker (the only way
+  to stop a wasm call); reports another job's cancel interrupted are
+  requested again.
+- **Jobs** (attribution, fit, suggestion) have their own status line: a
+  determinate bar when the job knows its length, else an indeterminate one.
+- **Focus.** Re-rendering a section (a curve card, the Apply table, the
+  pole table) keeps the keyboard focus on the same control, else on the
+  section's heading.
+- Read-only test hooks: `window.acoustilabViews.time`, `.isolation`, `.fit`.
+
+**Time** (`time.view.ts`, `time-plot.ts`, `time-wav.ts`): the `impulse` and
+`vector_fit` exports for one probe.
+
+- Options: the probe (default: the engine's choice, `ui.primary_probe`,
+  else the first pressure probe), N (4096, 8192, 16 384: the export's
+  limit), the sample rate (48 or 96 kHz), the fit order (1–80, default 30)
+  and removal of the pure delay from the mixed-phase response
+  (`align_delay`). A summary line states the probe's unit and drive, N, fs,
+  the buffer's length and start, the bin spacing, the solved band and the
+  continuation above it.
+- **Phase decision** (Section 16): mode, the largest excess group delay and
+  where, the pure-delay estimate, the largest excess less the pure delay,
+  the threshold, the trusted band and its bins, the polarity, and the fit's
+  right-half-plane zeros in the decision band.
+- **Impulse length (E46)**: the causal half N/(2·fs), the binding and the
+  lowest resonant pole with the length each needs, whether N covers them,
+  the recommended N (a button sets it when the export allows it), the DC
+  tail (`dc_tail`), the late energy of both phases, the energy above the
+  solved band and "causal to −80 dB". The engine's `time_axis` and
+  `scaling` sentences are in a disclosure.
+- **Impulse, step and energy-time curve** on a linear time axis
+  (`time-plot.ts`): minimum and mixed phase as two curves, the decision's
+  mode drawn heavier and tagged in the legend (which hides either). The
+  plots behave as `plot.ts` does: theme tokens, a crosshair with markers,
+  the same keys (arrows by a sample, Shift by ten, +/−, Ctrl+arrows, 0,
+  Esc, Home/End), drag to zoom, double-click to reset. Views: the peak from
+  −2 to +20 ms (default) and the whole buffer. The energy-time axis spans
+  at most 120 dB below its top (the engine floors the curve at −300 dB). A
+  view with more samples than pixels is drawn as each pixel column's
+  minimum and maximum, which keeps every oscillation's envelope.
+- **Excess group delay** of the uniform grid (bin 0 left out) with lines at
+  ± the threshold drawn over the trusted band only, and the **group delay
+  of the rational fit** (`group_delay_s` on the solve's grid) with the fit's
+  order, band, iterations and errors, both on the log-frequency axis with
+  the validity shading.
+- **Poles, zeros and Q**: every pole with its frequency, pair or real, Q,
+  T60, weight, in band and resonant (resonant rows bold); "Mark" picks out
+  the pole's frequency on both frequency plots (a narrow highlighted range
+  with a label; `aria-pressed`). The zeros with their half-plane are in a
+  disclosure.
+- **Attribution** on request: `vector_fit` with `attribute: true` as a job
+  with Cancel. The export makes one call of it (a re-fit per continuous
+  parameter, about 0.6 s for the template), so its progress bar is
+  indeterminate. Per resonant pole: the parameters that move it most with
+  d ln f/d ln p, d ln Q/d ln p and the elements that use them, or the
+  elements with fixed values when no parameter moves it; the perturbed and
+  skipped parameters with the reasons are in a disclosure. A new design or
+  option clears it.
+- **WAV**: the impulse response of the decision's phase (or either phase)
+  as 32-bit IEEE-float WAV in the layout of the engine's writer
+  (`crates/acoustilab/src/time/wav.rs`: a `fmt ` chunk of 18 bytes with
+  tag 3 and a `fact` chunk). The wasm build does not export that writer,
+  so `time-wav.ts` writes the same bytes. Normalised to a peak of 1 as
+  `acoustilab ir --wav` does, or raw. The file starts at t0 (the
+  pre-samples hold negative times); the note under the button states the
+  first sample's time and the gain.
+
+**Isolation** (`isolation.view.ts`): the `isolation` export.
+
+- Options: the drum-point probe (default `ui.primary_probe`), the ear
+  entrance node (default: inferred), per-path contributions (on), and the
+  bleed at 0.3 m and 1 m (off; on request).
+- The engine's convention statement (`convention`) is shown as it is, at
+  the top, with the outside pressure (1 Pa, in phase at every ambient
+  terminal). The transformation's warnings (`undriven_path`, `no_ambient`,
+  ...) are listed with their code and element.
+- A summary over the 1/3-octave bands (ETSI TS 103 640, 5.1.1: the largest
+  loss and its band, the bands with at least 6 dB, the mean) and the ear
+  (drum probe and node, entrance, ear-load elements, driven paths). The
+  engine's `range_6dB_Hz` runs from the lowest to the highest band with at
+  least 6 dB; bands between them with less are named with their loss.
+- One figure: the insertion loss (in phase, and with the paths added in
+  power when there are two or more) with the GRAS 45CA self-insertion loss
+  drawn as a limit (its stated lower bounds over their bands; legend tag
+  "limit"); each path's contribution in dB re the open-ear drum pressure;
+  the open and occluded drum SPL for 94 dB outside. Under it, the fixture
+  record's source and the frequencies where the prediction exceeds the
+  bound, grouped into ranges of consecutive grid points.
+- The 1/3-octave bands as a table with bars: nominal and exact centre
+  frequency, IL, a bar from 0 dB, and the fixture's bound for that nominal
+  band (the datasheet's "80 Hz" is the band centred on 79.4 Hz). A bar above
+  the bound is hatched and its row says "(exceeded)".
+- Bleed: the SPL at each distance and the same curves ±`band_dB` (dashed
+  and dotted, in the distance's colour), with the drive and the engine's
+  model statement.
+
+**Fit** (`fit.view.ts`, `fit-curves.ts`, `fit-report.ts`): the measurement
+round trip of spec Section 12 with `import_curve`, `export_curve`,
+`compare_curves`, `probe_curve`, `fit`, `virtual_measure` and
+`curve_uncertainty`.
+
+- **Import**: "Choose files…" or drag and drop onto the drop zone (files
+  dropped elsewhere on the view are refused, not opened by the browser). FRD,
+  ZMA, REW text (`.txt`, `.dat`), CSV, or a curve document (JSON), each
+  paired by name with its `FILE.sidecar.json`; a sidecar dropped alone
+  applies to the loaded curve of that name. The format follows the
+  extension as the engine's `Format::from_path` does, unless chosen; the
+  quantity comes from the file unless chosen. A curve document is put in
+  the engine's canonical form through a lossless CSV. Files that cannot be
+  read are listed with the file name, the engine's message and the
+  offending line quoted.
+- **Each curve** has a card: its origin (a "VIRTUAL RIG · synthetic, not
+  measured" badge, a marked card and a "(virtual rig)" series name for
+  virtual-rig data: a sidecar with origin `virtual_rig`, or a file whose
+  comments carry the view's virtual-rig mark or the engine's REW
+  "Source: virtual rig" line, so a rig file read without its sidecar is
+  still labelled), what its sidecar states, and its fit settings: the
+  probe it is compared with (probes of the same quantity; default the
+  rig's probe, else `ui.primary_probe`), weight, phase (default: fitted for
+  impedance, displacement and velocity, not for pressure), level offset,
+  measurement condition (`name=value` overrides, e.g. an added mass) and
+  whether it is used. "Edit sidecar" opens a form over the common fields
+  (fixture, simulator, reference point, calibration, seatings, averaging,
+  smoothing, compensation, drive, source impedance, constant uncertainty
+  terms); fields it does not show are kept. The form and "Load sidecar
+  JSON…" re-read the curve through `import_curve`, so the engine validates
+  every field.
+- **Compatibility**: `compare_curves` against the model's probe as the
+  netlist solves it (`probe_curve`) names each blocking field with both
+  sides' statements. Each can be allowed explicitly (the allowance is
+  passed to the check, and for `compensation` to the fit); a curve that is
+  still blocked keeps the fit from running, and the Run button says why.
+- **Plot per curve**: the measured level (dB SPL for pressure, else the
+  linear magnitude), ± its combined standard uncertainty from the sidecar
+  budget (`curve_uncertainty`, below; 1σ), and the model: the probe solved
+  at the curve's frequencies and, for a level curve, at the drive its
+  sidecar states (as the fit does), under the curve's condition. After a
+  fit: the model with the fitted values, plus the curve's fitted level
+  offset when it has one (as the fit compares them), and the level (and
+  phase) residuals from the report. The phase is plotted where the fit uses
+  it.
+- **Fit set-up**: free parameters are the netlist's continuous parameters
+  (none by default; those the netlist does not use are disabled). "Suggest"
+  fits each used parameter alone for one step from its netlist value as a
+  job, and lists the engine's status for each (driver parameters fitted to
+  pressure curves alone are refused, and the engine's reason is shown); a
+  button frees the ones determined alone. Band (default 10 Hz–20 kHz), an
+  iteration cap (default 100) and the SPL-only override.
+- **The fit job** runs `fit` in calls of at most 4 iterations, each
+  starting from the previous report's `fitted` values with the `scale` the
+  first call chose for each parameter (docs/fitting.md, "Bounded runtime":
+  the engine picks a default scale from the start value, so a linear
+  parameter starting at 0 would otherwise turn log once resumed, changing
+  its interval and status), with progress (iterations of the cap, reduced
+  χ², the current values) and Cancel. It stops when a call converges, the
+  evaluations run out or the cap is reached; a run stopped by the cap, or
+  cancelled after a step, can be continued from its fitted values
+  ("Continue", up to the cap again). A refusal (`fit_refused`) is shown
+  with the engine's message.
+- **Report**: how it stopped (converged with the engine's reason, stopped
+  at the cap, or cancelled) with the iterations and evaluations over all
+  calls, χ², what the data were (virtual-rig curves, differences from the
+  model that were allowed), the summary sentences, the parameters
+  (start of the first call, fitted value, 95 % interval, status, scale,
+  driver roles, notes), level offsets, residual statistics per curve, the
+  singular values and every named direction, the Section 12 findings with
+  what would resolve them, the correlation matrix and the warnings.
+- **Apply** lists the fitted parameters that are number parameters of the
+  current netlist with their value now, the fitted value and the change;
+  the determined and weakly determined ones are checked. It repeats what the
+  data were, and checks nothing when the fit allowed a difference from the
+  model other than the drive (a fixture, simulator, reference point,
+  compensation or source impedance: the fitted values absorb it), or when
+  the netlist has changed since the fit in more than the fitted parameters'
+  value tokens (the values belong to the earlier netlist). "Apply fitted
+  values" writes the checked ones through `setParameters` (the value
+  tokens only; the text is otherwise unchanged) and says what it wrote.
+- **Virtual rig**: probe, band, points per octave, seed, file format, noise
+  (level, phase, seatings, averaging, repositioning and its delay, sensor
+  offset and slope, coupler ripple) and true values that differ from the
+  netlist. The result can be downloaded (the data file and
+  `FILE.sidecar.json`) and read back ("Load as a measurement" reads the
+  file text with its sidecar, as a dropped pair is read). The data file is
+  the engine's text with one comment line added, `VIRTUAL RIG: synthetic
+  data from the AcoustiLab virtual rig, not a measurement (probe, seed, true
+  values)`, after the engine's first header line (`*`), or first with `#`
+  in a CSV; a virtual curve's CSV export carries the same mark.
+
+The views' engine export beyond the analysis ones is
+`curve_uncertainty(curve_json)` (`crates/acoustilab-wasm/src/measure.rs`):
+`{"frequencies_Hz", "seatings", "level_dB", "phase_deg"}`, the combined
+standard uncertainty of the level (dB, 1σ) and phase (degrees) at each of
+the curve's frequencies from its sidecar budget averaged over its seatings
+(`Uncertainty::level_db` and `phase_deg`; null without such a term).
+
 ### Other behaviour
 
 - **Examples.** Every `examples/*.json` of the repository is bundled at build
-  time (`import.meta.glob`). The picker groups those that declare parameters
-  as "Design templates" and the rest as "Example netlists"; the first visit
+  time (`import.meta.glob`). The picker groups those whose `ui` block names a
+  `template` as "Design templates" (`design_in_ear`, `design_on_ear`,
+  `design_over_ear`; docs/templates.md) and the rest as "Example netlists"
+  (any example that declares parameters still opens in the Design tab); the first visit
   opens `design_over_ear`. Loading one over an edited netlist keeps the edits
   one click away ("Restore your edits"; no dialog, since embedded viewers
   suppress `window.confirm`).
@@ -392,12 +849,15 @@ these keys (all optional, unknown keys are ignored):
 | `ear_load` | name of a choice parameter whose chosen label names the ear load in the strip and the sketch |
 | `sketch` | `{"kind", "bind", "parts"}`, below |
 
-`sketch.kind` selects a drawing; `over_ear` is the only one so far (another
+`sketch.kind` selects a drawing: `over_ear`, `on_ear` or `in_ear` (another
 kind shows a note instead of a sketch). `sketch.bind` maps the drawing's
 slots to **parameter names only** (no expressions: a dimension that needs
-computing is a derived parameter of the netlist). `cup_radius_mm` and
-`front_depth_mm` are required; every other slot is optional and not drawn
-when unbound.
+computing is a derived parameter of the netlist). The required slots are
+listed per kind; every other slot is optional and not drawn when unbound. A
+slot the kind does not know, or a missing required one, shows a note naming
+it instead of a sketch.
+
+`over_ear` (required: `cup_radius_mm`, `front_depth_mm`):
 
 | slot | meaning | parts |
 |---|---|---|
@@ -414,15 +874,50 @@ when unbound.
 | `vent_length_mm` | vent length, drawn as the rear wall's thickness | vents, shell |
 | `vent_mesh_rayl` | a hatch over each vent when > 0 | vents |
 | `grille_rayl` | label of the open-back grille | grille |
+| `damping_rayl` | a damping cloth behind the diaphragm when > 0 (thickness schematic) | damping |
+
+`on_ear` (required: `pad_inner_radius_mm`, `front_depth_mm`) has the
+`over_ear` slots except `cup_radius_mm`, which here is the rear cavity's
+radius, plus:
+
+| slot | meaning | parts |
+|---|---|---|
+| `pad_inner_radius_mm` | radius of the pad's opening and of the front chamber | front, pad |
+| `front_depth_mm` | diaphragm to the compressed pinna; the pad height | front, pad |
+| `cup_radius_mm` | radius of the rear cavity and shell | rear, shell |
+| `concha_volume_cm3` | named in the text alternative with the front volume | pinna, front |
+| `fit` | choice: its label names the leak state in the text alternative | leak |
+| `leak_gap_mm` | height of the leak slit, drawn under one pad (0: sealed) | leak |
+| `leak_depth_mm` | depth of the leak slit, drawn from the pad's inner edge (unbound: the whole pad face) | leak |
+
+`in_ear` (required: `driver_diameter_mm`, `front_depth_mm`,
+`nozzle_diameter_mm`, `nozzle_length_mm`):
+
+| slot | meaning | parts |
+|---|---|---|
+| `driver_diameter_mm` | diaphragm diameter; the cavities are drawn this wide | driver, front, rear, shell |
+| `front_depth_mm` | depth of the front volume | front |
+| `front_volume_cm3` | label of the front volume | front |
+| `nozzle_diameter_mm`, `nozzle_length_mm` | the nozzle bore | nozzle (and tip) |
+| `nozzle_mesh_rayl` | a hatch at the nozzle outlet when > 0 | nozzle |
+| `canal_diameter_mm` | bore of the ear load's canal | ear, tip |
+| `back_depth_mm` | depth of the air space between diaphragm and damping | damping |
+| `damping_rayl` | the damping behind the diaphragm when > 0 | damping |
+| `rear_depth_mm`, `rear_volume_cm3` | the rear volume | rear, shell |
+| `vent_count`, `vent_diameter_mm`, `vent_length_mm`, `vent_mesh_rayl` | vents through the back wall, as for `over_ear` | vents |
+| `fit` | choice: its label names the tip fit | leak |
+| `leak_diameter_mm`, `leak_length_mm` | the leak tube (diameter 0: sealed) | leak |
 
 `sketch.parts` maps a part to further parameters that drive it without
-shaping it, for the hover link (the template lists the driver's
-Thiele-Small parameters under `driver`). The ear-load surface (part `ear`)
-is labelled from `ui.ear_load`.
+shaping it, for the hover link (the templates list the driver's
+Thiele-Small parameters under `driver`, the damping cloth's area and air
+space under `damping`, and the custom leak's sizes under `leak`). The
+ear-load surface (part `ear`) is labelled from `ui.ear_load`.
 
-`examples/design_over_ear.json` binds every slot; it adds two derived
-parameters for the purpose: `driver_diameter_mm` (`2·sqrt(Sd/π)`) and
-`open_back` (`rear == 'open'`, detailed view only).
+The templates bind every slot of their kind (docs/templates.md). They add
+derived parameters for the purpose, such as `driver_diameter_mm`
+(`2·sqrt(Sd/π)`), `open_back` (`rear == 'open'`, detailed view only), and the
+in-ear template's depths (volume over the diaphragm's area).
 
 ### Keyboard
 
@@ -443,6 +938,11 @@ parameters for the purpose: `driver_diameter_mm` (`2·sqrt(Sd/π)`) and
 | Plot | <kbd>Ctrl</kbd>+<kbd>←</kbd> <kbd>→</kbd> | Pan |
 | Plot | <kbd>0</kbd> | Default view (20 Hz–20 kHz) |
 | Plot | <kbd>Esc</kbd> | Hide the crosshair |
+| Sensitivity map | <kbd>←</kbd> <kbd>→</kbd> (<kbd>Shift</kbd>: 10 points) | Crosshair cell: frequency |
+| Sensitivity map | <kbd>↑</kbd> <kbd>↓</kbd>, <kbd>PgUp</kbd> / <kbd>PgDn</kbd> | Crosshair cell: parameter; first / last parameter |
+| Sensitivity map | <kbd>Home</kbd> / <kbd>End</kbd>, <kbd>Esc</kbd> | First / last frequency; hide the crosshair |
+
+The plots of the Tolerance and Target views take the plot keys above.
 
 With a pointer: drag across a plot to zoom to that band; double-click resets.
 Every action also has a button.
@@ -509,9 +1009,10 @@ and a name given twice to `setParams` takes its last value.
 5. 41 input events in one task cause at most two worker solves, and the last
    value is the one solved.
 6. The template's solve time in Chromium (reported, loosely bounded).
-7. At 300 mW the coil-power and vent and leak particle-velocity limits are
-   listed; pressing one draws its range on the plots (pixels inside and
-   outside the band) and moves the crosshair to the worst point.
+7. At 1000 mW the coil-power and vent particle-velocity limits are listed
+   (the damped template's vent exceeds 1 m/s only near full drive); pressing
+   one draws its range on the plots (pixels inside and outside the band) and
+   moves the crosshair to the worst point.
 8. The IEC 60318-4 ear shades below 100 Hz (pixels, readout, data table,
    validity table's lower columns); the Type 4.3 ear does not.
 9. Baselines: default names, Δ readout, difference plot, rename, remove.
@@ -533,6 +1034,33 @@ and a name given twice to `setParams` takes its last value.
 14. axe-core in light and dark themes with every panel open, and Tab reaches
     every kind of control. Resets keep the keyboard focus; entries announce
     their bounds; exceeded limits are announced with the solve.
+
+`templates.spec.ts` (the on-ear and in-ear templates, docs/templates.md):
+
+1. Each opens in Design mode from the picker with its groups, its fit
+   control (a select: four states), the strip's ear load and drive, and
+   derived values checked against their formulas (the on-ear front volume
+   with the concha, the in-ear Qes from Bl).
+2. The sketch draws every part of its kind, its caption names the schematic
+   parts, and its text alternative states the dimensions. Drawn lengths
+   against the parameters: on-ear, the front chamber's aspect 2·r/d, and the
+   pad, leak slit depth, rear cavity (width and depth), vent and diaphragm
+   relative to it;
+   in-ear, the front, air space, rear, nozzle bore (length and diameter),
+   canal and vent relative to the diaphragm's diameter, and the leak tube's
+   path length and stroke width (its diameter). 6 digits (single-precision
+   SVG), 3 for the diaphragm's path.
+3. Fit states: the on-ear high leak and sealed states (no slit drawn, no
+   leak probe), the in-ear loose fit (tube drawn and described, leak probe
+   present), and a nozzle mesh drawn and described.
+4. Hover and focus link controls and parts through derived parameters (the
+   pad's inner radius glows the rear cavity, the diaphragm area every depth
+   drawn from it), and a click on a part focuses its control.
+5. For all three templates, at 390 px and on a desktop, every sketch label
+   lies inside the drawing, clear of the other labels and of the shell's
+   walls, and at 390 px nothing scrolls sideways. For the on-ear and in-ear
+   templates, axe-core finds nothing in light and dark themes with the
+   detailed view and the template description open.
 
 `smoke.spec.ts` (the netlist editor and plots, on `sealed_cup` and
 closed-form netlists):
@@ -571,21 +1099,159 @@ closed-form netlists):
 9. axe-core in light and dark themes; Tab reaches the example picker, Run,
    the tabs, the editor, the legend and the plots.
 
-The Rust side (`cargo test -p acoustilab-wasm`) tests the JSON API natively.
+`views.spec.ts`: the tab bar, lazy mounting, refresh on a new result, the
+keyboard (the tab after Response, whichever view it is, and End to the
+last), the remembered choice and the Parameter table against `meta`.
+
+`ui-analysis.spec.ts` (the readouts, the inactive marks and the analysis
+views). Its oracles are closed forms and the engine's exports called in
+Node on the same wasm build, with the same inputs:
+
+1. Readouts: the block's document equals `readouts` of the template; each
+   cell's numbers equal the export's, with units, method names and the
+   engine's notes and method texts. With the template frozen as the Δ
+   reference and a 1 mm leak, the coupled resonance is marked ambiguous
+   with its competing peak and has no Δ, and the sensitivity Δ equals the
+   difference of the two exports; Q is marked indicative (two |Z| peaks)
+   and "All readouts in full" holds the clamped text whole; with a 0.3 mm
+   leak Q is "not estimated" and the engine's notes are shown. With the
+   template frozen and the same design under a voltage drive, the
+   sensitivity's Δ is the dB/V difference of the exports (zero), not
+   dB/V − dB/mW. The block's height is the same for
+   the template, a 1 mm leak, an open back and `sealed_cup` (no driver, no
+   rated impedance). 41 slider events in one task cause at most two
+   readouts calls, and the last text is the one shown.
+2. Inactive parameters: the rows marked are exactly those `parameters()`
+   reports `active: false` (not derived), closed and open back; the
+   description gains "not used by this design" and the name does not
+   change; the rows are neither removed nor rebuilt; an inactive stepper
+   still writes the netlist.
+3. Sensitivity, closed form: a lossless sealed cavity driven by a constant
+   volume velocity (p ∝ 1/V) gives −20/ln 10/100 dB per % at every
+   frequency (to 1e-9), read on the map and by the keyboard crosshair, and
+   tornado ends of 20·log10(1/0.9) and 20·log10(1/1.1) dB.
+4. Sensitivity, template: the map equals `sensitivity` with forward
+   sensitivities in one call (1e-12 of each parameter's largest value), and
+   `complete_solves` within 1e-6 of it in the credible band and 1e-5 in the
+   shaded band (docs/analysis.md); a keyboard-read cell equals the export;
+   the tornado rows follow `tornado` for a level and for a readout metric
+   (run in parts and merged); the explain sentences equal `explain`, a band
+   button marks exactly the band's range on the map and the Response plots,
+   and the parameter link focuses the control. A design change marks the
+   results stale and Recompute updates them; Cancel keeps the previous ones.
+   The colour scale spans the export's largest magnitude in the credible
+   band, or in the sweep, with the legend's ticks and saturation marks; the
+   coil resistance's drawn colour moves at least 2.5 times further from
+   grey with the square-root mapping; no kink warning for it; a design
+   change clears a band mark.
+5. Tolerance: N = 40, seed 7 in calls of 20 gives the envelope and readout
+   statistics of one `mc_run` call of 40 through `mc_envelope`, exactly; the
+   nominal curve lies inside min–max everywhere; the data table, the varied
+   parameters (the plan's, with sources) and the histogram's run count
+   agree; the CSV has 40 rows with the runs' hashes; the spread about the
+   nominal is read out from the same statistics. Cancel mid-run keeps
+   the previous runs; a design change marks them stale. After a run of the
+   driver bench, the probe choice offers that run's probes.
+6. Target: the report equals `target_metrics` of the page's result with the
+   inferred fixture, with and without third-octave smoothing; the fixture
+   box names both fixtures and the engine's mismatch message, and becomes
+   "Same ear simulator …" for the Type 4.3 ear; metric cells and every
+   score, greyed state and flag message match (a greyed value states its
+   state first and is not bold); a CSV without a fixture is
+   refused with the engine's message, and with one it is imported, chosen
+   and scored ("Same fixture").
+7. axe-core in light and dark themes with each view open, filled and every
+   disclosure open; nothing scrolls sideways at 390 px, where the readouts'
+   status with a Δ reference is not cut off; every new control is operated
+   from the keyboard.
+
+`time.spec.ts`, `isolation.spec.ts` and `fit.spec.ts` test the Time,
+Isolation and Fit views. `measure.helpers.ts` loads the same wasm build in
+Node, so "the export's numbers" come from calling the engine directly, not
+through the page.
+
+- **Time.** An acoustic RC high-pass (100 Hz): the mixed-phase IR shown in
+  the readout at 1, 2, 4 and 8 ms equals −(1/RC)·e^{−t/RC}·dt within 1e-3
+  of ωc·dt (observed about 1e-5), the step e^{−t/RC} within 1 % (the running
+  sum is a rectangle rule, 0.65 % low), and the decision is "minimum
+  phase"; the view's buffers equal the export's. The WAV is parsed byte by
+  byte: the engine writer's header, and every sample equal to the float32 of
+  the export's IR divided by its peak (raw: the IR itself). A series M–R–C
+  resonance (f0 = 1 kHz, Q = 5): one resonant pole, shown as 1.000 kHz,
+  Q 5.000 and T60 = ln(1000)·2Q/ω0; the group delay read out at six
+  frequencies equals (1/(ω0Q))·(1 + x²)/((1 − x²)² + x²/Q²) within 1e-3;
+  "Mark" sets the highlight on both frequency plots, and every pixel it
+  changes lies within 6 px of x(1 kHz). Attribution on the template equals
+  the export's (top parameter and d ln f/d ln p per pole; the damped
+  template has no resonant pole below 2 kHz, and its lowest, 7.0 kHz, goes
+  to the front depth); a cancel at once leaves the reports in
+  place. Every tick label drawn on the time plots reads as its tick's value
+  (ticks every 2.5 ms and 2.5 Pa on the template; `tickDecimals` of
+  `format.ts` also checked alone). Keyboard crosshair, zoom, reset and Esc;
+  axe in both themes; 390 px.
+- **Isolation.** On `closed_cup_isolation`, the view's report equals the
+  export's; the summary (the 100 and 125 Hz bands below 6 dB inside the
+  engine's 6 dB range named), all 30 band rows and the readouts at four
+  frequencies show its numbers; the IL curve's y positions at those four
+  points lie on one linear dB axis (0.75 px), the curve's colour is found
+  on it at each point with the crosshair hidden, and the fixture's 65 dB
+  bound is drawn on the same axis over 350 Hz–4 kHz. A leak rewired to the
+  reference is warned `undriven_path`; the bleed readouts equal the export
+  and ±6 dB; `sealed_cup` (no drum probe) shows the engine's refusal. axe
+  in both themes with the bleed shown; 390 px.
+- **Fit.** The rig's files equal the engine's `virtual_measure` output
+  (the data file with the virtual-rig comment line after its first line);
+  read back through the file picker as a pair, a leak measured at 0.12 mm
+  and fitted from the template's 0.08 mm is determined with 0.12 inside
+  its 95 % interval, in more than one resumed call, agreeing with one
+  unbounded engine call to a tenth of an sd; the report shows those
+  values and that the data are synthetic; "Apply" from the keyboard makes
+  the netlist text equal to the template with exactly that value token
+  replaced (and keeps the focus), and after a further edit of another
+  value Apply proposes nothing. On `driver_bench` (two rig impedance
+  curves, one with a 300 mg test mass as its condition, six parameters,
+  Le_uH starting at 0): a run capped at 4 iterations says it stopped at
+  the cap, "Continue" converges, and both that run and an uncapped one in
+  bounded calls report every parameter's scale, status, value (1e-6) and
+  sd (1e-3) as one engine call does; Le_uH stays linear. With a sensor
+  offset in the rig, the fitted model drawn is `probe_curve` at the fitted
+  values plus the report's offset. The rig's data file read alone under
+  another name is still labelled virtual-rig data, and its CSV export
+  carries the mark; a file dropped beside the drop zone is refused.
+  "Load as a measurement": the band is 0.1 dB/√4 seatings = 0.05 dB, the
+  model curve equals `probe_curve` at the curve's frequencies and drive.
+  Malformed files (a short line, a repeated frequency, no data, a sidecar
+  with an unknown key, broken JSON) are each listed with the file and, where
+  the engine gives one, the line; a pair dropped on the drop zone is read.
+  A fixture and drive difference blocks the fit until both are allowed;
+  fitted so, the report and Apply name the fixture difference (not the
+  drive) and Apply proposes nothing; the suggestion finds the leak
+  determined and driver parameters refused;
+  a driver parameter on SPL alone is refused with the engine's reason; a
+  running fit can be cancelled. axe in both themes with a report and the
+  sidecar form open; the focus stays on a setting that re-renders its
+  card; 390 px.
+
+The Rust side (`cargo test -p acoustilab-wasm`) tests the JSON API natively,
+including `curve_uncertainty` against the closed form of the combined
+uncertainty (a tabulated term interpolated in ln f and held beyond its
+ends, per-seating terms averaged down).
 
 ## Not implemented yet
 
-- **Which parameters matter now.** The panel shows every declared parameter,
-  even those the current topology does not use (the vent controls with an
-  open back). Greying them out needs the engine to report which parameters
-  the resolved netlist actually references; the UI does not guess.
-- **Ear-load element types.** Without a `ui.ear_load` hint the strip can
-  only name ear-load elements enabled unconditionally; the engine does not
-  report the element types of the resolved netlist.
-- **Sketch.** Only the `over_ear` kind; no canal drawn to scale (the ear
-  models do not expose their canal geometry as parameters), no pinna, liner,
-  baffle or fixture geometry.
-- **Tolerances** are shown, not yet used (no Monte Carlo band in the UI).
+- **Sketch.** Three kinds (`over_ear`, `on_ear`, `in_ear`); the ear loads'
+  canals are not drawn to scale (the ear models do not expose their canal
+  geometry as parameters; the in-ear sketch draws the canal's bore only), and
+  the pinna, liner, baffle and fixture are symbols or absent.
+- **Analysis views.** The Monte Carlo is a Latin hypercube over the
+  parameters' tolerances only (no factorial or explicit-runs plans in the
+  UI, no choice of the varied parameters), and its runs stay in the page.
+  Sensitivities are of pressure probes in dB per %; the engine's phase
+  sensitivities (degrees per %) are not shown. Explain uses the engine's
+  defaults (10 %, 0.3 dB, top five). The Target view has no personalisation
+  shelves, left-right tracking, Harman-style reconstruction or custom
+  grid, and imported targets live in the page only. None of the analysis
+  results are exported except the DOE table.
 - **Designer workflow.** Comparing with the template needs a Freeze before
   the first change (no automatic or one-click "template" baseline); the
   sketch cannot be collapsed and takes a third of the panel's height on a
@@ -594,10 +1260,34 @@ The Rust side (`cargo test -p acoustilab-wasm`) tests the JSON API natively.
   compact pinned SPL plot would fix it); no per-group ordering hint, so the
   vents sit under the driver's seven parameters; the input history of the
   editor (undo) is lost when a control rewrites the text.
+- **Time view.** No SOFA or plant export, no hybrid filter (minimum phase
+  above the validity limit, Section 16), no choice of the pre-samples (the
+  WAV starts at t0; the export's `pre_samples` is not offered), no state
+  space. The attribution's progress is indeterminate: the export perturbs
+  every parameter in one call.
+- **Isolation view.** Only the fixture record the engine embeds (GRAS
+  45CA); no occlusion effect or diffuse-field reference (engine limits,
+  docs/isolation.md).
+- **Fit view.** Not offered: multi-start (`starts`), fit-wide overrides,
+  a band per curve, parameter bounds and scales other than the declared
+  ones, and editing tabulated uncertainty terms or the provenance in the
+  form (they are kept). Each resumed call restarts the optimiser's damping
+  and the level offsets from their defaults (the fit spends an iteration
+  or two of each call re-fitting the offsets; on the review's cases, the
+  template's leak, depth and rear volume with and without offsets, the
+  over-ear case study and a driver bench, the resumed runs ended where one
+  call ends, to 1e-6); and a linear-scale parameter without both bounds
+  has its unit, max(|start|, 1), taken from each call's start, which moves
+  the floor of its relative uncertainty (every example's linear parameters
+  have both bounds). The engine's warning "run again from the fitted values"
+  is what "Continue" does. The suggestion checks one parameter at a time,
+  so parameters determined alone may still be correlated in a joint fit
+  (the report's directions say so). Curves live in the page only.
 - From spec Section 15 and the rest of the interface chapter: the schematic
   view, live L0 recompute with ghost curves while a higher level solves,
-  a pinned inspection frequency, smoothing, target curves, the explain
-  panel, field and mode views, particle animation, exports (CSV, PNG/SVG,
-  reports), a units toggle, and saving baselines beyond the page.
+  a pinned inspection frequency, smoothing of the Response plots (the
+  Target view smooths), field and mode views, particle animation, exports
+  (CSV, PNG/SVG, reports), a units toggle, and saving baselines beyond the
+  page.
 - The spec's message-passing fallback for browsers without module workers is
   not provided; every current browser engine supports them.

@@ -15,6 +15,7 @@ import { EXAMPLES, hasParameters } from './examples';
 import { DesignPanel } from './design';
 import { formatHz, formatNumber, formatParam, formatValue, prettyUnit } from './format';
 import { declaredValues, paramDeclSpan, scan, setParams } from './jsonscan';
+import { ReadoutsBlock } from './readouts';
 import { lineKey } from './keys';
 import { PlotPanel, RANGE_AUDIO, RANGE_FULL } from './plot';
 import { buildGroups, sameGrid, valueAt, type PlotGroup } from './series';
@@ -143,8 +144,13 @@ function earLoadText(r: SolveResult, doc: Record<string, unknown> | null): strin
   const v = name ? r.meta.parameters?.[name] : undefined;
   if (name && v !== undefined) {
     const p = paramsDoc?.parameters.find((q) => q.name === name);
-    return p?.choices?.find((c) => c.value === v)?.label ?? String(v);
+    const label = p?.choices?.find((c) => c.value === v)?.label;
+    if (label) return label;
   }
+  // The resolved netlist's own elements (exact, whatever the parameters).
+  const resolved = (r.meta.elements ?? []).filter((e) => e.type in EAR_TYPES);
+  if (resolved.length) return resolved.map((e) => `${EAR_TYPES[e.type]} (“${e.id}”)`).join(', ');
+  if (name && v !== undefined) return String(v);
   const els = Array.isArray(doc?.elements) ? (doc!.elements as Record<string, unknown>[]) : [];
   const ears = els.filter((e) => typeof e === 'object' && e !== null && String(e.type) in EAR_TYPES);
   const on = ears.filter((e) => e.enabled === undefined || e.enabled === true);
@@ -497,6 +503,9 @@ const baselines = new Baselines(
   () => regroup(),
 );
 
+/** Readouts of the plotted design (and their Δ against the reference baseline), on their own worker. */
+const readoutsBlock = new ReadoutsBlock($('readouts'));
+
 /** Default name of a snapshot: the parameters that differ from the template. */
 function defaultBaselineName(): string {
   const described = paramsDoc !== null && paramsText === solvedText && paramsDoc.parameters.length > 0;
@@ -528,6 +537,7 @@ function regroup(): void {
   renderLegend();
   renderReadout(panel.cursor, false);
   if (!tableWrap.hidden) renderTable();
+  readoutsBlock.show(solvedText, baselines.reference);
 }
 
 // ----- errors ---------------------------------------------------------------
@@ -827,6 +837,8 @@ function onParams(text: string, reply: Reply): void {
   const doc = v as ParamsDoc;
   paramsDoc = doc;
   paramsText = text;
+  // A solve may have landed first: its strip then lacks the choice labels.
+  if (result && solvedText === text) renderStrip(result, parseDoc(solvedText));
   if (!doc.parameters.length) {
     design.update(doc, fresh);
     design.showMessage([
@@ -965,8 +977,8 @@ function loadExample(name: string): void {
     ['Design templates', true],
     ['Example netlists', false],
   ];
-  for (const [label, parametric] of groupsOf) {
-    const list = EXAMPLES.filter((e) => e.parametric === parametric);
+  for (const [label, template] of groupsOf) {
+    const list = EXAMPLES.filter((e) => e.template === template);
     if (!list.length) continue;
     const og = document.createElement('optgroup');
     og.label = label;
@@ -1184,6 +1196,11 @@ function hostFor(v: MountedView): ViewHost {
     setParameters: (values) => applyParams(values),
     announce: (message) => {
       viewStatus.textContent = message;
+    },
+    highlight: (range) => panel.setHighlight(range),
+    focusParameter: (name) => {
+      selectTab('design');
+      design.focusParam(name);
     },
   };
 }

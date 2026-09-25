@@ -1306,7 +1306,7 @@ fn design_template_scored_against_the_bundled_target() {
     // The 5128 set starts at 31 Hz, so 20-31 Hz is missing: partial.
     assert!(m.partial);
     close(m.used_hz.unwrap().0, 31.62, 0.01, "first point used");
-    // The response level at 500 Hz is its reference level (about 112 dB SPL
+    // The response level at 500 Hz is its reference level (about 104 dB SPL
     // at 1 mW for this driver in the template's sealed cup).
     assert!(
         (80.0..120.0).contains(&rep.response_offset_db),
