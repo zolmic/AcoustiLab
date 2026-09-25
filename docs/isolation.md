@@ -97,7 +97,10 @@ Hz, and the band edges sit at 10^(±1/20) of them. Each band holds the ratio
 of ∫|p|² df over the band, which is the flat excitation of a white noise.
 Only bands lying entirely inside the sweep are reported. The summary gives
 what clause 5.1.1 asks for: the largest loss and its band, the range where
-the loss is at least 6 dB, and the mean over the bands. The netlist models
+the loss is at least 6 dB (`range_6dB_Hz`: the lowest and the highest band
+with at least 6 dB; bands between them can have less, as the 100 and
+125 Hz bands of `examples/closed_cup_isolation.json` do), and the mean over
+the bands. The netlist models
 one ear.
 
 ## Cup-wall transmission: `shell`

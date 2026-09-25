@@ -311,7 +311,11 @@ point, so 5 ms for the 72-point case study and 26 ms at 430 points). At
 most 1000 `starts`, and at most 10^6 distinct frequencies per condition
 (the engine's sweep limit). A caller that wants progress or cancellation
 (a web worker) runs a few iterations per call and passes the report's
-`fitted` values as the next call's `start` values.
+`fitted` values as the next call's `start` values, with each parameter's
+`scale` from the first report: the default scale follows the start, so a
+parameter that started at 0 (linear) would be fitted on a log scale once
+resumed from a positive value, with another interval and status. Each call
+restarts the damping and the level offsets.
 
 ### The report (`acoustilab-fit-report/0.1`)
 
@@ -538,6 +542,7 @@ Without `mass.zma` the same fit marks Bl, Mms, Cms and Rms scale-ambiguous.
 | `fit(netlist, spec_json)` | the fit report |
 | `probe_curve(netlist, overrides_json, probe)` | a curve document of the solved probe with a `simulated` sidecar |
 | `virtual_measure(netlist, spec_json)` | `{"curve", "format", "extension", "text", "sidecar"}`; the rig spec may add `"format"` |
+| `curve_uncertainty(curve_json)` | `{"frequencies_Hz", "seatings", "level_dB", "phase_deg"}`: the combined standard uncertainty at each frequency from the sidecar budget (null without such a term); used by the web UI's Fit view (docs/web.md) |
 
 `examples/driver_bench.json` is an identification bench: a driver in its
 physical set (Re, Bl, Mms, Cms, Rms, Sd, creep, Le and an external LR-2

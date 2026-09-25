@@ -179,6 +179,20 @@ export function niceTicks(
   return { ticks, step };
 }
 
+/**
+ * Decimals that write every multiple of a tick step exactly: 0 for 5 or 20,
+ * 1 for 2.5 or 0.5, 2 for 0.25. (−floor(log10(step)) alone gives 0 for 2.5,
+ * which labels a tick at 7.5 as "8".)
+ */
+export function tickDecimals(step: number): number {
+  if (!(step > 0) || !Number.isFinite(step)) return 0;
+  for (let d = Math.max(0, -Math.floor(Math.log10(step) + 1e-9)); d < 15; d++) {
+    const s = step * 10 ** d;
+    if (Math.abs(s - Math.round(s)) <= 1e-6 * s) return d;
+  }
+  return 15;
+}
+
 /** Decade ticks, with 2 and 5 multiples when the span is short. */
 export function logTicks(lo: number, hi: number): { major: number[]; minor: number[] } {
   const e0 = Math.floor(Math.log10(lo));

@@ -1,0 +1,456 @@
+/* Time, isolation and fit views (measure-kit.ts). Colours come from the
+ * tokens of style.css, so both themes and their contrast checks carry over. */
+
+.mv > .hint:first-child {
+  margin-top: 0;
+}
+
+.mv-h {
+  margin: 18px 0 6px;
+  font-size: 14px;
+}
+
+.mv-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 14px;
+  margin: 8px 0;
+}
+.mv-bar > .check {
+  align-self: center;
+}
+
+.mv-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.mv-field > label {
+  color: var(--ink-2);
+  font-size: 12px;
+}
+.mv-field > .hint {
+  margin: 0;
+}
+.mv-field select {
+  max-width: 100%;
+}
+
+.mv input[type='number'],
+.mv input[type='text'],
+.mv-num {
+  min-height: 32px;
+  padding: 4px 8px;
+  font: inherit;
+  color: var(--ink);
+  background: var(--plot-bg);
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+}
+.mv-num {
+  width: 7em;
+}
+.mv input[type='text'] {
+  width: 16em;
+  max-width: 100%;
+}
+.mv input[aria-invalid='true'] {
+  border-color: var(--error-border);
+  border-width: 2px;
+}
+
+.mv-status,
+.mv-stale {
+  margin: 4px 0;
+}
+.mv-stale {
+  color: var(--ink);
+  padding: 4px 8px;
+  border-left: 3px solid var(--badge-border);
+  background: var(--warn-bg);
+}
+
+.mv-summary {
+  margin: 8px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.mv-job {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin: 6px 0;
+  padding: 6px 10px;
+  border: 1px solid var(--grid);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.mv-job progress {
+  flex: 1 1 120px;
+  max-width: 260px;
+  height: 10px;
+  accent-color: var(--accent);
+}
+.mv-job[data-state='failed'] .mv-job-text {
+  color: var(--error-ink);
+}
+.mv-job-time {
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+}
+
+.mv-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 10px;
+  margin: 10px 0;
+}
+.mv-card {
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--grid);
+  border-radius: 6px;
+}
+.mv-card h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+.mv-card > button {
+  margin-top: 6px;
+}
+.mv-card.mv-warn {
+  border-left: 4px solid var(--badge-border);
+  background: var(--warn-bg);
+}
+.mv-card.mv-warn ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.mv-conv {
+  grid-column: 1 / -1;
+  font-size: 12.5px;
+}
+.mv-conv summary,
+.mv-details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.mv-conv p {
+  margin: 6px 0 0;
+}
+
+.mv-dl {
+  display: grid;
+  grid-template-columns: minmax(7em, 42%) minmax(0, 1fr);
+  gap: 3px 12px;
+  margin: 0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.mv-dl > div {
+  display: contents;
+}
+.mv-dl dt {
+  color: var(--ink-2);
+}
+.mv-dl dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 480px) {
+  .mv-dl {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0 0;
+  }
+  .mv-dl dd {
+    margin-bottom: 4px;
+  }
+}
+
+.mv-figure {
+  margin: 4px 0 8px;
+}
+.mv-readout {
+  min-height: 2.6em;
+}
+.mv-plot-help {
+  margin-top: 0;
+}
+
+.mv-table-wrap {
+  max-height: 420px;
+  margin: 6px 0;
+}
+.mv .data-table caption {
+  white-space: normal;
+}
+/* Text cells wrap, so most tables fit a phone; the region scrolls otherwise. */
+.mv .data-table td,
+.mv .data-table th {
+  white-space: normal;
+  vertical-align: top;
+}
+.mv .data-table th[scope='row'],
+.mv .data-table thead th:first-child {
+  text-align: left;
+}
+.mv .data-table td:first-of-type {
+  text-align: right;
+}
+tr.mv-resonant th,
+tr.mv-resonant td {
+  font-weight: 600;
+}
+button.mv-mark {
+  min-height: 26px;
+  padding: 1px 10px;
+}
+button.mv-mark[aria-pressed='true'] {
+  padding: 0 9px;
+}
+
+.mv-details {
+  margin: 8px 0;
+}
+.mv-notes {
+  margin: 4px 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+}
+.mv-attr {
+  margin: 8px 0;
+}
+
+.mv-error {
+  margin: 8px 0;
+}
+.mv-error-message {
+  margin: 0 0 4px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.mv-conventions {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--grid);
+  border-left: 4px solid var(--accent);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.mv-conventions p {
+  margin: 0 0 4px;
+}
+.mv-conventions p:last-child {
+  margin-bottom: 0;
+}
+
+/* 1/3-octave band table with bars (isolation). */
+.mv-bands td:nth-child(4) {
+  width: 40%;
+  min-width: 90px;
+}
+.mv-bandbar {
+  position: relative;
+  height: 12px;
+}
+.mv-bandfill {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  background: var(--series-1);
+}
+.mv-bandfill.over {
+  background: repeating-linear-gradient(135deg, var(--series-4) 0 3px, var(--panel) 3px 5px);
+  outline: 1px solid var(--series-4);
+}
+.mv-bandlimit {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  border-left: 2px dashed var(--ink);
+}
+
+/* Fit view. */
+.mv-drop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 8px 0;
+  padding: 12px;
+  border: 2px dashed var(--control-border);
+  border-radius: 8px;
+  background: var(--page);
+}
+.mv-drop.over {
+  border-color: var(--accent);
+  background: var(--pressed-bg);
+}
+.mv-drop p {
+  margin: 0;
+}
+
+.mv-curves {
+  display: grid;
+  gap: 10px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+.mv-curve {
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--grid);
+  border-radius: 6px;
+}
+.mv-curve.virtual {
+  border-left: 5px solid var(--badge-border);
+}
+.mv-curve-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.mv-curve-name {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.mv-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid var(--badge-border);
+  border-radius: 4px;
+  background: var(--badge-bg);
+  color: var(--badge-ink);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.mv-badge.plain {
+  border-color: var(--control-border);
+  background: var(--panel);
+  color: var(--ink);
+  font-weight: 600;
+}
+.mv-badge-note {
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.mv-apply-warn {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-left: 4px solid var(--badge-border);
+  background: var(--warn-bg);
+  font-size: 13px;
+}
+.mv-apply-warn p {
+  margin: 0;
+}
+.mv-apply-warn p + p {
+  margin-top: 4px;
+}
+.mv-compat {
+  margin: 6px 0 0;
+  font-size: 13px;
+}
+.mv-compat.ok {
+  color: var(--ok-ink);
+}
+.mv-compat.blocked {
+  color: var(--error-ink);
+}
+.mv-compat ul {
+  margin: 2px 0;
+  padding-left: 18px;
+  color: var(--ink);
+}
+.mv-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.mv-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr));
+  gap: 8px 12px;
+  margin: 8px 0;
+}
+.mv-form fieldset {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr));
+  gap: 8px 12px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--grid);
+  border-radius: 6px;
+}
+.mv-form legend {
+  padding: 0 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.mv-form input[type='text'],
+.mv-form input[type='number'],
+.mv-form select {
+  width: 100%;
+}
+.mv-form .mv-wide {
+  grid-column: 1 / -1;
+}
+
+.mv-params {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 2px 14px;
+  margin: 6px 0;
+  padding: 0;
+  list-style: none;
+}
+.mv-params li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  min-width: 0;
+}
+.mv-params .check {
+  overflow-wrap: anywhere;
+}
+
+.mv-status-determined {
+  color: var(--ok-ink);
+  font-weight: 600;
+}
+.mv-status-weak {
+  font-weight: 600;
+}
+.mv-status-bad {
+  color: var(--error-ink);
+  font-weight: 600;
+}
+
+.mv-sentences {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+.mv-sentences li {
+  margin: 2px 0;
+}
+
+.mv-apply {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+}

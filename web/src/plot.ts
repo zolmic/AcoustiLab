@@ -12,6 +12,7 @@ import {
   prefixFor,
   prettyUnit,
   superscript,
+  tickDecimals,
 } from './format';
 import type { Shading } from './types';
 
@@ -268,7 +269,7 @@ export class Plot {
         unitText = `× 10${superscript(e)} ${g.axisUnit}`;
       }
     }
-    const decimals = Math.max(0, -Math.floor(Math.log10(step / factor) + 1e-9));
+    const decimals = tickDecimals(step / factor);
     const labels = ticks.map((t) => (t / factor).toFixed(decimals).replace(/^-(0\.?0*)$/, '$1'));
     return { lo: a, hi: b, scale: 'linear', ticks, minor: [], labels, unitText };
   }
@@ -633,20 +634,41 @@ export class PlotPanel {
   private frame = 0;
   private theme: Theme;
 
+  private readonly resize: ResizeObserver;
+  private readonly themeAttr: MutationObserver;
+  private readonly scheme: MediaQueryList;
+  private readonly onScheme = () => {
+    this.theme = readTheme();
+    this.render();
+  };
+
   constructor(
     private readonly container: HTMLElement,
     private readonly cb: PanelCallbacks,
   ) {
     this.theme = readTheme();
-    new ResizeObserver(() => this.render()).observe(container);
-    new MutationObserver(() => {
-      this.theme = readTheme();
-      this.render();
-    }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-      this.theme = readTheme();
-      this.render();
-    });
+    this.resize = new ResizeObserver(() => this.render());
+    this.resize.observe(container);
+    this.themeAttr = new MutationObserver(this.onScheme);
+    this.themeAttr.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    this.scheme = window.matchMedia('(prefers-color-scheme: dark)');
+    this.scheme.addEventListener('change', this.onScheme);
+  }
+
+  /**
+   * Stops observing the page (size, theme). A panel whose plots are removed
+   * for good must be disposed: the theme observers are held by the document
+   * and would otherwise keep the panel, its data and its canvases alive.
+   */
+  dispose(): void {
+    this.resize.disconnect();
+    this.themeAttr.disconnect();
+    this.scheme.removeEventListener('change', this.onScheme);
+    if (this.frame) cancelAnimationFrame(this.frame);
+    this.frame = 0;
+    this.container.replaceChildren();
+    this.plots = [];
+    this.data = null;
   }
 
   /** Allowed view range: the internal range, widened to the data if needed. */
