@@ -105,9 +105,10 @@ export class Coalesced {
     return this.inflight !== null || this.next !== null;
   }
 
+  /** Solves `text` next; nothing is sent again for the text already in flight. */
   request(text: string): void {
     if (this.inflight !== null) {
-      this.next = text;
+      this.next = text === this.inflight ? null : text;
       return;
     }
     void this.send(text);

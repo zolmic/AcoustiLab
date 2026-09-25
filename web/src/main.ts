@@ -759,8 +759,21 @@ const sketch = new Sketch($('sketch'), $('sketch-desc'), $('sketch-note'), {
 /** Signature of the sketch binding and parameter set, to reconfigure only on change. */
 let sketchSig = '';
 
+/** Netlist text as the design panel last wrote it. */
+let designText: string | null = null;
+
 /** Writes parameter values into the netlist text and solves it. */
 function applyParams(values: [string, Scalar][]): void {
+  // The panel may only edit text it has seen: the text its controls were
+  // built from (`paramsText`) or its own last write. After a hand edit or a
+  // load, until the engine has described the new text, a control still
+  // shows the old values, and a stepper or reset computed from them would
+  // overwrite the new text's values. The edit is dropped; the pending
+  // description then puts the controls right.
+  if (editor.value !== paramsText && editor.value !== designText) {
+    params.request(editor.value);
+    return;
+  }
   let text: string;
   try {
     text = setParams(editor.value, values);
@@ -769,6 +782,7 @@ function applyParams(values: [string, Scalar][]): void {
     return;
   }
   if (text === editor.value) return;
+  designText = text;
   editor.value = text;
   hideRestore();
   saveSoon();
@@ -828,12 +842,15 @@ function onParams(text: string, reply: Reply): void {
 const params = new Coalesced(checker, 'parameters', onParams);
 
 /** Template values of the example the netlist came from: what "Reset" restores and the sketch's scale. */
+let referenceSeq = 0;
 async function setReferenceFrom(exampleText: string | null): Promise<void> {
+  const seq = ++referenceSeq;
   design.setReference(exampleText ? declaredValues(exampleText) : new Map());
   sketch.setReference(null);
   if (!exampleText || !hasParameters(exampleText)) return;
   const reply = await checker.call('parameters', exampleText);
-  if (!reply.ok || isError(reply.value)) return;
+  // A later load has set its own reference meanwhile.
+  if (seq !== referenceSeq || !reply.ok || isError(reply.value)) return;
   const doc = reply.value as ParamsDoc;
   sketch.setReference(new Map(doc.parameters.filter((p) => p.value !== null).map((p) => [p.name, p.value as Scalar])));
   sketch.update(design.values());
@@ -859,9 +876,12 @@ function selectTab(tab: Tab, focus = false, refresh = true): void {
   else tabDesign.parentElement!.after(errorBox);
   if (focus) (isDesign ? tabDesign : tabNetlist).focus();
   if (isDesign && refresh) {
-    // The design view is live: bring it and the plots up to the text.
-    if (paramsText !== editor.value) params.request(editor.value);
-    if (solvedText !== null && solvedText !== editor.value && !live.busy && editor.value.trim()) solveLive();
+    // The design view is live: bring it and the plots up to the text. A
+    // solve still running for older text (a Run from the Netlist tab) is
+    // followed by one for this text, never left to stand for it.
+    const text = editor.value;
+    if (paramsText !== text) params.request(text);
+    if (text.trim() && text !== solvedText && text !== lastErrorText) solveLive();
   }
 }
 

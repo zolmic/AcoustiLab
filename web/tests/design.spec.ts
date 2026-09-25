@@ -512,6 +512,54 @@ test('a hand edit in the Netlist tab updates the Design tab, and back', async ({
   expect(sel.startsWith('"vent_count": {"value": 1,')).toBe(true);
 });
 
+test('race: a Run still solving older text is followed by a solve of the text the Design tab shows', async ({ page }) => {
+  await open(page);
+  // A Run from the Netlist tab is still solving a dense sweep when the text
+  // is edited and the Design tab is shown: the design text is solved after
+  // it, and its result is what stays on screen.
+  await page.getByRole('tab', { name: 'Netlist' }).click();
+  const slow = TEMPLATE.replace('"points_per_octave": "=points_per_octave"}', '"points_per_octave": 3000}');
+  expect(slow).not.toBe(TEMPLATE);
+  await page.locator('#netlist').fill(slow);
+  await page.getByRole('button', { name: 'Run' }).click();
+  await expect(page.locator('body')).toHaveAttribute('data-state', 'solving');
+  const edited = withValue(TEMPLATE, 'front_depth_mm', '15', '20');
+  await page.locator('#netlist').fill(edited);
+  await page.getByRole('tab', { name: 'Design' }).click();
+  await expect
+    .poll(async () => (await hook(page, (h) => ({ n: h.result()?.frequencies_Hz.length, d: h.result()?.meta.parameters.front_depth_mm }))), {
+      timeout: 30_000,
+    })
+    .toEqual({ n: 265, d: 20 });
+  await solved(page);
+});
+
+test('race: a control clicked before a hand edit is described never overwrites the edit', async ({ page }) => {
+  // A hand edit, then (in the same task, before the engine has described
+  // the new text) a stepper click computed from the old value: the click is
+  // dropped rather than overwriting the edit, and the panel then shows the
+  // edited value.
+  await open(page);
+  const edited = withValue(TEMPLATE, 'front_depth_mm', '15', '20');
+  await page.getByRole('tab', { name: 'Netlist' }).click();
+  const five = withValue(edited, 'vent_count', '1', '5');
+  await page.evaluate((t) => {
+    const ed = document.querySelector<HTMLTextAreaElement>('#netlist')!;
+    ed.value = t;
+    ed.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector<HTMLButtonElement>('#tab-design')!.click();
+    document.querySelector<HTMLButtonElement>('button[aria-label="Increase Number of rear vents"]')!.click();
+  }, five);
+  await expect(page.locator('#p-vent_count')).toHaveValue('5');
+  await solved(page);
+  expect(await text(page)).toBe(five);
+  expect((await hook(page, (h) => h.result()))!.meta.parameters.vent_count).toBe(5);
+  // Once described, the stepper works from the edited value.
+  await page.getByRole('button', { name: 'Increase Number of rear vents' }).click();
+  await solved(page);
+  expect(await text(page)).toBe(withValue(edited, 'vent_count', '1', '6'));
+});
+
 test('the sketch is drawn to scale and linked to the controls', async ({ page }) => {
   await open(page);
   // Front cavity rectangle: width / height = 2r / depth.
