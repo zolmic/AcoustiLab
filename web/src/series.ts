@@ -331,10 +331,12 @@ export function styleSlot(probe: number): { color: number; dash: number } {
 }
 
 /**
- * Baseline overlays: thin (1.25 px) lines in the colour of the live curve
- * they shadow, with one of these patterns per baseline. None of them occurs
- * in DASHES, so a baseline never looks like a live curve of the same
- * colour; the legend, the plot descriptions and the readout name them.
+ * Baseline overlays: thin (1.25 px) lines in a muted tone of the live
+ * curve's colour (OVERLAY_MIX of it, the rest the secondary ink; plot.ts
+ * `mixHex`), with one of these patterns per baseline. None of them occurs
+ * in DASHES, and no live curve is drawn thin or muted, so a baseline never
+ * looks like a live curve; the legend, the plot descriptions and the
+ * readout name them.
  */
 export const OVERLAY_DASHES: number[][] = [
   [4, 2],
@@ -345,5 +347,7 @@ export const OVERLAY_DASHES: number[][] = [
 ];
 
 export const OVERLAY_WIDTH = 1.25;
+/** Weight of the probe colour in an overlay's stroke. */
+export const OVERLAY_MIX = 0.5;
 export const LIVE_WIDTH = 2;
 export const PRIMARY_WIDTH = 2.75;

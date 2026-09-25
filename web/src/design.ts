@@ -65,9 +65,15 @@ const clampTo = (d: ParamDesc, x: number) =>
  * Typed values are not quantized: the step is a hint, not a constraint.
  */
 function quantize(d: ParamDesc, v: number): number {
+  if (d.kind === 'integer') {
+    // Whole numbers within the bounds (the engine rejects anything else,
+    // whatever `step` says).
+    const k = Math.max(1, Math.round(d.step ?? 1));
+    return Math.min(Math.floor(d.max ?? Infinity), Math.max(Math.ceil(d.min ?? -Infinity), Math.round(v / k) * k));
+  }
   let x = v;
   if (d.log) x = Number(x.toPrecision(3));
-  const step = d.kind === 'integer' ? (d.step ?? 1) : d.step;
+  const step = d.step;
   if (step && step > 0) {
     x = Number((Math.round(x / step) * step).toFixed(Math.min(15, decimalsOf(step))));
   } else if (d.min !== null && d.min !== undefined && d.max !== null && d.max !== undefined) {
@@ -85,11 +91,11 @@ function nudge(d: ParamDesc, sc: SliderScale | null, v: number, k: number): numb
   if (sc && d.log) {
     x = quantize(d, sc.toValue(Math.min(sc.n, Math.max(0, sc.toPos(v) + (k * sc.n) / 100))));
   } else {
-    const inc = d.kind === 'integer' ? (d.step ?? 1) : (d.step ?? (sc ? (d.max! - d.min!) / 100 : Math.abs(v) / 100 || 1));
+    const inc = d.kind === 'integer' ? Math.max(1, Math.round(d.step ?? 1)) : (d.step ?? (sc ? (d.max! - d.min!) / 100 : Math.abs(v) / 100 || 1));
     x = quantize(d, v + k * inc);
   }
   // Rounding must never swallow a key press.
-  if (x === v && d.step) x = clampTo(d, Number((v + Math.sign(k) * d.step).toFixed(decimalsOf(d.step))));
+  if (x === v && d.step && d.kind !== 'integer') x = clampTo(d, Number((v + Math.sign(k) * d.step).toFixed(decimalsOf(d.step))));
   return x;
 }
 
@@ -162,6 +168,7 @@ export class DesignPanel {
   ) {
     detailToggle.addEventListener('click', () => this.setDetailed(!this.detailed));
     resetAll.addEventListener('click', () => {
+      if (resetAll.getAttribute('aria-disabled') === 'true') return;
       const changes = this.changed();
       if (changes.length) this.cb.set(changes);
     });
@@ -220,7 +227,7 @@ export class DesignPanel {
     this.messageEl.replaceChildren(...(content ?? []));
     this.messageEl.hidden = content === null;
     this.groupsEl.hidden = content !== null;
-    this.resetAll.disabled = content !== null || this.changed().length === 0;
+    this.setResetAll(content === null && this.changed().length > 0);
   }
 
   /**
@@ -277,8 +284,17 @@ export class DesignPanel {
       const meta = g.querySelector<HTMLElement>('.pgroup-changed')!;
       meta.textContent = n ? `${n} changed` : '';
     }
-    this.resetAll.disabled = total === 0 || !this.messageEl.hidden;
+    this.setResetAll(total > 0 && this.messageEl.hidden);
     this.resetAll.textContent = total ? `Reset all (${total})` : 'Reset all';
+  }
+
+  /**
+   * "Reset all" is marked unavailable with aria-disabled, not `disabled`:
+   * it becomes unavailable right after it is pressed, and a disabled
+   * button would drop the keyboard focus to the page.
+   */
+  private setResetAll(on: boolean): void {
+    this.resetAll.setAttribute('aria-disabled', String(!on));
   }
 
   private applyVisibility(): void {
@@ -385,7 +401,15 @@ export class DesignPanel {
     reset.hidden = true;
     let resetTo: Scalar | undefined;
     reset.addEventListener('click', () => {
-      if (resetTo !== undefined) this.cb.set([[d.name, resetTo]]);
+      if (resetTo === undefined) return;
+      // The button hides once the value is back: keep the keyboard focus
+      // in the row, on the control whose value was reset.
+      if (reset.contains(document.activeElement)) {
+        const radio = [...root.querySelectorAll<HTMLInputElement>('input[type="radio"]')].find((x) => x.value === resetTo);
+        if (radio) radio.focus();
+        else r.focus();
+      }
+      this.cb.set([[d.name, resetTo]]);
     });
     tools.append(reset);
     head.append(tools);
@@ -398,8 +422,12 @@ export class DesignPanel {
       detail.append(' = ', el('code', 'pexpr', d.expr));
     }
     if (d.tolerance) {
-      detail.append(el('span', 'ptol', `Tolerance ${toleranceText(d.tolerance, unit)}`));
-      described.push(detail.id);
+      // Only the tolerance describes the control (not the name and the
+      // "Show in netlist" button beside it).
+      const tol = el('span', 'ptol', `Tolerance ${toleranceText(d.tolerance, unit)}`);
+      tol.id = `${id}-tol`;
+      detail.append(tol);
+      described.push(tol.id);
     }
     const show = el('button', 'linkish', 'Show in netlist');
     show.type = 'button';
@@ -448,7 +476,22 @@ export class DesignPanel {
       entry.inputMode = d.kind === 'integer' ? 'numeric' : 'decimal';
       entry.autocomplete = 'off';
       entry.spellcheck = false;
-      entry.setAttribute('aria-describedby', [msg.id, ...described].join(' '));
+      // The bounds, and that the arrow keys step the value, for screen
+      // readers (a text entry announces neither) and as a tooltip.
+      const has = (x: number | null | undefined): x is number => x !== null && x !== undefined;
+      const u = unit ? ` ${unit}` : '';
+      const bounds =
+        has(d.min) && has(d.max)
+          ? `${formatParam(d.min, 6)} to ${formatParam(d.max, 6)}${u}`
+          : has(d.min)
+            ? `at least ${formatParam(d.min, 6)}${u}`
+            : has(d.max)
+              ? `at most ${formatParam(d.max, 6)}${u}`
+              : '';
+      const range = el('span', 'visually-hidden', `${bounds ? `${bounds}; ` : ''}arrow keys step the value.`);
+      range.id = `${id}-range`;
+      if (bounds) entry.title = bounds;
+      entry.setAttribute('aria-describedby', [msg.id, range.id, ...described].join(' '));
       const unitEl = el('span', 'punit', unit);
       unitEl.setAttribute('aria-hidden', 'true');
       if (unit) entry.setAttribute('aria-label', `${d.label}, ${unit}`);
@@ -549,6 +592,7 @@ export class DesignPanel {
       } else {
         entryBox.append(entry, unitEl);
       }
+      entryBox.append(range);
       head.append(entryBox);
       root.append(head);
 

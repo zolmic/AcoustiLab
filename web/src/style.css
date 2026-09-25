@@ -372,7 +372,8 @@ button.primary {
   color: var(--accent-ink);
   font-weight: 600;
 }
-button:disabled {
+button:disabled,
+#reset-all[aria-disabled='true'] {
   cursor: default;
   opacity: 0.55;
 }

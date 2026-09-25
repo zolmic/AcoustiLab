@@ -2,7 +2,7 @@
 // crosshair (spec Sections 2 and 15).
 
 import type { OverlaySeries, PlotGroup, Series } from './series';
-import { DASHES, LIVE_WIDTH, OVERLAY_DASHES, OVERLAY_WIDTH, PRIMARY_WIDTH, styleSlot } from './series';
+import { DASHES, LIVE_WIDTH, OVERLAY_DASHES, OVERLAY_MIX, OVERLAY_WIDTH, PRIMARY_WIDTH, styleSlot } from './series';
 import {
   formatHzTick,
   freqTicks,
@@ -58,6 +58,21 @@ export function readTheme(): Theme {
     series: Array.from({ length: 8 }, (_, i) => v(`--series-${i + 1}`)),
     font: v('--font-sans') || 'system-ui, sans-serif',
   };
+}
+
+/**
+ * `a` mixed with `b` (both "#rrggbb"), weight `t` on `a`. Baseline overlays
+ * use the live curve's colour half mixed with the secondary ink: the hue
+ * still names the probe, the washed-out tone says "not the live design",
+ * and the mix keeps >= 3.5:1 against the plot surface and both validity
+ * shades in either theme (every series colour mixed with --ink-2 at 1/2).
+ */
+export function mixHex(a: string, b: string, t: number): string {
+  const rgb = (h: string) => (/^#[0-9a-f]{6}$/i.test(h) ? [1, 3, 5].map((k) => parseInt(h.slice(k, k + 2), 16)) : null);
+  const x = rgb(a);
+  const y = rgb(b);
+  if (!x || !y) return a;
+  return `#${x.map((c, k) => Math.round(t * c + (1 - t) * y[k]).toString(16).padStart(2, '0')).join('')}`;
 }
 
 /** A frequency range picked out on every plot (e.g. where a warning applies). */
@@ -510,7 +525,7 @@ export class Plot {
       tracePath(trace(o.freqs, o.values, a, b));
       ctx.setLineDash(OVERLAY_DASHES[o.slot % OVERLAY_DASHES.length]);
       ctx.lineCap = 'butt';
-      ctx.strokeStyle = th.series[styleSlot(o.probe).color];
+      ctx.strokeStyle = mixHex(th.series[styleSlot(o.probe).color], th.ink2, OVERLAY_MIX);
       ctx.lineWidth = OVERLAY_WIDTH;
       ctx.stroke();
     }

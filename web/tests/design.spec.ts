@@ -96,6 +96,12 @@ test('the template opens in Design mode with its groups, sketch and primary prob
   // One control per kind.
   await expect(row(page, 'driver_fs_Hz').locator('input[type="range"]')).toHaveCount(1);
   await expect(page.locator('#p-driver_fs_Hz')).toHaveValue('81.8');
+  // A text entry announces neither its bounds nor its arrow keys by itself.
+  await expect(page.locator('#p-front_depth_mm')).toHaveAccessibleName('Driver-to-ear depth, mm');
+  await expect(page.locator('#p-front_depth_mm')).toHaveAccessibleDescription(
+    '3 to 40 mm; arrow keys step the value. Tolerance ±0.3 mm (normal, 2σ), estimate (pad compression)',
+  );
+  await expect(page.locator('#p-vent_count')).toHaveAccessibleDescription('0 to 12; arrow keys step the value.');
   await expect(row(page, 'vent_count').getByRole('button', { name: 'Increase Number of rear vents' })).toBeVisible();
   await expect(page.getByRole('radiogroup', { name: 'Back of the driver' }).getByRole('radio')).toHaveCount(2);
   await expect(page.getByRole('radio', { name: 'Closed cup with vents' })).toBeChecked();
@@ -175,10 +181,18 @@ test('a stepper and a slider rewrite exactly the value token and re-solve', asyn
 
   // Reset all restores the template text byte for byte.
   await expect(page.getByRole('button', { name: 'Reset all (2)' })).toBeEnabled();
-  await page.getByRole('button', { name: 'Reset all (2)' }).click();
+  await page.getByRole('button', { name: 'Reset all (2)' }).focus();
+  await page.keyboard.press('Enter');
   await solved(page);
   expect(await text(page)).toBe(TEMPLATE);
   await expect(page.getByRole('button', { name: 'Reset all' })).toBeDisabled();
+  // Unavailable, but still holding the keyboard focus (a disabled button
+  // would have dropped it to the page); pressing it again does nothing.
+  await expect(page.getByRole('button', { name: 'Reset all' })).toBeFocused();
+  const n1 = await hook(page, (h) => h.solves());
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  expect(await hook(page, (h) => h.solves())).toBe(n1);
 });
 
 test('a choice switches the topology (open back) and the sketch; reset brings it back', async ({ page }) => {
@@ -196,9 +210,13 @@ test('a choice switches the topology (open back) and the sketch; reset brings it
   await expect(page.locator('#sketch-desc')).toContainText('Rear: open back behind a 30 rayl grille');
 
   const reset = row(page, 'rear').getByRole('button', { name: 'Reset Back of the driver to Closed cup with vents' });
-  await reset.click();
+  await reset.focus();
+  await page.keyboard.press('Enter');
   await solved(page);
   expect(await text(page)).toBe(TEMPLATE);
+  // The reset button hides; the keyboard focus moves to the restored option.
+  await expect(reset).toBeHidden();
+  await expect(page.getByRole('radio', { name: 'Closed cup with vents' })).toBeFocused();
   expect((await hook(page, (h) => h.sketch())).parts).toContain('vents');
 });
 
@@ -314,6 +332,8 @@ test('raising the drive raises operating-limit warnings; clicking one highlights
   expect(ops.map((w) => `${w.element}:${w.code}`).sort()).toEqual(['drv:coil_power', 'leak:particle_velocity', 'vent:particle_velocity']);
   await expect(page.locator('.warning-item')).toHaveCount(3);
   await expect(page.locator('#warn-jump')).toContainText('3 operating limits exceeded');
+  // Announced with the solve (a status region), not only shown.
+  await expect(page.locator('#run-status')).toContainText('3 operating limits exceeded at the stated drive.');
 
   const vent = ops.find((w) => w.element === 'vent')!;
   const item = page.locator('.warning-item', { hasText: 'vent · particle velocity' });

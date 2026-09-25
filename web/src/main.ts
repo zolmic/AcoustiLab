@@ -28,7 +28,7 @@ import {
   type SolveResult,
   type UiBlock,
 } from './types';
-import { highlightOf, WarningsPanel } from './warnings';
+import { highlightOf, isOperating, WarningsPanel } from './warnings';
 
 // ----- DOM ------------------------------------------------------------------
 
@@ -637,8 +637,12 @@ function setResult(r: SolveResult, text: string, ms: number, settled: boolean): 
   renderValidity(result);
   warnings.render(result);
   if (settled) {
+    // The status region is announced: a design change that crosses an
+    // operating limit is heard, not only seen in the warnings list.
+    const ops = (result.warnings ?? []).filter(isOperating).length;
     runStatus.textContent =
-      `Solved ${result.frequencies_Hz.length} frequencies × ${result.probes.length} probes in ${ms.toFixed(0)} ms.`;
+      `Solved ${result.frequencies_Hz.length} frequencies × ${result.probes.length} probes in ${ms.toFixed(0)} ms.` +
+      (ops ? ` ${ops} operating limit${ops === 1 ? '' : 's'} exceeded at the stated drive.` : '');
   }
 }
 
