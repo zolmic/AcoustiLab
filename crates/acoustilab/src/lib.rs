@@ -16,6 +16,7 @@ pub mod drive;
 pub mod elements;
 pub mod error;
 pub mod expr;
+pub mod fit;
 pub mod grid;
 pub mod linalg;
 pub mod mna;
