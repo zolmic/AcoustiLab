@@ -9,13 +9,19 @@
 //! band away from these; the grid follows the preferred-number series, which
 //! contains 1 kHz.)
 //!
-//! A band `[lo, hi]` holds the grid points from the one nearest `lo` to the
-//! one nearest `hi` on a log axis, both included. On the default grid this
-//! reproduces membership by nominal frequency: 20 Hz selects 19.95 Hz, 8 kHz
-//! selects 7.94 kHz, 16 kHz selects 15.85 kHz.
+//! A band `[lo, hi]` holds the grid points within half a 1/12-octave step
+//! of it: `lo·2^(−1/24) ≤ f ≤ hi·2^(1/24)`. On the default grid this is
+//! membership by nominal frequency (20 Hz selects 19.95 Hz, 8 kHz 7.94 kHz,
+//! 16 kHz 15.85 kHz, and no point beyond them); on a coarser grid no point
+//! more than half a 1/12-octave step outside the band is ever counted.
 
 /// Octave ratio of IEC 61260-1:2014, base 10.
 pub const G: f64 = 1.995_262_314_968_879_5; // 10^(3/10)
+
+/// Half a 1/12-octave step, the slack of band membership and coverage.
+fn half_step() -> f64 {
+    2f64.powf(1.0 / 24.0)
+}
 
 /// The default 1/12-octave evaluation grid, 19.95 Hz to 19.95 kHz.
 pub fn twelfth_octave() -> Vec<f64> {
@@ -38,23 +44,20 @@ pub fn nearest(grid: &[f64], f: f64) -> usize {
     best
 }
 
-/// Indices of the grid points in the band `[lo, hi]` (see the module docs).
+/// Indices of the grid points in the band `[lo, hi]` (see the module docs);
+/// `grid` must be increasing.
 pub fn band(grid: &[f64], lo: f64, hi: f64) -> std::ops::Range<usize> {
-    if grid.is_empty() {
-        return 0..0;
-    }
-    let (a, b) = (nearest(grid, lo), nearest(grid, hi));
-    if b < a {
-        return a..a;
-    }
-    a..b + 1
+    let h = half_step();
+    let a = grid.partition_point(|&f| f < lo / h);
+    let b = grid.partition_point(|&f| f <= hi * h);
+    a..b.max(a)
 }
 
 /// True when points actually used, spanning `[first, last]`, reach the
 /// band edges to within half a 1/12-octave step.
 pub fn covers(first: f64, last: f64, lo: f64, hi: f64) -> bool {
-    let half = 2f64.powf(1.0 / 24.0) * (1.0 + 1e-9);
-    first <= lo * half && last >= hi / half
+    let h = half_step() * (1.0 + 1e-9);
+    first <= lo * h && last >= hi / h
 }
 
 /// Checks a user-supplied grid: finite, positive, strictly increasing, at

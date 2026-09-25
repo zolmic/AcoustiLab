@@ -103,10 +103,26 @@ fn band_membership_uses_the_nearest_grid_points() {
         assert_eq!(b.start as u64, v[0].as_u64().unwrap(), "{key} start");
         assert_eq!((b.end - 1) as u64, v[1].as_u64().unwrap(), "{key} end");
     }
-    // Nominal-frequency membership: 20 Hz selects 19.95 Hz, 16 kHz 15.85 kHz.
+    // Nominal-frequency membership: 20 Hz selects 19.95 Hz, 16 kHz 15.85 kHz,
+    // and each edge's grid point is also the nearest one.
     let b = grid::band(&g, 20.0, 16000.0);
     close(g[b.start], 19.95, 0.01, "20 Hz edge");
     close(g[b.end - 1], 15848.9, 0.1, "16 kHz edge");
+    for (lo, hi) in [
+        (20.0, 10000.0),
+        (40.0, 8000.0),
+        (50.0, 16000.0),
+        (200.0, 500.0),
+    ] {
+        let b = grid::band(&g, lo, hi);
+        assert_eq!(b.start, grid::nearest(&g, lo));
+        assert_eq!(b.end - 1, grid::nearest(&g, hi));
+    }
+    // A coarse grid never lends a band points far outside it.
+    let coarse = [20.0, 50.0, 100.0, 500.0, 1000.0, 5000.0, 10000.0];
+    assert_eq!(grid::band(&coarse, 2000.0, 8000.0), 5..6);
+    assert_eq!(grid::band(&coarse, 2000.0, 3000.0), 5..5);
+    assert!(!grid::covers(5000.0, 5000.0, 2000.0, 8000.0));
 }
 
 // ---------------------------------------------------------------- curves

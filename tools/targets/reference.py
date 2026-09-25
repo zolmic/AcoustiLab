@@ -60,11 +60,9 @@ def interp(f, db, x):
 
 
 def band_idx(g, lo, hi):
-    """Grid indices from the point nearest lo to the point nearest hi (log)."""
-    lg = np.log(g)
-    a = int(np.argmin(np.abs(lg - math.log(lo))))
-    b = int(np.argmin(np.abs(lg - math.log(hi))))
-    return np.arange(a, b + 1)
+    """Grid indices within half a 1/12-octave step of [lo, hi]."""
+    h = 2 ** (1 / 24)
+    return np.nonzero((g >= lo / h) & (g <= hi * h))[0]
 
 
 def covers(first, last, lo, hi):

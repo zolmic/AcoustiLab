@@ -156,15 +156,16 @@ pub fn evaluate(model: &'static Model, grid: &[f64], e: &[Option<f64>], cx: &Con
         let v = s.as_ref().and_then(|s| t.variable.of(s));
         if s.as_ref().is_none_or(|s| s.partial) {
             greyed = true;
-            flags.push(Flag::new(
+            let f = Flag::new(
                 "partial_range",
                 format!(
-                    "{} needs {}-{} Hz; the response and target do not cover it all",
-                    t.variable.as_str(),
-                    t.band_hz.0,
-                    t.band_hz.1
+                    "{}-{} Hz is needed; the response and target do not cover it all",
+                    t.band_hz.0, t.band_hz.1
                 ),
-            ));
+            );
+            if !flags.contains(&f) {
+                flags.push(f);
+            }
         }
         score = match (score, v) {
             (Some(x), Some(v)) => Some(x - t.weight * v),
@@ -172,11 +173,16 @@ pub fn evaluate(model: &'static Model, grid: &[f64], e: &[Option<f64>], cx: &Con
         };
         variables.push((t.variable, v, s));
     }
-    if score.is_none() {
-        flags.push(Flag::new(
+    match score {
+        None => flags.push(Flag::new(
             "insufficient_data",
             "a variable needs at least two grid points in its band",
-        ));
+        )),
+        Some(x) if !(0.0..=100.0).contains(&x) => flags.push(Flag::new(
+            "outside_scale",
+            "the linear model was fitted to ratings on a 0-100 scale; this value is an extrapolation",
+        )),
+        Some(_) => {}
     }
     let train = fixture::fixture(&model.training_fixture)
         .map_or(model.training_fixture.clone(), |f| f.label.clone());
