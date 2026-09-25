@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="AcoustiLab: electro-mechano-acoustic headphone network solver in the browser (theory only)." />
+    <meta name="description" content="AcoustiLab: electro-mechano-acoustic headphone design and network solver in the browser (theory only)." />
     <title>AcoustiLab</title>
   </head>
   <body>
@@ -11,15 +11,17 @@
     <header class="app-header">
       <div class="brand">
         <h1>AcoustiLab</h1>
-        <p class="tagline">Electro-mechano-acoustic network solver (L0 lumped / L1 distributed)</p>
+        <p class="tagline">Headphone design workbench: electro-mechano-acoustic networks (L0 lumped / L1 distributed)</p>
       </div>
       <!-- Persistent conventions strip (spec Section 15, "Conventions panel"). -->
       <div class="strip" id="strip" aria-label="Conventions of the plotted result">
         <p class="theory-badge" id="theory-badge"><span aria-hidden="true">&#9888;</span> THEORY ONLY - not validated against measurements</p>
         <dl class="strip-items">
+          <div><dt>Drive</dt><dd id="strip-drive">&mdash;</dd></div>
+          <div><dt>Ear load</dt><dd id="strip-ear">&mdash;</dd></div>
+          <div id="strip-ref-item" hidden><dt>Reference</dt><dd id="strip-ref">&mdash;</dd></div>
           <div><dt>Air</dt><dd id="strip-air">&mdash;</dd></div>
           <div><dt>Level</dt><dd id="strip-level">&mdash;</dd></div>
-          <div><dt>Drive</dt><dd id="strip-drive">&mdash;</dd></div>
           <div><dt>Phasors</dt><dd>RMS, e<sup>+j&omega;t</sup></dd></div>
           <div><dt>Engine</dt><dd id="strip-engine">&mdash;</dd></div>
         </dl>
@@ -27,10 +29,10 @@
     </header>
 
     <main class="layout">
-      <section class="panel editor-panel" aria-labelledby="editor-heading">
-        <h2 id="editor-heading">Netlist</h2>
+      <section class="panel model-panel" aria-labelledby="model-heading">
+        <h2 id="model-heading" class="visually-hidden">Model</h2>
         <div class="toolbar">
-          <label for="example-select">Example</label>
+          <label for="example-select">Open</label>
           <select id="example-select"></select>
           <button type="button" id="run-btn" class="primary" aria-keyshortcuts="Control+Enter">Run</button>
           <button type="button" id="cancel-btn" disabled>Cancel</button>
@@ -39,28 +41,59 @@
           <span id="restore-text"></span>
           <button type="button" id="restore-btn">Restore your edits</button>
         </p>
-        <label for="netlist" class="visually-hidden">Netlist JSON</label>
-        <textarea id="netlist" spellcheck="false" autocomplete="off" autocapitalize="off"
-          aria-describedby="editor-help check-status"></textarea>
-        <div class="editor-foot">
-          <p id="editor-help" class="hint">JSON netlist (docs/netlist.md). <kbd>Ctrl</kbd>+<kbd>Enter</kbd> runs. <kbd>Tab</kbd> leaves the editor.</p>
-          <p id="cursor-pos" class="hint" aria-hidden="true"></p>
+
+        <div class="tabs" role="tablist" aria-label="Edit the model">
+          <button type="button" role="tab" id="tab-design" aria-controls="panel-design" aria-selected="true">Design</button>
+          <button type="button" role="tab" id="tab-netlist" aria-controls="panel-netlist" aria-selected="false" tabindex="-1">Netlist</button>
         </div>
-        <p id="check-status" class="check-status" aria-live="polite"></p>
+
         <div id="error-box" class="error-box" role="alert" hidden>
           <h3><span aria-hidden="true">&#9888;</span> Netlist error</h3>
           <p id="error-message"></p>
           <p id="error-detail" class="hint"></p>
           <button type="button" id="error-goto" hidden>Show in editor</button>
         </div>
+
+        <div role="tabpanel" id="panel-design" class="tabpanel" aria-labelledby="tab-design">
+          <div class="design-bar">
+            <button type="button" id="detail-toggle" class="switch" role="switch" aria-checked="false">
+              <span class="switch-track" aria-hidden="true"></span>Show detailed parameters
+            </button>
+            <button type="button" id="reset-all" disabled>Reset all</button>
+          </div>
+          <figure class="sketch" id="sketch" hidden>
+            <svg id="sketch-svg" role="img" aria-labelledby="sketch-caption" aria-describedby="sketch-desc" height="230"></svg>
+            <figcaption id="sketch-caption">
+              Cross-section, to scale from the parameters
+              <span class="hint">(leak gap enlarged, vent positions schematic; point at a control to see what it shapes)</span>
+            </figcaption>
+            <p id="sketch-desc" class="visually-hidden"></p>
+          </figure>
+          <p id="sketch-note" class="hint" hidden></p>
+          <div id="design-message" class="design-message" hidden></div>
+          <div id="design-groups" class="pgroups"></div>
+        </div>
+
+        <div role="tabpanel" id="panel-netlist" class="tabpanel" aria-labelledby="tab-netlist" hidden>
+          <label for="netlist" class="visually-hidden">Netlist JSON</label>
+          <textarea id="netlist" spellcheck="false" autocomplete="off" autocapitalize="off"
+            aria-describedby="editor-help check-status"></textarea>
+          <div class="editor-foot">
+            <p id="editor-help" class="hint">JSON netlist (docs/netlist.md, parameters in docs/parameters.md). <kbd>Ctrl</kbd>+<kbd>Enter</kbd> runs. <kbd>Tab</kbd> leaves the editor.</p>
+            <p id="cursor-pos" class="hint" aria-hidden="true"></p>
+          </div>
+          <p id="check-status" class="check-status" aria-live="polite"></p>
+        </div>
       </section>
 
       <section class="panel plot-panel" aria-labelledby="plots-heading">
+        <div class="busy-bar" aria-hidden="true"></div>
         <div class="plot-head">
           <h2 id="plots-heading" tabindex="-1">Results</h2>
           <p id="run-status" class="run-status" role="status"></p>
         </div>
         <p id="result-title" class="result-title"></p>
+        <p id="warn-jump" class="warn-jump" hidden><a href="#warnings" id="warn-jump-link"></a></p>
 
         <div class="view-controls" role="toolbar" aria-label="Frequency view" aria-controls="plots">
           <span class="group-label">View</span>
@@ -75,18 +108,43 @@
 
         <div id="legend" class="legend" role="group" aria-label="Probes: press to show or hide a curve"></div>
 
+        <div class="baselines" role="group" aria-labelledby="baselines-label">
+          <div class="baseline-bar">
+            <span id="baselines-label" class="group-label">Baselines</span>
+            <button type="button" id="freeze-btn" disabled>Freeze current as baseline</button>
+            <span class="baseline-opts" id="baseline-opts" hidden>
+              <label for="delta-ref">&Delta; against</label>
+              <select id="delta-ref"></select>
+              <label class="check"><input type="checkbox" id="diff-toggle" /> Difference plot</label>
+            </span>
+          </div>
+          <ul id="baseline-list" class="baseline-list" aria-label="Frozen baselines"></ul>
+        </div>
+
         <div id="readout" class="readout" aria-hidden="false"></div>
         <p id="sr-readout" class="visually-hidden" aria-live="polite"></p>
 
         <div id="plots" class="plots"></div>
+
+        <section id="warnings" class="warnings" aria-labelledby="warnings-heading" tabindex="-1">
+          <h3 id="warnings-heading">Warnings</h3>
+          <p id="warnings-drive" class="hint"></p>
+          <ul id="warning-list" class="warning-list"></ul>
+          <p id="warnings-none" class="hint" hidden></p>
+          <details id="notes-details" class="notes-details" hidden>
+            <summary id="notes-summary">Model notes</summary>
+            <ul id="note-list" class="note-list"></ul>
+          </details>
+        </section>
+
         <p class="hint plot-help" id="plot-help">
           Plots: move the pointer or focus a plot and use <kbd>&larr;</kbd>/<kbd>&rarr;</kbd> (with <kbd>Shift</kbd>: 10 points)
           to read values; <kbd>+</kbd>/<kbd>&minus;</kbd> zoom, <kbd>Ctrl</kbd>+<kbd>&larr;</kbd>/<kbd>&rarr;</kbd> pan,
           <kbd>0</kbd> default view, <kbd>Esc</kbd> hides the crosshair. Drag across a plot to zoom; double-click resets.
         </p>
         <div class="shading-key" id="shading-key">
-          <span class="swatch shade-1" aria-hidden="true"></span> lumped-model error &ge; 10 %
-          <span class="swatch shade-2" aria-hidden="true"></span> &ge; 36 % or hard limit
+          <span class="swatch shade-1" aria-hidden="true"></span> lumped-model error &ge; 10 %, or below an element's validated range
+          <span class="swatch shade-2" aria-hidden="true"></span> &ge; 36 % or past a hard limit
           <span class="hint">(validity shading, spec Section 2; per-element limits below)</span>
         </div>
 
@@ -97,7 +155,7 @@
 
         <details id="validity-details" class="validity-details">
           <summary>Validity limits per element</summary>
-          <div id="validity-table"></div>
+          <div id="validity-table" role="region" aria-label="Validity limits per element" tabindex="0"></div>
         </details>
       </section>
     </main>

@@ -1,16 +1,16 @@
 // Web Worker hosting the WebAssembly engine, so a solve never blocks the UI.
 //
-// Request:  { id, op: 'solve' | 'check' | 'types' | 'version', netlist? }
+// Request:  { id, op: 'solve' | 'check' | 'parameters' | 'types' | 'version', netlist? }
 // Reply:    { id, ok: true, value, ms }   value = parsed engine JSON
 //           { id, ok: false, crash }      the engine trapped (Rust panic) or
 //                                         failed to load; the client
 //                                         (engine.ts) then replaces this
 //                                         worker with a fresh one.
 
-import init, { check, element_types, engine_version, solve, take_last_panic } from '@engine/acoustilab_wasm.js';
+import init, { check, element_types, engine_version, parameters, solve, take_last_panic } from '@engine/acoustilab_wasm.js';
 import wasmUrl from '@engine/acoustilab_wasm_bg.wasm?url';
 
-type Op = 'solve' | 'check' | 'types' | 'version';
+type Op = 'solve' | 'check' | 'parameters' | 'types' | 'version';
 interface Request {
   id: number;
   op: Op;
@@ -33,6 +33,8 @@ function run(req: Request): unknown {
       return JSON.parse(solve(req.netlist ?? ''));
     case 'check':
       return JSON.parse(check(req.netlist ?? ''));
+    case 'parameters':
+      return JSON.parse(parameters(req.netlist ?? '', ''));
     case 'types':
       return JSON.parse(element_types());
     case 'version':

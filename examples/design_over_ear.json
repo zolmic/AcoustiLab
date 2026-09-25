@@ -2,7 +2,34 @@
   "schema": "acoustilab-netlist/0.2",
   "title": "Over-ear headphone: parametric design template (theory-only)",
   "description": "A 40 mm dynamic driver in an over-ear cup. The front cavity is a cylinder between the driver and the ear, sealed by the pad except for a leak gap around its inner edge. The back of the driver sees either a closed rear cavity vented through holes that can carry a mesh, or an open grille. The ear load is the IEC 60318-4 simulator or the ITU-T P.57 Type 4.3 ear. Driver defaults are the Tymphany HPD-40N16PET00-32 primary set (docs/spec-errata.md E5); tolerances are datasheet values where stated and estimates otherwise. Geometry is illustrative, not a measured product.",
-  "ui": {"template": "over_ear", "primary_probe": "p_drp"},
+  "ui": {
+    "template": "over_ear",
+    "primary_probe": "p_drp",
+    "ear_load": "ear",
+    "sketch": {
+      "kind": "over_ear",
+      "bind": {
+        "cup_radius_mm": "front_radius_mm",
+        "front_depth_mm": "front_depth_mm",
+        "front_volume_cm3": "front_volume_cm3",
+        "driver_diameter_mm": "driver_diameter_mm",
+        "pad_width_mm": "pad_width_mm",
+        "leak_gap_mm": "leak_gap_mm",
+        "open_back": "open_back",
+        "rear_depth_mm": "rear_depth_mm",
+        "rear_volume_cm3": "rear_volume_cm3",
+        "vent_count": "vent_count",
+        "vent_diameter_mm": "vent_diameter_mm",
+        "vent_length_mm": "vent_length_mm",
+        "vent_mesh_rayl": "vent_mesh_rayl",
+        "grille_rayl": "grille_rayl"
+      },
+      "parts": {
+        "driver": ["driver_fs_Hz", "driver_Qms", "driver_Qes", "driver_Re_ohm", "driver_Mms_g",
+                   "driver_Le_uH", "driver_Xmax_mm", "driver_rated_power_mW"]
+      }
+    }
+  },
   "parameters": {
     "driver_fs_Hz": {"value": 81.8, "min": 20, "max": 400, "step": 0.1, "log": true,
       "label": "Resonance fs (free air)", "group": "Driver",
@@ -21,6 +48,9 @@
       "tolerance": {"rel": 0.05, "source": "estimate"}},
     "driver_Sd_cm2": {"value": 10, "min": 2, "max": 25, "step": 0.1,
       "label": "Diaphragm area Sd", "group": "Driver"},
+    "driver_diameter_mm": {"expr": "2 * sqrt(driver_Sd_cm2 * 100 / pi)",
+      "label": "Effective diaphragm diameter", "group": "Driver",
+      "description": "Diameter of a circle of area Sd; the cross-section draws the diaphragm this wide."},
     "driver_Le_uH": {"value": 0, "min": 0, "max": 1000, "step": 1,
       "label": "Coil inductance Le", "group": "Driver", "advanced": true,
       "description": "Near zero for most headphone drivers (spec Section 4); a few hundred microhenries would falsely roll off the treble of a 32 ohm driver."},
@@ -51,6 +81,8 @@
       {"value": "closed", "label": "Closed cup with vents"},
       {"value": "open", "label": "Open back (grille)"}],
       "label": "Back of the driver", "group": "Rear"},
+    "open_back": {"expr": "rear == 'open'",
+      "label": "Open back", "group": "Rear", "advanced": true},
     "rear_volume_cm3": {"value": 25, "min": 2, "max": 150, "step": 0.5, "log": true,
       "label": "Rear cavity volume", "group": "Rear",
       "tolerance": {"rel": 0.03, "source": "estimate (moulding)"}},

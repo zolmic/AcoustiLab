@@ -6,17 +6,43 @@
 //   An impedance probe on a mechanical port reads v/F (a mobility) under the
 //   across/through convention, and is labelled as such.
 // * Everything else: magnitude of the phasor, grouped by unit.
+//
+// Frozen baselines add overlay series to the plots of the probes they share
+// with the live result, and optionally a difference plot (live SPL minus a
+// baseline's, in dB).
 
 import type { Num, ProbeResult, SolveResult } from './types';
 import { prettyUnit } from './format';
 
-export type Kind = 'spl' | 'mag' | 'phase';
+export type Kind = 'spl' | 'mag' | 'phase' | 'delta';
 export type Scale = 'linear' | 'log';
 
 export interface Series {
   /** Index of the probe in the result: fixes its colour and dash. */
   probe: number;
   id: string;
+  values: Num[];
+  /** The design's primary probe (`ui.primary_probe`): drawn heavier. */
+  primary?: boolean;
+}
+
+/** A frozen snapshot of a result (a baseline for comparisons). */
+export interface Baseline {
+  id: number;
+  name: string;
+  freqs: number[];
+  probes: Pick<ProbeResult, 'id' | 'quantity' | 'unit' | 'domain' | 'magnitude' | 'phase_deg' | 'spl_dB'>[];
+}
+
+/** One baseline curve drawn in a live plot. */
+export interface OverlaySeries {
+  /** Probe index of the live curve it belongs to (its colour). */
+  probe: number;
+  id: string;
+  /** Position of the baseline in the list (its dash pattern). */
+  slot: number;
+  name: string;
+  freqs: number[];
   values: Num[];
 }
 
@@ -32,8 +58,45 @@ export interface PlotGroup {
   axisUnit: string;
   scale: Scale;
   series: Series[];
+  /** Baseline curves drawn under the live ones. */
+  overlays: OverlaySeries[];
   /** Relative height of the plot. */
   height: 'main' | 'small';
+}
+
+/**
+ * Value of a curve at frequency f: the grid value when f is on the grid
+ * (to 1e-9 relative), otherwise linear in log f between the neighbours.
+ * Null outside the grid or next to a gap.
+ */
+export function valueAt(freqs: number[], values: Num[], f: number): { v: number | null; exact: boolean } {
+  let lo = 0;
+  let hi = freqs.length - 1;
+  if (hi < 0 || f < freqs[0] * (1 - 1e-9) || f > freqs[hi] * (1 + 1e-9)) return { v: null, exact: false };
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (freqs[mid] <= f) lo = mid;
+    else hi = mid;
+  }
+  for (const k of [lo, hi]) if (Math.abs(freqs[k] / f - 1) <= 1e-9) return { v: values[k], exact: true };
+  const a = values[lo];
+  const b = values[hi];
+  if (a === null || b === null) return { v: null, exact: false };
+  const t = Math.log(f / freqs[lo]) / Math.log(freqs[hi] / freqs[lo]);
+  return { v: a + t * (b - a), exact: false };
+}
+
+/** Whether two frequency grids are the same (to 1e-9 relative). */
+export function sameGrid(a: number[], b: number[]): boolean {
+  return a.length === b.length && a.every((f, i) => Math.abs(f / b[i] - 1) <= 1e-9);
+}
+
+export interface GroupOptions {
+  /** `ui.primary_probe`: its plot comes first, and its curve first and heavier. */
+  primary?: string;
+  baselines?: Baseline[];
+  /** Adds a plot of live SPL minus this baseline's, after the SPL plot. */
+  difference?: Baseline | null;
 }
 
 const QUANTITY_TITLES: Record<string, [string, string]> = {
@@ -88,7 +151,7 @@ export function chooseScale(series: Series[]): Scale {
   return hi / lo > 10 ? 'log' : 'linear';
 }
 
-export function buildGroups(r: SolveResult): PlotGroup[] {
+export function buildGroups(r: SolveResult, opts: GroupOptions = {}): PlotGroup[] {
   const spl: PlotGroup = {
     key: 'spl',
     kind: 'spl',
@@ -98,6 +161,7 @@ export function buildGroups(r: SolveResult): PlotGroup[] {
     axisUnit: 'dB re 20 µPa',
     scale: 'linear',
     series: [],
+    overlays: [],
     height: 'main',
   };
   const impedance = new Map<string, [PlotGroup, PlotGroup]>();
@@ -123,6 +187,7 @@ export function buildGroups(r: SolveResult): PlotGroup[] {
             axisUnit: prettyUnit(p.unit),
             scale: 'linear',
             series: [],
+            overlays: [],
             height: 'main',
           },
           {
@@ -134,6 +199,7 @@ export function buildGroups(r: SolveResult): PlotGroup[] {
             axisUnit: '°',
             scale: 'linear',
             series: [],
+            overlays: [],
             height: 'small',
           },
         ];
@@ -156,6 +222,7 @@ export function buildGroups(r: SolveResult): PlotGroup[] {
         axisUnit: p.unit ? prettyUnit(p.unit) : 'unit unknown',
         scale: 'linear',
         series: [],
+        overlays: [],
         height: 'main',
       };
       magnitude.set(key, g);
@@ -166,7 +233,7 @@ export function buildGroups(r: SolveResult): PlotGroup[] {
     g.series.push({ probe: i, id: p.id, values: p.magnitude });
   });
 
-  const groups: PlotGroup[] = [];
+  let groups: PlotGroup[] = [];
   if (spl.series.length) groups.push(spl);
   for (const [mag, phase] of impedance.values()) {
     mag.scale = chooseScale(mag.series);
@@ -176,7 +243,69 @@ export function buildGroups(r: SolveResult): PlotGroup[] {
     g.scale = chooseScale(g.series);
     groups.push(g);
   }
+
+  // The primary probe's plot first, its curve first in it (colours and
+  // dashes still follow the netlist order).
+  if (opts.primary) {
+    for (const g of groups) {
+      const k = g.series.findIndex((s) => s.id === opts.primary);
+      if (k < 0) continue;
+      g.series[k].primary = true;
+      g.series.unshift(...g.series.splice(k, 1));
+    }
+    const first = groups.findIndex((g) => g.series[0]?.primary);
+    if (first > 0) {
+      const lead = groups.splice(first, runLength(groups, first));
+      groups = [...lead, ...groups];
+    }
+  }
+
+  // Baseline curves: the same probe id and unit, in the matching quantity.
+  (opts.baselines ?? []).forEach((b, slot) => {
+    for (const g of groups) {
+      for (const s of g.series) {
+        const live = r.probes[s.probe];
+        const q = b.probes.find((p) => p.id === s.id && p.unit === live.unit && p.quantity === live.quantity);
+        if (!q) continue;
+        const values = g.kind === 'spl' ? q.spl_dB : g.kind === 'phase' ? q.phase_deg : q.magnitude;
+        if (values) g.overlays.push({ probe: s.probe, id: s.id, slot, name: b.name, freqs: b.freqs, values });
+      }
+    }
+  });
+
+  // Difference plot: live SPL minus the baseline's, on the live grid.
+  const ref = opts.difference;
+  if (ref && spl.series.length) {
+    const delta: PlotGroup = {
+      key: 'delta',
+      kind: 'delta',
+      title: `SPL difference, current − “${ref.name}”`,
+      symbol: 'ΔSPL',
+      unit: '',
+      axisUnit: 'dB',
+      scale: 'linear',
+      series: [],
+      overlays: [],
+      height: 'small',
+    };
+    for (const s of spl.series) {
+      const q = ref.probes.find((p) => p.id === s.id && p.spl_dB);
+      if (!q) continue;
+      const values = r.frequencies_Hz.map((f, i) => {
+        const a = s.values[i];
+        const b = valueAt(ref.freqs, q.spl_dB!, f).v;
+        return a === null || b === null ? null : a - b;
+      });
+      delta.series.push({ probe: s.probe, id: s.id, values, primary: s.primary });
+    }
+    if (delta.series.length) groups.splice(groups.indexOf(spl) + 1, 0, delta);
+  }
   return groups;
+}
+
+/** Length of the run of plots that belong together from index k (a |Z| plot and its phase). */
+function runLength(groups: PlotGroup[], k: number): number {
+  return groups[k + 1]?.key === `${groups[k].key}:phase` ? 2 : 1;
 }
 
 // ----- series styling ---------------------------------------------------
@@ -200,3 +329,21 @@ export const DASHES: number[][] = [
 export function styleSlot(probe: number): { color: number; dash: number } {
   return { color: probe % 8, dash: (probe + Math.floor(probe / 8)) % 8 };
 }
+
+/**
+ * Baseline overlays: thin (1.25 px) lines in the colour of the live curve
+ * they shadow, with one of these patterns per baseline. None of them occurs
+ * in DASHES, so a baseline never looks like a live curve of the same
+ * colour; the legend, the plot descriptions and the readout name them.
+ */
+export const OVERLAY_DASHES: number[][] = [
+  [4, 2],
+  [1, 2],
+  [7, 2, 1, 2],
+  [2, 1.5],
+  [10, 2, 1, 2, 1, 2],
+];
+
+export const OVERLAY_WIDTH = 1.25;
+export const LIVE_WIDTH = 2;
+export const PRIMARY_WIDTH = 2.75;

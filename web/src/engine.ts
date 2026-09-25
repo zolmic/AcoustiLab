@@ -57,8 +57,12 @@ export class EngineWorker {
     return this.pending.size > 0;
   }
 
-  call(op: 'solve' | 'check' | 'types' | 'version', netlist?: string): Promise<Reply> {
+  /** Requests posted per operation (a test hook: live solves are coalesced). */
+  readonly posted: Record<string, number> = {};
+
+  call(op: 'solve' | 'check' | 'parameters' | 'types' | 'version', netlist?: string): Promise<Reply> {
     const id = ++this.seq;
+    this.posted[op] = (this.posted[op] ?? 0) + 1;
     this.worker ??= this.spawn();
     const w = this.worker;
     return new Promise<Reply>((resolve, reject) => {
@@ -73,5 +77,73 @@ export class EngineWorker {
     const calls = [...this.pending.values()];
     this.pending.clear();
     for (const p of calls) p.reject(new Cancelled());
+  }
+}
+
+/**
+ * Coalesced requests of one operation on a worker (spec Section 15,
+ * "Responsiveness"): at most one call is in flight, and while it runs only
+ * the newest request is kept; it is sent as soon as the call returns. A
+ * slider drag therefore never queues work: the engine always computes the
+ * newest state it can, and the previous result stays on screen meanwhile.
+ */
+export class Coalesced {
+  private inflight: string | null = null;
+  private next: string | null = null;
+  /** Bumped by restart/cancel, so replies of abandoned calls are ignored. */
+  private gen = 0;
+
+  constructor(
+    private readonly worker: EngineWorker,
+    private readonly op: 'solve' | 'parameters',
+    /** `superseded`: a newer request is already on its way. */
+    private readonly deliver: (text: string, reply: Reply, superseded: boolean) => void,
+  ) {}
+
+  /** A call is in flight or queued. */
+  get busy(): boolean {
+    return this.inflight !== null || this.next !== null;
+  }
+
+  request(text: string): void {
+    if (this.inflight !== null) {
+      this.next = text;
+      return;
+    }
+    void this.send(text);
+  }
+
+  /** Abandons any call in flight (terminating the worker) and sends `text` now. */
+  restart(text: string): void {
+    this.cancel();
+    void this.send(text);
+  }
+
+  /** Abandons the call in flight (terminating the worker) and the queued request. */
+  cancel(): void {
+    this.gen++;
+    this.next = null;
+    if (this.inflight !== null) this.worker.cancel();
+    this.inflight = null;
+  }
+
+  private async send(text: string): Promise<void> {
+    const gen = this.gen;
+    this.inflight = text;
+    let reply: Reply;
+    try {
+      reply = await this.worker.call(this.op, text);
+    } catch (e) {
+      if (e instanceof Cancelled) return;
+      throw e;
+    }
+    if (gen !== this.gen) return;
+    this.inflight = null;
+    const next = this.next;
+    this.next = null;
+    // Start the next call before rendering this reply, so the worker never
+    // idles while the main thread draws.
+    if (next !== null) void this.send(next);
+    this.deliver(text, reply, next !== null);
   }
 }
