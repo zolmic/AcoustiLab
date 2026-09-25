@@ -1,0 +1,39 @@
+{
+  "source": "Geometry: Luan, Sgard, Benacchio, Nelisse and Doutres, 'A transfer matrix model of the IEC 60318-4 ear simulator', Acta Acustica united with Acustica 105(6) 1258-1268 (2019), Table 1 mean values (G.R.A.S. RA0045, micro-CT). Topology after Nielsen, Schuhmacher, Liu and Jonsson, AES 116th Convention (2004) paper 6162, and Luan et al. Fig. 2 / Eq. 6.",
+  "status": "literature model, not verified against the IEC 60318-4 Table 1",
+  "geometry_mm": {
+    "R0": 3.77,
+    "L1": 3.12,
+    "L3": 4.75,
+    "L5": 4.69,
+    "a2": 2.53,
+    "b2": 2.35,
+    "h2": 0.16,
+    "r2": 6.3,
+    "R2": 9.01,
+    "d1": 1.91,
+    "r4": 4.66,
+    "h4": 0.05,
+    "R4": 9.01,
+    "d2": 1.4
+  },
+  "annular_slit": {
+    "parts": 3,
+    "part_angle_deg": 95.33
+  },
+  "microphone_bk4192": {
+    "source": "COMSOL Generic 711 Coupler model documentation (B&K Microphone Handbook, Falcon range, 1995, pp. 6-18)",
+    "C_m3_per_Pa": 6.2e-14,
+    "R_Pa_s_per_m3": 119000000.0,
+    "M_kg_per_m4": 710.0
+  },
+  "fit": {
+    "parameter": "side_volume_scale (multiplies both side-cavity thicknesses d1, d2)",
+    "side_volume_scale": 1.6313746910432487,
+    "target": "effective volume 1260 mm^3 at 500 Hz (GRAS RA0045 product data)",
+    "air": "standard_23C",
+    "unfitted_effective_volume_500Hz_mm3": 1067.9090805810422,
+    "half_wave_resonance_Hz": 13551.0,
+    "half_wave_resonance_unfitted_Hz": 13551.0
+  }
+}
