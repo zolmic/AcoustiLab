@@ -435,18 +435,17 @@ test('an engine panic is reported and the next run uses a fresh engine', async (
   await page.goto('/');
   await solved(page);
   const good = await page.locator('#netlist').inputValue();
-  // An absurd grid density overflows the frequency vector's capacity in the
-  // engine (a Rust panic, which traps the wasm instance). This relies on the
-  // engine not yet bounding the sweep size in grid.rs; once it rejects such
-  // sweeps with an ordinary error, this test needs another panic trigger.
+  // The wasm wrapper panics on purpose for "debug_panic": true (a test hook;
+  // the engine rejects bad input with ordinary errors and never panics), and
+  // a Rust panic traps the wasm instance.
   const bad = JSON.parse(good);
-  bad.sweep = { f_min_Hz: 10, f_max_Hz: 20000, points_per_octave: 1e300 };
+  bad.debug_panic = true;
   await setNetlist(page, JSON.stringify(bad));
-  await expect(page.locator('#check-status')).toContainText('capacity overflow');
+  await expect(page.locator('#check-status')).toContainText('debug panic');
   await page.getByRole('button', { name: 'Run' }).click();
   await expect(page.locator('body')).toHaveAttribute('data-state', 'error');
   await expect(page.locator('#error-message')).toContainText('engine panic');
-  await expect(page.locator('#error-message')).toContainText('capacity overflow');
+  await expect(page.locator('#error-message')).toContainText('debug panic');
   // Both the solve and the live-check workers recover.
   await setNetlist(page, good);
   await page.getByRole('button', { name: 'Run' }).click();
@@ -454,7 +453,7 @@ test('an engine panic is reported and the next run uses a fresh engine', async (
   await expect(page.locator('#check-status')).toContainText('Valid:');
   await setNetlist(page, JSON.stringify(bad));
   await page.getByRole('button', { name: 'Run' }).click();
-  await expect(page.locator('#error-message')).toContainText('capacity overflow');
+  await expect(page.locator('#error-message')).toContainText('debug panic');
   await setNetlist(page, good);
   await page.getByRole('button', { name: 'Run' }).click();
   await solved(page);

@@ -16,11 +16,17 @@ between designs are more reliable than absolute values.
 ## Layout
 
 ```
-crates/acoustilab       engine library (Rust, builds for native and wasm32)
-crates/acoustilab-cli   `acoustilab` command-line runner
-docs/                   spec, errata, conventions, netlist reference
-examples/               example netlists
+crates/acoustilab        engine library (Rust, builds for native and wasm32)
+crates/acoustilab-cli    `acoustilab` command-line runner
+crates/acoustilab-wasm   wasm-bindgen wrapper used by the web UI
+web/                     browser UI (Vite + TypeScript), see docs/web.md
+data/                    driver records, ear-load and material parameters (with provenance)
+tools/                   Python generators for reference fixtures and fits
+docs/                    spec, errata, conventions, netlist reference, ear loads, web UI
+examples/                example netlists
 ```
+
+![Web UI](docs/img/web-ui.png)
 
 ## Build and run
 
@@ -31,4 +37,5 @@ cargo run -p acoustilab-cli -- solve examples/sealed_cup.json --csv
 cargo build -p acoustilab --target wasm32-unknown-unknown --release
 ```
 
-The netlist format is described in `docs/netlist.md`.
+The netlist format is described in `docs/netlist.md`. To run the browser UI:
+`cd web && npm ci && npm run dev` (details in `docs/web.md`).

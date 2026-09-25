@@ -51,10 +51,25 @@ fn install_panic_hook() {
     });
 }
 
+/// Test hook for the UI's panic recovery: a netlist whose top level has
+/// `"debug_panic": true` makes the wrapper panic before the engine sees it.
+/// The engine itself never panics on input (it rejects the key), so the
+/// Playwright test needs a deliberate trigger.
+fn debug_panic_hook(netlist_json: &str) {
+    let requested = serde_json::from_str::<serde_json::Value>(netlist_json)
+        .ok()
+        .and_then(|v| v.get("debug_panic").and_then(|b| b.as_bool()))
+        .unwrap_or(false);
+    if requested {
+        panic!("debug panic requested by the netlist (test hook)");
+    }
+}
+
 /// Solves a netlist; returns the result JSON or an error object.
 #[wasm_bindgen]
 pub fn solve(netlist_json: &str) -> String {
     install_panic_hook();
+    debug_panic_hook(netlist_json);
     api::to_string(&api::solve_value(netlist_json))
 }
 
@@ -62,6 +77,7 @@ pub fn solve(netlist_json: &str) -> String {
 #[wasm_bindgen]
 pub fn check(netlist_json: &str) -> String {
     install_panic_hook();
+    debug_panic_hook(netlist_json);
     api::to_string(&api::check_value(netlist_json))
 }
 

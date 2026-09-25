@@ -97,6 +97,30 @@ The spec's Appendix D is wrong for circular ducts (erratum E1). The engine uses:
 - `ρ_eff = ρ/(1 − F_v)` and `K_eff = γP0/(1 + (γ−1)·F_t)`.
 - `Γ = jω·sqrt(ρ_eff/K_eff)` on the branch with `Re Γ ≥ 0`, and
   `Z_c = sqrt(ρ_eff·K_eff)/S`.
+- Rectangular ducts with both sides finite (`Section::Rect`, element
+  `rect_duct`) use Stinson's 1991 double series. `Section::shape` takes the
+  complex wavenumber k, because the rectangle depends on both sides.
+- Lumped (L0) ducts are shaded where |tan x/x − 1| reaches 10 % and 36 %, with
+  the lossy complex length `x = −jΓl`. Narrow ducts leave the lumped regime
+  well below the lossless kl estimate.
+
+## Linear solve
+
+The linear solve is a dense LU with row/column equilibration and partial
+pivoting, followed by up to two steps of iterative refinement against the
+unscaled matrix. Without refinement, potentials far below the largest one
+are accurate only norm-wise. `linalg::Lu` keeps the factors so further
+right-hand sides (refinement, sensitivities) reuse them.
+
+## Known limits of level 0
+
+- A two-node cavity at L0 joins its faces with an ideal short. This drops the
+  depth line's air inertance ρd/S. If the far face opens onto a load of
+  comparable inertance (a wide vent or a radiating hole), L0 and L1 differ at
+  every frequency, and the kL shading does not flag it. Use L1 for such
+  designs.
+- L0 ducts neglect compressibility, so near a duct's anti-resonance the two
+  levels can differ by more than the shading suggests.
 
 ## Two-ports
 

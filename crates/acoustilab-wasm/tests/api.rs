@@ -269,10 +269,10 @@ fn errors_name_what_failed() {
     assert_eq!(e["kind"], "netlist");
 }
 
-/// A probe on a port the element does not have compiles in the engine and
-/// only fails when the solve first evaluates it. `check` must reject it too,
-/// with the same error object, or the live check calls a netlist valid that
-/// every run rejects (and the UI would clear the run's error box).
+/// A probe on a port the element does not have is rejected when the netlist
+/// is built. `check` and `solve` must report it with the same error object,
+/// or the live check could call a netlist valid that every run rejects (and
+/// the UI would clear the run's error box).
 #[test]
 fn check_rejects_probe_on_missing_port() {
     let mut net: Value = serde_json::from_str(&example("sealed_cup.json")).unwrap();
@@ -281,8 +281,8 @@ fn check_rejects_probe_on_missing_port() {
         .unwrap()
         .push(json!({"id": "z_bad", "quantity": "impedance", "element": "coil", "port": 3}));
     let text = net.to_string();
-    // The engine itself compiles it and fails only in the solve.
-    assert!(Circuit::from_json(&text).is_ok());
+    // The engine rejects it at build time.
+    assert!(Circuit::from_json(&text).is_err());
     let solved = api::solve_value(&text);
     assert_eq!(solved["kind"], "probe", "{solved}");
     assert_eq!(solved["probe"], "z_bad");

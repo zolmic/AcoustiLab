@@ -4,6 +4,9 @@ use crate::error::{Error, Result};
 use crate::units::{Dim, Params};
 use serde_json::Value;
 
+/// Largest sweep the engine accepts (points).
+pub const MAX_POINTS: usize = 1_000_000;
+
 /// Log-spaced grid from `f_min` to `f_max` inclusive with the given density.
 pub fn log_grid(f_min: f64, f_max: f64, points_per_octave: f64) -> Vec<f64> {
     assert!(f_min > 0.0 && f_max >= f_min && points_per_octave > 0.0);
@@ -36,8 +39,10 @@ pub fn from_json(v: Option<&Value>) -> Result<Vec<f64>> {
             .collect::<Option<_>>()
             .ok_or_else(|| Error::Netlist("frequencies must be positive numbers".into()))?;
         p.finish()?;
-        if freqs.is_empty() {
-            return Err(Error::Netlist("'frequencies_Hz' is empty".into()));
+        if freqs.is_empty() || freqs.len() > MAX_POINTS {
+            return Err(Error::Netlist(format!(
+                "'frequencies_Hz' must hold 1 to {MAX_POINTS} values"
+            )));
         }
         return Ok(freqs);
     }
@@ -51,6 +56,12 @@ pub fn from_json(v: Option<&Value>) -> Result<Vec<f64>> {
         return Err(Error::Netlist(
             "sweep needs f_max >= f_min and points_per_octave > 0".into(),
         ));
+    }
+    let n = (f_max / f_min).log2() * ppo;
+    if n >= MAX_POINTS as f64 {
+        return Err(Error::Netlist(format!(
+            "sweep would have {n:.3e} points; the limit is {MAX_POINTS}"
+        )));
     }
     Ok(log_grid(f_min, f_max, ppo))
 }

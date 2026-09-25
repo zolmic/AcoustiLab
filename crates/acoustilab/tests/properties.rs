@@ -926,20 +926,30 @@ fn measure_abcd(
                 {"id": "n1", "quantity": "potential", "node": "p1"},
             ],
         });
-        let c = Circuit::from_json(&doc.to_string()).unwrap_or_else(|e| panic!("{e}\n{doc:#}"));
+        // A series one-port (a duct at L0) has no port 1, which the engine
+        // rejects when the netlist is built; measure it without those probes.
+        let (c, two_port) = match Circuit::from_json(&doc.to_string()) {
+            Ok(c) => (c, true),
+            Err(e) if e.to_string().contains("port 1 does not exist") => {
+                let mut doc = doc.clone();
+                let probes = doc["probes"].as_array_mut().unwrap();
+                probes.retain(|p| p["port"] != json!(1));
+                let c =
+                    Circuit::from_json(&doc.to_string()).unwrap_or_else(|e| panic!("{e}\n{doc:#}"));
+                (c, false)
+            }
+            Err(e) => panic!("{e}\n{doc:#}"),
+        };
         let x = c.solve_at(f).unwrap_or_else(|e| panic!("{e}\n{doc:#}"));
         let g = |id: &str| probe(&c, &x, f, id);
-        let port2 = c.probes.iter().find(|p| p.id == "i2").unwrap();
-        match c.probe_value(port2, f, &x) {
+        if two_port {
             // I2 is the flow leaving port 2 towards the load.
-            Ok(i2_in) => (g("v1"), g("i1"), g("v2"), -i2_in),
-            // A series one-port (a duct at L0) between p1 and p2: its port
-            // is the difference of the two ground-referenced ports, and the
-            // flow entering at p1 leaves at p2.
-            Err(_) => {
-                let v1 = g("n1");
-                (v1, g("i1"), v1 - g("v1"), g("i1"))
-            }
+            (g("v1"), g("i1"), g("v2"), -g("i2"))
+        } else {
+            // Its port is the difference of the two ground-referenced ports,
+            // and the flow entering at p1 leaves at p2.
+            let v1 = g("n1");
+            (v1, g("i1"), v1 - g("v1"), g("i1"))
         }
     };
     let a = run(loads[0], 1.0);

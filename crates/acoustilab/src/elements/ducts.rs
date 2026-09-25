@@ -8,7 +8,8 @@
 //! Tubes take optional end corrections: `"flanged"` (0.8216a, Norris &
 //! Sheng / Nomura et al.), `"piston"` (8a/3π ≈ 0.8488a, the low-frequency
 //! baffled-piston limit the spec's worked examples use) or `"unflanged"`
-//! (0.6133a, Levine & Schwinger). An outlet that radiates should use
+//! (0.6127a, the exact value of Levine & Schwinger's integral; they printed
+//! 0.6133a). An outlet that radiates should use
 //! `"none"` and connect a `radiation` element instead, whose reactance
 //! already contains the end correction.
 //!
@@ -34,12 +35,13 @@ use serde_json::Value;
 use std::any::Any;
 use std::f64::consts::PI;
 
-pub const TYPES: &[&str] = &["tube", "slit", "area_step", "vent", "leak"];
+pub const TYPES: &[&str] = &["tube", "slit", "rect_duct", "area_step", "vent", "leak"];
 
 pub fn constructor(ty: &str) -> Option<Constructor> {
     Some(match ty {
         "tube" => tube,
         "slit" => slit,
+        "rect_duct" => rect_duct,
         "area_step" => area_step,
         "vent" => vent,
         "leak" => leak,
@@ -53,7 +55,7 @@ pub fn end_correction(kind: &str, a: f64) -> Option<f64> {
         "none" => 0.0,
         "flanged" => 0.8216 * a,
         "piston" => 8.0 * a / (3.0 * PI),
-        "unflanged" => 0.6133 * a,
+        "unflanged" => 0.6127 * a,
         _ => return None,
     })
 }
@@ -194,13 +196,52 @@ impl Duct {
         [a, b / n, c * n, d]
     }
 
+    /// Validity of the lumped (L0) representation: where the inertance
+    /// error |tan(x)/x − 1| reaches 10 % and 36 %, with x = −jΓ·l + k·δ the
+    /// complex electrical length. Using the lossy Γ rather than the lossless
+    /// k matters for narrow ducts, whose |Γ| exceeds k by the viscous factor.
+    pub fn lumped_limit(&self, id: &str, air: &AirState) -> ValidityLimit {
+        let error = |f: f64| -> f64 {
+            let omega = 2.0 * PI * f;
+            let (gamma, _) = thermoviscous::propagation(&self.section, air, omega);
+            let x = C64::new(0.0, -1.0) * gamma * self.length
+                + C64::new(omega / air.c * self.end_length, 0.0);
+            if x.norm() < 1e-4 {
+                (x * x / 3.0).norm()
+            } else {
+                (x.tan() / x - 1.0).norm()
+            }
+        };
+        // Bisection in log frequency between 0.01 Hz and 10 MHz.
+        let at = |target: f64| -> Option<f64> {
+            let (mut lo, mut hi) = (-2.0f64, 7.0f64);
+            if error(10f64.powf(hi)) < target {
+                return None;
+            }
+            if error(10f64.powf(lo)) >= target {
+                return Some(10f64.powf(lo));
+            }
+            for _ in 0..80 {
+                let mid = 0.5 * (lo + hi);
+                if error(10f64.powf(mid)) < target {
+                    lo = mid;
+                } else {
+                    hi = mid;
+                }
+            }
+            Some(10f64.powf(0.5 * (lo + hi)))
+        };
+        ValidityLimit {
+            element: id.to_string(),
+            criterion: "lumped duct |Γ|l",
+            begin_hz: at(validity::BEGIN_ERROR),
+            deep_hz: at(validity::DEEP_ERROR),
+        }
+    }
+
     pub fn limits(&self, id: &str, air: &AirState, level: u8) -> Vec<ValidityLimit> {
         if level == 0 {
-            return vec![validity::lumped_duct(
-                id,
-                self.length + self.end_length,
-                air.c,
-            )];
+            return vec![self.lumped_limit(id, air)];
         }
         let (cut_on, stinson) = match self.section {
             Section::Circle { radius } => (
@@ -394,6 +435,23 @@ fn slit(mut b: Build) -> Result<Box<dyn Element>> {
         end_length: 0.0,
     };
     duct_element(b, "slit", DuctModel::lossless_ends(duct))
+}
+
+/// Rectangular duct with both sides finite (spec Section 8 eyeglass
+/// channels; Stinson 1991 double-series shape function).
+fn rect_duct(mut b: Build) -> Result<Box<dyn Element>> {
+    let p = &mut b.params;
+    let a = p.positive("side_a", Dim::Length)?;
+    let side_b = p.positive("side_b", Dim::Length)?;
+    let length = p.positive("length", Dim::Length)?;
+    let count = p.count_or("count", 1)?;
+    let duct = Duct {
+        section: Section::Rect { a, b: side_b },
+        length,
+        count,
+        end_length: 0.0,
+    };
+    duct_element(b, "rect_duct", DuctModel::lossless_ends(duct))
 }
 
 // ----- Area step -----------------------------------------------------------
@@ -781,4 +839,38 @@ fn leak(mut b: Build) -> Result<Box<dyn Element>> {
         segments,
         level,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn narrow_duct_lumped_limit_uses_lossy_propagation() {
+        // A 0.05 mm slit: |Γ| far exceeds k, so the lumped representation
+        // fails well below the lossless k·l estimate.
+        let air = AirState::spec_reference();
+        let duct = Duct {
+            section: Section::Slit {
+                gap: 0.05e-3,
+                width: 10e-3,
+            },
+            length: 10e-3,
+            count: 1,
+            end_length: 0.0,
+        };
+        let lossy = duct.lumped_limit("s", &air).begin_hz.unwrap();
+        let lossless = validity::lumped_duct("s", 10e-3, air.c).begin_hz.unwrap();
+        assert!(lossy < 0.5 * lossless, "{lossy} vs {lossless}");
+        // A wide tube reduces to the lossless estimate within a few percent.
+        let wide = Duct {
+            section: Section::Circle { radius: 10e-3 },
+            length: 20e-3,
+            count: 1,
+            end_length: 0.0,
+        };
+        let f = wide.lumped_limit("t", &air).begin_hz.unwrap();
+        let f0 = validity::lumped_duct("t", 20e-3, air.c).begin_hz.unwrap();
+        assert!((f / f0 - 1.0).abs() < 0.03, "{f} vs {f0}");
+    }
 }

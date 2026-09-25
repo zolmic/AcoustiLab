@@ -271,7 +271,13 @@ impl Document {
                 .get("element")
                 .and_then(Value::as_str)
                 .map(str::to_string);
-            let port = obj.get("port").and_then(Value::as_u64).unwrap_or(0) as usize;
+            let port = match obj.get("port") {
+                None => 0,
+                Some(v) => v.as_u64().ok_or_else(|| Error::Probe {
+                    id: id.clone(),
+                    msg: "'port' must be a non-negative integer".into(),
+                })? as usize,
+            };
             if let Some(extra) = obj
                 .keys()
                 .find(|k| !["id", "quantity", "node", "element", "port"].contains(&k.as_str()))

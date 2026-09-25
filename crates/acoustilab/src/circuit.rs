@@ -93,6 +93,14 @@ impl Circuit {
             .iter()
             .map(|p| c.resolve_probe(p))
             .collect::<Result<_>>()?;
+        for (i, p) in c.probes.iter().enumerate() {
+            if c.probes[..i].iter().any(|q| q.id == p.id) {
+                return Err(Error::Probe {
+                    id: p.id.clone(),
+                    msg: "duplicate probe id".into(),
+                });
+            }
+        }
         Ok(c)
     }
 
@@ -232,6 +240,12 @@ impl Circuit {
             .element_index(name)
             .ok_or_else(|| perr(format!("unknown element '{name}'")))?;
         let port = p.port;
+        let ports = self.elements[element].port_count();
+        if port >= ports {
+            return Err(perr(format!(
+                "element '{name}' has {ports} port(s); port {port} does not exist"
+            )));
+        }
         let (kind, unit) = match q {
             "flow" | "current" | "force" | "volume_velocity" => {
                 (ProbeKind::Flow { element, port }, "")

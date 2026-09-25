@@ -65,8 +65,9 @@ Parameters in *italics* are optional.
 | type | nodes | parameters |
 |---|---|---|
 | `cavity` | [face] or [driver face, far face] | one geometry: `lx/ly/lz_mm` (box, depth = lz), `radius_mm` + `depth_mm` (cylinder), or `volume_cm3` [+ `depth_mm`]. Optional: *`wall_loss`* (true), *`surface_factor`* (1–10), *`wall_area_cm2`*, *`max_distance_mm`* (validity length) |
-| `tube` | [a, *b*] | `radius_mm` or `diameter_mm`, `length_mm`, *`count`*, *`inlet`*, *`outlet`*: `none` \| `flanged` (0.8216a) \| `piston` (0.8488a) \| `unflanged` (0.6133a) |
+| `tube` | [a, *b*] | `radius_mm` or `diameter_mm`, `length_mm`, *`count`*, *`inlet`*, *`outlet`*: `none` \| `flanged` (0.8216a) \| `piston` (0.8488a) \| `unflanged` (0.6127a) |
 | `slit` | [a, *b*] | `gap_mm`, `width_mm`, `length_mm`, *`count`* |
+| `rect_duct` | [a, *b*] | `side_a_mm`, `side_b_mm`, `length_mm`, *`count`* (both sides finite, Stinson 1991 series; e.g. eyeglass channels) |
 | `radiation` | [a, *b*] | `radius_mm` or `area_cm2`, *`baffle`*: `infinite` \| `free`, *`count`* |
 | `acoustic_resistance` / `_inertance` / `_impedance` / `_compliance` | [a, *b*] | `R_Pa_s_per_m3`, `M_kg_per_m4`, `C_m3_per_Pa` (user overrides) |
 | `flow_source` | [into, *from*] | *`U_m3_per_s`* |

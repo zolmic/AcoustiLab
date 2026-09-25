@@ -135,8 +135,10 @@ corrected statement. "p." is the PDF page.
   10k up to 40 kHz.
 - **E28 — ka = 1.** The limit is 2.7 kHz for a 40 mm geometric diameter and
   3.06 kHz for Sd = 10 cm².
-- **E29 — cavity Q.** A wall-loss Q of 1/ε = 30–200 holds only in the bass; at
-  mode frequencies it is 500–1000.
+- **E29 — cavity Q.** A wall-loss Q of 1/ε = 30–200 holds only in the bass.
+  At mode frequencies the thermal-only 1/ε is 500–1000. The full Morse–Ingard
+  modal Q, with viscous loss, is 200–400 for the 60×45×20 mm box and 280–540
+  for the 25 × 25 mm cylinder.
 - **E31 — FEM pollution.** For quadratic elements the pollution term is
   `k·L·(kh)^4`, not `k³h²`.
 - **E39 — excursion.** At 100 dB in a sealed 30–100 cm³ cup it is about
