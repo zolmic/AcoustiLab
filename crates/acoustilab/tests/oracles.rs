@@ -812,6 +812,16 @@ fn lumped_cavity_against_depth_line() {
     for f in log_freqs(10.0, kl_to_f(0.3), 12.0) {
         let d = db(at(&w1, f, "p").norm() / at(&w0, f, "p").norm());
         assert!(d.abs() < 0.3, "{d} dB at {f} Hz");
+        // Tighter, and complex: the depth line's lateral-wall loss (exact
+        // circular shape function) and its end-face shunts reduce to the
+        // lumped C0·[1 + ε(1 − j)] of L0, so the lossy L1/L0 ratio is the
+        // lossless kL·cot(kL) up to the thin-layer O(δt/a) terms of ε
+        // (≤ 1.3e-3 here). The spec's 0.3 dB alone cannot see the end faces:
+        // dropping their loss leaves ε_end·|1 − j| = 0.4·δt·√2/d = 7.7e-3 at
+        // 10 Hz (0.05 dB), and a wrong sign (1 + j) 1.2e-2.
+        let kl = 2.0 * PI * f * depth / C_AIR;
+        let ratio = at(&w1, f, "p") / at(&w0, f, "p") / (kl / kl.tan());
+        assert!((ratio - 1.0).norm() < 3e-3, "{ratio} at {f} Hz");
     }
     // The lumped cavity's validity shading begins at the 10 % frequency
     // (kL ≈ 0.54, 493 Hz for 60 mm) and deepens at 36 % (≈ 910 Hz).
@@ -1141,7 +1151,10 @@ fn sign_convention_at_20_hz_on_a_sealed_netlist() {
     assert!(at(&r, f, "p_drum").re < 0.0);
     // E12: DC is excluded from every grid, so the test cannot run at 0 Hz.
     let dc = json!({"sweep": {"frequencies_Hz": [0.0]}, "nodes": [], "elements": []});
-    assert!(Circuit::from_json(&dc.to_string()).is_err());
+    match Circuit::from_json(&dc.to_string()) {
+        Ok(_) => panic!("a 0 Hz grid was accepted"),
+        Err(e) => assert!(e.to_string().contains("positive"), "{e}"),
+    }
 }
 
 // ----- Bleed estimate (App. C9) -------------------------------------------------

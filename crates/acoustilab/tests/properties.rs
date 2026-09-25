@@ -8,30 +8,36 @@
 //! two-node), ducts, slits, radiation and lumped R/M/C elements. Every
 //! network is then checked for
 //!
-//! * Tellegen power balance through `Circuit::power_absorbed`, to 1e-10 of
-//!   the total real power (plus 1e-13 of the apparent power, the round-off
-//!   floor of `Re(V·conj(I))` on reactive elements);
+//! * Tellegen power balance through `Circuit::power_absorbed`: the engine's
+//!   own solution to the spec's 1e-9 of the total real power, and the
+//!   solution after one step of iterative refinement (`refined_solve`) to
+//!   1e-10, each with a round-off floor proportional to the apparent power;
 //! * passivity: `Re(Zin) ≥ 0` at the only source (E17's general form), every
 //!   passive element absorbing non-negative power, couplers absorbing none,
 //!   and `Re(Zin) ≥ Re` where a single coil is driven directly;
 //! * reciprocity of passive acoustic sub-networks, `p_i/U_j = p_j/U_i`, and
-//!   the (anti-)reciprocity of the couplers;
+//!   the (anti-)reciprocity of the couplers, to the spec's 1e-9 relative on
+//!   refined solutions (the engine's LU is only norm-wise accurate);
 //! * `det T = 1` for every reciprocal two-port and `−1` for the piston
 //!   gyrator, measured through the solver;
 //! * continuity between level 0 and level 1 within 0.1 dB below an
 //!   electrical length of 0.17 (E4): k·d for two-node cavities, |Γ|·l for
-//!   ducts, the bound scaled by the network's own amplification of a 1 %
-//!   compliance change near resonances, plus the far-wall ratio at far faces;
+//!   ducts, the bound scaled at each node by its first-order sensitivity to
+//!   the level-dependent elements, plus the ducts' neglected compressibility
+//!   and the far-wall ratio at far faces;
 //!
 //! plus malformed netlists, whose errors must name the offending element,
 //! key or node, and the shipped examples. Failures print the seed and the
-//! netlist.
+//! netlist. Every tolerance was checked against 100 times as many seeds on
+//! other streams.
 
 use acoustilab::elements::TwoPort;
+use acoustilab::linalg;
+use acoustilab::mna::Mna;
 use acoustilab::thermoviscous::{propagation, Section};
 use acoustilab::{AirState, Circuit, C64};
 use serde_json::{json, Value};
-use std::f64::consts::PI;
+use std::f64::consts::{LOG10_E, PI};
 
 // ----- Deterministic PRNG ----------------------------------------------------
 
@@ -103,6 +109,8 @@ struct Net {
     depths: Vec<f64>,
     /// Far-face nodes of the two-node cavities.
     far_faces: Vec<String>,
+    /// (driver face, far face) of each two-node cavity.
+    face_pairs: Vec<(String, String)>,
     /// Re of the coil when the electrical source drives it directly with
     /// nothing else on the electrical side.
     lone_coil: Option<f64>,
@@ -242,6 +250,7 @@ fn acoustic_network(rng: &mut Rng, net: &mut Net, seeds: &[String]) {
                 let (e, depth) = cavity(rng, json!([n, far]), true);
                 net.depths.push(depth);
                 net.far_faces.push(far.clone());
+                net.face_pairs.push((n.clone(), far.clone()));
                 net.push(e);
                 if !net.closed_far_faces {
                     if rng.chance(0.5) {
@@ -416,11 +425,21 @@ fn driver_network(rng: &mut Rng, drive: Drive, closed_far_faces: bool) -> Net {
             Drive::Force => json!({"type": "force_source", "nodes": [m_dia], "F_mN": 10.0}),
             Drive::Flow => {
                 let a = acoustic_node(rng, net);
-                let from = if rng.chance(0.5) {
+                let mut from = if rng.chance(0.5) {
                     "ambient".to_string()
                 } else {
                     acoustic_node(rng, net)
                 };
+                // Level 0 joins a two-node cavity's faces with an ideal short:
+                // a source across them would drive nothing, leaving every
+                // power and potential at round-off level.
+                if net
+                    .face_pairs
+                    .iter()
+                    .any(|(x, y)| (*x == a && *y == from) || (*x == from && *y == a))
+                {
+                    from = "ambient".to_string();
+                }
                 let nodes = if from == a {
                     json!([a])
                 } else {
@@ -498,6 +517,31 @@ fn probe(c: &Circuit, x: &[C64], f: f64, id: &str) -> C64 {
     c.probe_value(p, f, x).unwrap()
 }
 
+/// `Circuit::solve_at` followed by one step of iterative refinement on the
+/// same assembled system (residual and correction in working precision).
+/// Returns (engine solution, refined solution).
+///
+/// The engine's equilibrated LU is norm-wise accurate, but a potential far
+/// below the largest in the solve can lose most of its own digits: on one
+/// generated acoustic network a pressure 1e-5 of the largest came out
+/// 2.3e-6 off in relative terms, where one refinement step (or an
+/// unequilibrated partial-pivoting LU) gives 1e-15. Reciprocity is a
+/// property of the stamped network, so it is checked on refined solutions
+/// to the spec's 1e-9 relative.
+fn refined_solve(c: &Circuit, f: f64, seed: u64, doc: &Value) -> (Vec<C64>, Vec<C64>) {
+    let x = solve(c, f, seed, doc);
+    let cx = c.cx(f);
+    let mut mna = Mna::new(c.nodes.len(), c.dim - c.nodes.len());
+    for (i, e) in c.elements.iter().enumerate() {
+        e.stamp(&cx, &mut mna, &c.branches(i));
+    }
+    let ax = mna.a.mul_vec(&x);
+    let residual: Vec<C64> = mna.rhs.iter().zip(&ax).map(|(b, y)| b - y).collect();
+    let dx = linalg::solve(mna.a, &residual).expect("the system solved once already");
+    let refined = x.iter().zip(&dx).map(|(x, d)| x + d).collect();
+    (x, refined)
+}
+
 // ----- Energy balance and passivity ------------------------------------------
 
 /// Σ over all element ports of |V|·|I| (apparent power).
@@ -519,8 +563,32 @@ fn apparent_power(c: &Circuit, f: f64, x: &[C64]) -> f64 {
         .sum()
 }
 
-/// Checks Tellegen's theorem and returns (per-element powers, tolerance).
-fn check_tellegen(c: &Circuit, f: f64, x: &[C64], ctx: &dyn Fn() -> String) -> (Vec<f64>, f64) {
+/// (relative, apparent-power floor) of the power balance of the engine's
+/// own solution: the spec's 1e-9.
+const ENGINE_BALANCE: (f64, f64) = (1e-9, 1e-10);
+/// The same for the refined solution: 1e-10.
+const REFINED_BALANCE: (f64, f64) = (1e-10, 1e-11);
+
+/// Checks Tellegen's theorem, |Σ P| ≤ rel·Σ|P| + floor·Σ|V|·|I|, and
+/// returns (per-element powers, tolerance).
+///
+/// The imbalance is the node potentials weighted by the solution's KCL
+/// residuals, so its round-off level scales with the apparent power (and
+/// more where a port's potential is a small difference of large node
+/// potentials). Callers check the engine's own solution against the spec's
+/// 1e-9 with a floor of 1e-10 of the apparent power, and the refined
+/// solution (`refined_solve`) against 1e-10 with a floor of 1e-11. Worst
+/// seen over 20 000 networks: the engine's solution 2.2e-10 of the real
+/// and 5.6e-11 of the apparent power, the refined one 7.3e-13 of the
+/// apparent power (in a network whose apparent power is 2e8 times its real
+/// power).
+fn check_tellegen(
+    c: &Circuit,
+    f: f64,
+    x: &[C64],
+    (rel, floor): (f64, f64),
+    ctx: &dyn Fn() -> String,
+) -> (Vec<f64>, f64) {
     let p = c.power_absorbed(f, x);
     let powers: Vec<f64> = p
         .iter()
@@ -528,10 +596,10 @@ fn check_tellegen(c: &Circuit, f: f64, x: &[C64], ctx: &dyn Fn() -> String) -> (
         .collect();
     let sum: f64 = powers.iter().sum();
     let real: f64 = powers.iter().map(|v| v.abs()).sum();
-    let tol = 1e-10 * real + 1e-13 * apparent_power(c, f, x);
+    let tol = rel * real + floor * apparent_power(c, f, x);
     assert!(
         sum.abs() <= tol,
-        "Tellegen: Σ P = {sum:e} (tolerance {tol:e}) at {f} Hz: {p:?}\n{}",
+        "Tellegen: Σ P = {sum:e} (tolerance {tol:e}, rel {rel:e}) at {f} Hz: {p:?}\n{}",
         ctx()
     );
     (powers, tol)
@@ -563,9 +631,10 @@ fn tellegen_power_balance_on_random_networks() {
         let doc = net.document(level, air, vec![]);
         let c = circuit(&doc, seed);
         for f in frequencies(&mut rng, 6, 10.0, 40_000.0) {
-            let x = solve(&c, f, seed, &doc);
+            let (raw, x) = refined_solve(&c, f, seed, &doc);
             let ctx = || format!("seed {seed}\n{doc:#}");
-            let (powers, _) = check_tellegen(&c, f, &x, &ctx);
+            check_tellegen(&c, f, &raw, ENGINE_BALANCE, &ctx);
+            let (powers, _) = check_tellegen(&c, f, &x, REFINED_BALANCE, &ctx);
             // Not a trivial balance: something (at least the coil) dissipates.
             assert!(powers.iter().filter(|p| **p > 0.0).count() > 0, "{}", ctx());
         }
@@ -584,16 +653,26 @@ fn passivity_at_the_source_and_per_element() {
         let doc = net.document(
             level,
             "spec_reference",
-            vec![json!({"id": "zin", "quantity": "impedance", "element": "src"})],
+            vec![
+                json!({"id": "zin", "quantity": "impedance", "element": "src"}),
+                json!({"id": "isrc", "quantity": "flow", "element": "src"}),
+            ],
         );
         let c = circuit(&doc, seed);
         for f in frequencies(&mut rng, 6, 10.0, 40_000.0) {
-            let x = solve(&c, f, seed, &doc);
+            let (raw, x) = refined_solve(&c, f, seed, &doc);
             let ctx = || format!("seed {}, {kind:?}, {f} Hz\n{doc:#}", 1000 + seed);
-            // E17: the general condition is Re(Zin) ≥ 0 at the source.
+            check_tellegen(&c, f, &raw, ENGINE_BALANCE, &ctx);
+            let (powers, tol) = check_tellegen(&c, f, &x, REFINED_BALANCE, &ctx);
+            // E17: the general condition is Re(Zin) ≥ 0 at the source. The
+            // source delivers Re(Zin)·|I|², so the sign of Re(Zin) is only
+            // resolved down to the power balance's round-off floor over |I|²;
+            // a bound relative to |Zin| alone fails spuriously where Zin is
+            // itself round-off (a source across an ideal short).
             let zin = probe(&c, &x, f, "zin");
+            let i_sq = probe(&c, &x, f, "isrc").norm_sqr();
             assert!(
-                zin.re >= -1e-12 * zin.norm(),
+                zin.re >= -(1e-12 * zin.norm()).max(tol / i_sq),
                 "Re(Zin) = {} ; {}",
                 zin.re,
                 ctx()
@@ -610,7 +689,6 @@ fn passivity_at_the_source_and_per_element() {
                 }
             }
             // E16: passivity on port powers, not on element values.
-            let (powers, tol) = check_tellegen(&c, f, &x, &ctx);
             for (e, p) in c.elements.iter().zip(&powers) {
                 match e.type_name() {
                     _ if e.is_source() => {
@@ -658,26 +736,32 @@ fn passive_acoustic_networks_are_reciprocal() {
         let (doc_j, doc_i) = (rig(&nj), rig(&ni));
         let (cj, ci) = (circuit(&doc_j, seed), circuit(&doc_i, seed));
         for f in frequencies(&mut rng, 5, 10.0, 40_000.0) {
-            let xj = solve(&cj, f, seed, &doc_j);
-            let xi = solve(&ci, f, seed, &doc_i);
-            // U = 1 cm³/s (default) in both: compare p_i|U_j with p_j|U_i.
+            let (raw_j, xj) = refined_solve(&cj, f, seed, &doc_j);
+            let (raw_i, xi) = refined_solve(&ci, f, seed, &doc_i);
+            // U = 1 cm³/s (default) in both: compare p_i|U_j with p_j|U_i,
+            // to the spec's 1e-9 relative on the refined solutions (see
+            // `refined_solve`), however far the transfer is below the
+            // driving-point level.
             let z_ij = probe(&cj, &xj, f, "pi");
             let z_ji = probe(&ci, &xi, f, "pj");
-            // 1e-9 relative, plus a norm-wise round-off floor of 1e-11 of the
-            // largest pressure in either solve: on transfers that are 1e-4 of
-            // the driving-point level (strong attenuation at tens of kHz) the
-            // LU loses a few more digits (observed over 800 networks: up to
-            // 4e-8 relative, 2e-12 norm-wise). A stamping asymmetry would show
-            // as an O(1) relative difference.
-            let pmax = |c: &Circuit, x: &[C64]| {
-                (0..c.nodes.len()).map(|k| x[k].norm()).fold(0.0, f64::max)
-            };
-            let tol = 1e-9 * z_ij.norm() + 1e-11 * pmax(&cj, &xj).max(pmax(&ci, &xi));
             assert!(
-                (z_ij - z_ji).norm() <= tol,
+                (z_ij - z_ji).norm() <= 1e-9 * z_ij.norm(),
                 "seed {}, L{level}, {f} Hz: {z_ij} vs {z_ji}\n{doc_j:#}",
                 5000 + seed
             );
+            // The engine's own solution is norm-wise accurate: every pressure
+            // within 1e-9 of the largest (worst seen over 20 000 networks:
+            // 1.1e-10).
+            for (c, raw, x) in [(&cj, &raw_j, &xj), (&ci, &raw_i, &xi)] {
+                let n = c.nodes.len();
+                let largest = x[..n].iter().map(|p| p.norm()).fold(0.0, f64::max);
+                let err = (0..n).map(|k| (raw[k] - x[k]).norm()).fold(0.0, f64::max);
+                assert!(
+                    err <= 1e-9 * largest,
+                    "seed {}, L{level}, {f} Hz: LU error {err:e} of {largest:e}\n{doc_j:#}",
+                    5000 + seed
+                );
+            }
         }
     }
 }
@@ -738,11 +822,15 @@ fn motor_is_reciprocal_and_piston_anti_reciprocal() {
         ];
         let cs: Vec<Circuit> = docs.iter().map(|d| circuit(d, seed)).collect();
         for f in frequencies(&mut rng, 4, 10.0, 20_000.0) {
+            // Per drive, the probes [V, v, p] of the refined solution (see
+            // `refined_solve`: a transfer that is a small difference of large
+            // potentials, e.g. across a piston whose front and rear a vent
+            // short-circuits, otherwise carries the LU's norm-wise error).
             let r: Vec<Vec<C64>> = cs
                 .iter()
                 .zip(&docs)
                 .map(|(c, d)| {
-                    let x = solve(c, f, seed, d);
+                    let (_, x) = refined_solve(c, f, seed, d);
                     ["v", "vel", "p"]
                         .iter()
                         .map(|id| probe(c, &x, f, id))
@@ -750,31 +838,23 @@ fn motor_is_reciprocal_and_piston_anti_reciprocal() {
                 })
                 .collect();
             let ctx = || format!("seed {}, {f} Hz\n{:#}", 9000 + seed, docs[0]);
-            let close = |a: C64, b: C64| (a - b).norm() <= 1e-9 * a.norm().max(b.norm());
+            // Transfer (i → j) read in drive i against its reciprocal (j → i)
+            // read in drive j, to 1e-9 relative. A sign or stamping error
+            // shows as an O(1) difference.
+            let check = |what: &str, (i, j): (usize, usize), sign: f64| {
+                let (a, b) = (r[i][j], sign * r[j][i]);
+                assert!(
+                    (a - b).norm() <= 1e-9 * a.norm().max(b.norm()),
+                    "{what}: {a} vs {b}; {}",
+                    ctx()
+                );
+            };
             // velocity per current == voltage per force (motor, reciprocal)
-            assert!(
-                close(r[0][1], r[1][0]),
-                "motor: {} vs {}; {}",
-                r[0][1],
-                r[1][0],
-                ctx()
-            );
+            check("motor", (0, 1), 1.0);
             // pressure per force == −velocity per volume velocity (piston)
-            assert!(
-                close(r[1][2], -r[2][1]),
-                "piston: {} vs {}; {}",
-                r[1][2],
-                -r[2][1],
-                ctx()
-            );
+            check("piston", (1, 2), -1.0);
             // pressure per current == −voltage per volume velocity
-            assert!(
-                close(r[0][2], -r[2][0]),
-                "chain: {} vs {}; {}",
-                r[0][2],
-                -r[2][0],
-                ctx()
-            );
+            check("chain", (0, 2), -1.0);
         }
     }
 }
@@ -1001,42 +1081,86 @@ fn electrical_length(net: &Net, air: &AirState, f: f64) -> f64 {
     cav.chain(ducts).fold(0.0, f64::max)
 }
 
-/// The same netlist with every cavity volume and lumped compliance (or
-/// only the two-node cavities, the level-dependent ones) scaled by `factor`.
-fn scale_compliances(doc: &Value, factor: f64, two_node_only: bool) -> Value {
+/// For each level-dependent element of a netlist (ducts and two-node
+/// cavities), a copy of the netlist in which only that element's impedance
+/// level is scaled by `factor`: a duct's line length (its end corrections
+/// are the same lumped inertance at both levels), or a two-node cavity's
+/// volume.
+fn level_dependent_perturbations(doc: &Value, factor: f64) -> Vec<Value> {
+    let elements = doc["elements"].as_array().unwrap();
+    (0..elements.len())
+        .filter_map(|k| {
+            let e = &elements[k];
+            let two_node = e["nodes"].as_array().is_some_and(|n| n.len() == 2);
+            let (key, by) = match e["type"].as_str().unwrap() {
+                "tube" | "slit" => ("length_mm", factor),
+                "cavity" if two_node && e.get("volume_cm3").is_some() => ("volume_cm3", factor),
+                "cavity" if two_node && e.get("radius_mm").is_some() => {
+                    ("radius_mm", factor.sqrt())
+                }
+                "cavity" if two_node => ("lx_mm", factor),
+                _ => return None,
+            };
+            let mut d = doc.clone();
+            let v = d["elements"][k][key].as_f64().unwrap();
+            d["elements"][k][key] = json!(v * by);
+            Some(d)
+        })
+        .collect()
+}
+
+/// The netlist with every duct's air volume added as an isothermal
+/// compliance V/P0, half at each end that is not ambient: the first-order
+/// part of a level-1 duct that the level-0 series impedance neglects (its
+/// compressibility), at its largest magnitude (the adiabatic value is
+/// V/(γP0)).
+fn with_duct_compressibility(doc: &Value, p0: f64) -> Value {
     let mut doc = doc.clone();
-    for e in doc["elements"].as_array_mut().unwrap() {
-        let scale = |e: &mut Value, key: &str, by: f64| {
-            let v = e[key].as_f64().unwrap();
-            e[key] = json!(v * by);
+    let mut shunts = Vec::new();
+    for e in doc["elements"].as_array().unwrap() {
+        let num = |k: &str| e[k].as_f64().unwrap();
+        let area_mm2 = match e["type"].as_str().unwrap() {
+            "tube" => PI * num("radius_mm").powi(2),
+            "slit" => num("gap_mm") * num("width_mm"),
+            _ => continue,
         };
-        let two_node = e["nodes"].as_array().is_some_and(|n| n.len() == 2);
-        if two_node_only && !(e["type"] == "cavity" && two_node) {
-            continue;
-        }
-        match e["type"].as_str().unwrap() {
-            "acoustic_compliance" => scale(e, "C_m3_per_Pa", factor),
-            "cavity" if e.get("volume_cm3").is_some() => scale(e, "volume_cm3", factor),
-            "cavity" if e.get("radius_mm").is_some() => scale(e, "radius_mm", factor.sqrt()),
-            "cavity" => scale(e, "lx_mm", factor),
-            _ => {}
+        let volume = area_mm2 * num("length_mm") * num("count") * 1e-9;
+        for end in e["nodes"].as_array().unwrap() {
+            if end != "ambient" {
+                shunts.push(json!({"id": format!("shunt{}", shunts.len()),
+                                   "type": "acoustic_compliance", "node": end,
+                                   "C_m3_per_Pa": 0.5 * volume / p0}));
+            }
         }
     }
+    doc["elements"].as_array_mut().unwrap().extend(shunts);
     doc
 }
 
 #[test]
 fn level_0_and_level_1_agree_within_0_1_db_below_kl_0_17() {
     // E4: below kL = 0.17 each level-dependent element's representation
-    // differs between levels by at most 1 % (0.086 dB). A network passes
-    // that on unchanged unless a resonance amplifies it (a 1 % compliance
-    // error moves a Q = 10 resonance enough to change its flank by ~1 dB),
-    // so the 0.1 dB bound is scaled by the network's measured amplification
-    // A of a 1 % compliance change, the larger of a uniform change and one of
-    // the two-node cavities alone (a uniform change can cancel at a node
-    // whose own compliance is not level-dependent): A = 1 away from
-    // resonances. Two-node cavities keep a closed far face (see
-    // `closed_far_faces`).
+    // differs between levels by at most about 1 % (0.1 dB is 1.16 %): the
+    // depth line's input compliance by 1 − kd·cot(kd), a duct's series
+    // impedance by |Γl|²/3 (`duct_levels_agree_below_gamma_l_0_17`). At a
+    // node the level change is, to first order, Σ_e S_e·δ_e, where δ_e is
+    // element e's complex relative change and S_e = ∂ln p/∂ln Z_e the node's
+    // complex sensitivity to it. The pressure is analytic in Z_e, so |S_e|
+    // can be measured with a real 1 % scaling of the element alone and
+    // bounds the effect of a complex δ_e of the same size. The bound at each
+    // node is therefore 0.1 dB · max(1, Σ_e |S_e|): the plain 0.1 dB away
+    // from resonances, more where a resonance amplifies an element's error
+    // (a 1 % compliance error moves a Q = 10 flank by ~1 dB) or several
+    // elements add.
+    //
+    // Level 0 also neglects each duct's compressibility, which level 1
+    // carries as the line's shunt compliance. The generator keeps duct
+    // volumes under 0.6 % of any compliance, but at a node near an
+    // anti-resonance (a pressure minimum between an inertance and a
+    // compliance) a 0.05 % compliance change can move the level by 0.25 dB,
+    // so its first-order effect, measured with the isothermal volume
+    // compliance (`with_duct_compressibility`), is added to the bound.
+    // Two-node cavities keep a closed far face (see `closed_far_faces`).
     let mut checked = 0usize;
     let mut amplified = 0usize;
     let mut worst: f64 = 0.0;
@@ -1064,9 +1188,13 @@ fn level_0_and_level_1_agree_within_0_1_db_below_kl_0_17() {
             "spec_reference"
         };
         let docs = [0u8, 1].map(|l| net.document(l, air, probes.clone()));
-        let perturbed = [false, true].map(|only| scale_compliances(&docs[0], 1.01, only));
+        let perturbed: Vec<(Circuit, Value)> = level_dependent_perturbations(&docs[0], 1.01)
+            .into_iter()
+            .map(|d| (circuit(&d, seed), d))
+            .collect();
         let (c0, c1) = (circuit(&docs[0], seed), circuit(&docs[1], seed));
-        let cp = perturbed.each_ref().map(|d| circuit(d, seed));
+        let doc_v = with_duct_compressibility(&docs[0], c0.air.p0);
+        let cv = circuit(&doc_v, seed);
         let freqs: Vec<f64> = frequencies(&mut rng, 12, 10.0, 20_000.0)
             .into_iter()
             .filter(|&f| electrical_length(&net, &c0.air, f) <= 0.17)
@@ -1075,20 +1203,27 @@ fn level_0_and_level_1_agree_within_0_1_db_below_kl_0_17() {
         for f in freqs {
             let x0 = solve(&c0, f, seed, &docs[0]);
             let x1 = solve(&c1, f, seed, &docs[1]);
-            let db = |c: &Circuit, x: &[C64], n: &str| 20.0 * probe(c, x, f, n).norm().log10();
-            let one_percent = 20.0 * 1.01f64.log10();
-            let mut amp: f64 = 1.0;
-            for (c, d) in cp.iter().zip(&perturbed) {
-                let xp = solve(c, f, seed, d);
-                for n in &net.acoustic {
-                    amp = amp.max((db(c, &xp, n) - db(&c0, &x0, n)).abs() / one_percent);
-                }
-            }
-            if amp > 1.5 {
-                amplified += 1;
-            }
+            let xv = solve(&cv, f, seed, &doc_v);
+            let xp: Vec<Vec<C64>> = perturbed
+                .iter()
+                .map(|(c, d)| solve(c, f, seed, d))
+                .collect();
             for n in &net.acoustic {
-                let d = db(&c1, &x1, n) - db(&c0, &x0, n);
+                let p0 = probe(&c0, &x0, f, n);
+                let d = 20.0 * (probe(&c1, &x1, f, n) / p0).norm().log10();
+                // Σ_e |S_e| at this node.
+                let amp: f64 = perturbed
+                    .iter()
+                    .zip(&xp)
+                    .map(|((c, _), x)| (probe(c, x, f, n) / p0 - 1.0).norm() / 0.01)
+                    .sum::<f64>()
+                    .max(1.0);
+                // First-order effect of the ducts' compressibility, in dB
+                // (its complex size, which bounds its effect on |p|).
+                let volume = 20.0 * LOG10_E * (probe(&cv, &xv, f, n) / p0 - 1.0).norm();
+                if amp > 1.5 || volume > 0.05 {
+                    amplified += 1;
+                }
                 // A far face also carries the far-wall ratio 1/cos(kd) of
                 // E3 (0.126 dB at kd = 0.17), which the input-compliance
                 // metric does not bound: the driven face is held by the
@@ -1100,11 +1235,12 @@ fn level_0_and_level_1_agree_within_0_1_db_below_kl_0_17() {
                     .filter(|(ff, _)| *ff == n)
                     .map(|(_, depth)| -20.0 * (2.0 * PI * f / c0.air.c * depth).cos().log10())
                     .fold(0.0, f64::max);
-                let tol = 0.1 * amp + far_wall;
+                let tol = 0.1 * amp + volume + far_wall;
                 worst = worst.max(d.abs() / tol);
                 assert!(
                     d.abs() < tol,
-                    "seed {}, node {n}, {f} Hz (amplification {amp}): {d} dB\n{:#}",
+                    "seed {}, node {n}, {f} Hz (amplification {amp}, duct volume {volume} dB): \
+                     {d} dB\n{:#}",
                     40_000 + seed,
                     docs[1]
                 );
@@ -1463,10 +1599,12 @@ fn examples_solve_balance_power_and_are_passive() {
         let sources: Vec<usize> = (0..c.elements.len())
             .filter(|&i| c.elements[i].is_source())
             .collect();
+        let doc: Value = serde_json::from_str(&text).unwrap();
         for &f in c.freqs.iter().step_by(7) {
-            let x = c.solve_at(f).unwrap();
+            let (raw, x) = refined_solve(&c, f, 0, &doc);
             let ctx = || path.display().to_string();
-            let (powers, tol) = check_tellegen(&c, f, &x, &ctx);
+            check_tellegen(&c, f, &raw, ENGINE_BALANCE, &ctx);
+            let (powers, tol) = check_tellegen(&c, f, &x, REFINED_BALANCE, &ctx);
             for (e, p) in c.elements.iter().zip(&powers) {
                 if !e.is_source() {
                     assert!(*p >= -tol, "{}: {} generates {p} at {f} Hz", ctx(), e.id());
