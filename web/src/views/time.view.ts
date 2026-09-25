@@ -24,6 +24,7 @@ import {
   formatDb,
   formatSeconds,
   isEngineError,
+  keepFocus,
   registerHooks,
   safeName,
   scrollRegion,
@@ -682,7 +683,7 @@ class TimeView implements ResultView {
     const rows = sorted.map((q) => {
       const mark = button('Mark', () => this.setMark(this.marked === q.f_Hz ? null : q.f_Hz), {
         class: 'mv-mark',
-        attrs: { 'aria-pressed': String(this.marked === q.f_Hz), 'data-pole': q.f_Hz, 'aria-label': `Mark ${formatHz(q.f_Hz)} on the frequency plots` },
+        attrs: { 'aria-pressed': String(this.marked === q.f_Hz), 'data-pole': q.f_Hz, 'data-k': `mark-${q.f_Hz}`, 'aria-label': `Mark ${formatHz(q.f_Hz)} on the frequency plots` },
       });
       return [
         formatHz(q.f_Hz),
@@ -711,11 +712,15 @@ class TimeView implements ResultView {
       { rowHead: true },
     );
     const notes = p.notes.length ? el('ul', { class: 'mv-notes' }, ...p.notes.map((n) => el('li', { text: n }))) : null;
-    this.polesEl.replaceChildren(
-      el('p', { class: 'hint' }, `Minimum phase within the band (no right-half-plane zero there): ${yesNo(p.min_phase_in_band)}.`),
-      notes ?? '',
-      scrollRegion('Pole table', t),
-      el('details', { class: 'mv-details' }, el('summary', { text: `Zeros (${zeros.length})` }), scrollRegion('Zero table', zt)),
+    const region = scrollRegion('Pole table', t);
+    region.dataset.k = 'home';
+    keepFocus(this.polesEl, () =>
+      this.polesEl.replaceChildren(
+        el('p', { class: 'hint' }, `Minimum phase within the band (no right-half-plane zero there): ${yesNo(p.min_phase_in_band)}.`),
+        notes ?? '',
+        region,
+        el('details', { class: 'mv-details' }, el('summary', { text: `Zeros (${zeros.length})` }), scrollRegion('Zero table', zt)),
+      ),
     );
   }
 

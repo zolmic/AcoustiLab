@@ -42,6 +42,7 @@ import {
   errorBox,
   field,
   isEngineError,
+  keepFocus,
   registerHooks,
   safeName,
   scrollRegion,
@@ -83,14 +84,21 @@ interface Measured {
   compare: Comparison | null;
   compareError: string | null;
   uncertainty: number[] | null;
-  model: { values: (number | null)[]; label: string } | null;
+  model: ModelCurve | null;
   modelError: string | null;
-  fitted: (number | null)[] | null;
+  fitted: ModelCurve | null;
   gen: number;
   card: HTMLElement;
   fig: FreqFigure | null;
   editing: boolean;
   formError: string | null;
+}
+
+/** A probe of the model at a curve's frequencies: plotted magnitude, phase (degrees) and the drive's statement. */
+interface ModelCurve {
+  values: (number | null)[];
+  phase: (number | null)[] | null;
+  label: string;
 }
 
 interface RigResult {
@@ -127,6 +135,7 @@ class FitView implements ResultView {
   private format!: HTMLSelectElement;
   private quantity!: HTMLSelectElement;
   private fileInput!: HTMLInputElement;
+  private pickBtn!: HTMLButtonElement;
   private curvesEl!: HTMLElement;
   private rig!: {
     probe: HTMLSelectElement;
@@ -168,6 +177,8 @@ class FitView implements ResultView {
   private jobRunning = false;
   /** Outcome of the last "Apply" (kept until the next fit). */
   private applied = '';
+  /** Apply check boxes the user changed, by parameter (until the next fit). */
+  private applyChoice = new Map<string, boolean>();
 
   mount(root: HTMLElement, host: ViewHost): void {
     this.host = host;
@@ -194,6 +205,7 @@ class FitView implements ResultView {
       this.fileInput.value = '';
     });
     const pick = button('Choose files…', () => this.fileInput.click());
+    this.pickBtn = pick;
     const drop = el(
       'div',
       { class: 'mv-drop', attrs: { 'data-drop': 'curves' } },
@@ -473,14 +485,18 @@ class FitView implements ResultView {
     return JSON.stringify(doc);
   }
 
-  private async modelValues(text: string, m: Measured, overrides: Record<string, unknown>): Promise<{ values: (number | null)[]; label: string } | string> {
+  private async modelValues(text: string, m: Measured, overrides: Record<string, unknown>): Promise<ModelCurve | string> {
     const net = this.modelNetlist(text, m.curve);
     if (!net) return 'the netlist is not valid JSON';
     const v = valueOf(await this.call('probe_curve', net, JSON.stringify(overrides), m.probe));
     if (isEngineError(v)) return v.error;
     const c = v as CurveDoc;
     const d = c.sidecar.drive;
-    return { values: magnitudeOf(c).values, label: d ? Object.entries(d).map(([k, x]) => `${k} ${String(x)}`).join(', ') : 'the netlist’s sources' };
+    return {
+      values: magnitudeOf(c).values,
+      phase: c.phase_deg ?? null,
+      label: d ? Object.entries(d).map(([k, x]) => `${k} ${String(x)}`).join(', ') : 'the netlist’s sources',
+    };
   }
 
   /** Compatibility check, uncertainty and model curve of one measured curve (on the worker). */
@@ -537,30 +553,36 @@ class FitView implements ResultView {
     const head = el(
       'div',
       { class: 'mv-curve-head' },
-      el('span', { class: 'mv-curve-name', text: m.name }),
+      el('span', { class: 'mv-curve-name', text: m.name, attrs: { tabindex: -1, 'data-k': 'home' } }),
       originBadge(c),
       el('span', { class: 'hint', text: `${c.quantity}, ${f.length} points, ${formatHz(f[0])} to ${formatHz(f[f.length - 1])}, read as ${m.format.toUpperCase()}` }),
     );
 
     // Mapping and weights.
     const probeSel = select([['', 'not fitted (no probe)'], ...this.matching(c.quantity).map((p): [string, string] => [p.id, p.id])], m.probe);
+    probeSel.dataset.k = 'probe';
     probeSel.addEventListener('change', () => {
       m.probe = probeSel.value;
       m.allow.clear();
       void this.evaluate(m);
       this.updateRunState();
     });
-    const weight = el('input', { class: 'mv-num', attrs: { type: 'number', min: 0, step: 'any', value: m.weight, inputmode: 'decimal' } });
+    const weight = el('input', { class: 'mv-num', attrs: { type: 'number', min: 0, step: 'any', value: m.weight, inputmode: 'decimal', 'data-k': 'weight' } });
     weight.addEventListener('change', () => {
       const w = Number(weight.value);
       m.weight = Number.isFinite(w) && w > 0 ? w : 1;
       weight.value = String(m.weight);
     });
     const phase = select([['auto', 'default (impedance yes, pressure no)'], ['yes', 'fit the phase'], ['no', 'level only']], m.phase);
-    phase.addEventListener('change', () => (m.phase = phase.value as Measured['phase']));
+    phase.dataset.k = 'phase';
+    phase.addEventListener('change', () => {
+      m.phase = phase.value as Measured['phase'];
+      this.renderCard(m);
+    });
     const offset = select([['auto', 'default (from the sidecar)'], ['none', 'none'], ['free', 'free']], m.offset);
+    offset.dataset.k = 'offset';
     offset.addEventListener('change', () => (m.offset = offset.value as Measured['offset']));
-    const cond = el('input', { id: uniqueId('mv-cond'), attrs: { type: 'text', placeholder: 'e.g. added_mass_mg=150', value: m.condition, autocomplete: 'off', spellcheck: 'false' } });
+    const cond = el('input', { id: uniqueId('mv-cond'), attrs: { type: 'text', placeholder: 'e.g. added_mass_mg=150', value: m.condition, autocomplete: 'off', spellcheck: 'false', 'data-k': 'cond' } });
     const condMsg = el('span', { class: 'hint', id: uniqueId('mv-cond-msg'), attrs: { 'aria-live': 'polite' } });
     cond.setAttribute('aria-describedby', condMsg.id);
     cond.addEventListener('change', () => {
@@ -572,6 +594,7 @@ class FitView implements ResultView {
       void this.evaluate(m);
     });
     const use = checkbox('Use in the fit', m.use);
+    use.input.dataset.k = 'use';
     use.input.addEventListener('change', () => {
       m.use = use.input.checked;
       this.updateRunState();
@@ -605,6 +628,7 @@ class FitView implements ResultView {
         const list = el('ul');
         for (const d of blocking) {
           const box = checkbox(`Allow the difference in ${words(d.field)} (curve: ${d.a}; model: ${d.b})`, m.allow.has(d.field));
+          box.input.dataset.k = `allow-${d.field}`;
           box.input.addEventListener('change', () => {
             if (box.input.checked) m.allow.add(d.field);
             else m.allow.delete(d.field);
@@ -615,6 +639,7 @@ class FitView implements ResultView {
         for (const a of m.allow) {
           if (blocking.some((d) => d.field === a)) continue;
           const box = checkbox(`Allow the difference in ${words(a)}`, true);
+          box.input.dataset.k = `allow-${a}`;
           box.input.addEventListener('change', () => {
             m.allow.delete(a);
             void this.evaluate(m);
@@ -651,10 +676,10 @@ class FitView implements ResultView {
         m.editing = !m.editing;
         m.formError = null;
         this.renderCard(m);
-      }, { attrs: { 'aria-expanded': String(m.editing) } }),
-      button('Load sidecar JSON…', () => sideInput.click()),
+      }, { attrs: { 'aria-expanded': String(m.editing), 'data-k': 'edit' } }),
+      button('Load sidecar JSON…', () => sideInput.click(), { attrs: { 'data-k': 'loadside' } }),
       sideInput,
-      button('Download curve (CSV + sidecar)', () => void this.downloadCurve(m)),
+      button('Download curve (CSV + sidecar)', () => void this.downloadCurve(m), { attrs: { 'data-k': 'download' } }),
       button('Remove', () => this.removeCurve(m)),
     );
     let form: HTMLElement | null = null;
@@ -690,7 +715,9 @@ class FitView implements ResultView {
 
     const summary = el('details', { class: 'mv-details' }, el('summary', { text: 'Sidecar (what the file states)' }), sidecarSummary(c.sidecar));
     const figure = this.renderFigure(m);
-    m.card.replaceChildren(head, controls, compat, summary, actions, ...(form ? [form] : []), ...(m.modelError ? [errorBox('Model not evaluated', m.modelError)] : []), figure);
+    keepFocus(m.card, () =>
+      m.card.replaceChildren(head, controls, compat, summary, actions, ...(form ? [form] : []), ...(m.modelError ? [errorBox('Model not evaluated', m.modelError)] : []), figure),
+    );
   }
 
   private renderFigure(m: Measured): HTMLElement {
@@ -710,7 +737,7 @@ class FitView implements ResultView {
       series.push({ id: 'measured +u (1σ)', slot: 8, values: up }, { id: 'measured −u (1σ)', slot: 16, values: dn });
     }
     if (m.model) series.push({ id: 'model', slot: 1, values: m.model.values });
-    if (m.fitted) series.push({ id: 'model, fitted values', slot: 2, values: m.fitted });
+    if (m.fitted) series.push({ id: 'model, fitted values', slot: 2, values: m.fitted.values });
     const unitText = mag.db ? 'dB re 20 µPa' : mag.unit === 'ohm' ? 'Ω' : mag.unit;
     let lo = Infinity;
     let hi = -Infinity;
@@ -730,6 +757,27 @@ class FitView implements ResultView {
         cell: mag.db ? (v) => v.toFixed(3) : undefined,
       },
     ];
+    // Phase, where the fit uses it: impedance, displacement and velocity by
+    // default, pressure only on request (its phase carries the time of flight).
+    const usesPhase = m.phase === 'yes' || (m.phase === 'auto' && c.quantity !== 'pressure');
+    if (c.phase_deg && usesPhase) {
+      const ps: FigSeries[] = [{ id: isVirtual(c) ? 'measured phase (virtual rig)' : 'measured phase', slot: 0, values: c.phase_deg, primary: true }];
+      if (m.model?.phase) ps.push({ id: 'model phase', slot: 1, values: m.model.phase });
+      if (m.fitted?.phase) ps.push({ id: 'model phase, fitted values', slot: 2, values: m.fitted.phase });
+      plots.push({
+        key: 'phase',
+        title: 'Phase',
+        symbol: 'φ',
+        unit: '',
+        axisUnit: '°',
+        kind: 'phase',
+        height: 'small',
+        series: ps,
+        format: (v) => `${v.toFixed(1)}°`,
+        columnUnit: '°',
+        cell: (v) => v.toFixed(2),
+      });
+    }
     // Residuals of the last fit, on this curve's frequencies inside the band.
     const k = this.report ? this.runUids.indexOf(m.uid) : -1;
     const cr = k >= 0 ? this.report!.curves.find((x) => x.index === k) : undefined;
@@ -776,8 +824,12 @@ class FitView implements ResultView {
   }
 
   private removeCurve(m: Measured): void {
+    const k = this.curves.indexOf(m);
     this.curves = this.curves.filter((c) => c !== m);
     m.card.remove();
+    // The focus goes to the next curve, else to the file picker.
+    const next = this.curves[Math.min(k, this.curves.length - 1)];
+    (next?.card.querySelector<HTMLElement>('[data-k="home"]') ?? this.pickBtn).focus();
     this.host.announce(`Removed ${m.name}.`);
     this.updateRunState();
   }
@@ -997,6 +1049,7 @@ class FitView implements ResultView {
       const v = typeof p.value === 'number' ? `${formatParam(p.value)}${unit ? ` ${unit}` : ''}` : '';
       const box = checkbox(`${p.label} (${p.name}) = ${v}`, this.free.has(p.name));
       box.input.dataset.param = p.name;
+      box.input.dataset.k = `param-${p.name}`;
       if (!used.has(p.name)) {
         box.input.disabled = true;
         box.wrap.append(el('span', { class: 'hint', text: ' not used by the netlist' }));
@@ -1008,7 +1061,7 @@ class FitView implements ResultView {
       });
       list.append(el('li', {}, box.wrap));
     }
-    this.paramsEl.replaceChildren(list);
+    keepFocus(this.paramsEl, () => this.paramsEl.replaceChildren(list));
   }
 
   // ----- fit ------------------------------------------------------------------------
@@ -1131,6 +1184,7 @@ class FitView implements ResultView {
     this.report = last;
     this.run = run;
     this.applied = '';
+    this.applyChoice.clear();
     this.runUids = ms.map((m) => m.uid);
     this.runText = text;
     this.fitJob.finish(
@@ -1150,7 +1204,7 @@ class FitView implements ResultView {
       for (const m of ms) {
         const cond = parseAssignments(m.condition);
         const res = await this.modelValues(text, m, { ...cond.values, ...r.fitted });
-        m.fitted = typeof res === 'string' ? null : res.values;
+        m.fitted = typeof res === 'string' ? null : res;
       }
     } catch (e) {
       if (!(e instanceof Cancelled)) throw e;
@@ -1228,6 +1282,10 @@ class FitView implements ResultView {
   // ----- apply ------------------------------------------------------------------------
 
   private renderApply(): void {
+    keepFocus(this.applyEl, () => this.buildApply());
+  }
+
+  private buildApply(): void {
     const r = this.report;
     this.applyEl.replaceChildren();
     if (!r) return;
@@ -1237,8 +1295,9 @@ class FitView implements ResultView {
     for (const p of r.parameters) {
       const d = current.get(p.name);
       if (!d || d.kind !== 'number') continue;
-      const box = el('input', { attrs: { type: 'checkbox', 'aria-label': `Apply ${p.name}`, 'data-param': p.name } });
-      box.checked = p.status === 'determined' || p.status === 'weakly_determined';
+      const box = el('input', { attrs: { type: 'checkbox', 'aria-label': `Apply ${p.name}`, 'data-param': p.name, 'data-k': `apply-${p.name}` } });
+      box.checked = this.applyChoice.get(p.name) ?? (p.status === 'determined' || p.status === 'weakly_determined');
+      box.addEventListener('change', () => this.applyChoice.set(p.name, box.checked));
       rows.push({ name: p.name, now: typeof d.value === 'number' ? d.value : null, fitted: p.value, status: p.status, box, unit: paramUnit(p.unit) });
     }
     const missing = r.parameters.filter((p) => !current.get(p.name) || current.get(p.name)!.kind !== 'number').map((p) => p.name);
@@ -1271,12 +1330,12 @@ class FitView implements ResultView {
       this.applied = `Wrote ${values.map(([n, v]) => `${n} = ${String(v)}`).join(', ')} into the netlist.`;
       msg.textContent = this.applied;
       this.host.announce(this.applied);
-    }, { class: 'primary' });
+    }, { class: 'primary', attrs: { 'data-k': 'apply' } });
     this.applyEl.append(
       el(
         'section',
         { class: 'mv-apply', attrs: { 'aria-labelledby': 'fit-apply-h' } },
-        el('h4', { id: 'fit-apply-h', text: 'Apply fitted values' }),
+        el('h4', { id: 'fit-apply-h', text: 'Apply fitted values', attrs: { tabindex: -1, 'data-k': 'home' } }),
         rows.length ? scrollRegion('Values to apply', t) : el('p', { class: 'hint', text: 'No fitted parameter is a number parameter of the current netlist.' }),
         missing.length ? el('p', { class: 'hint', text: `Not in the current netlist: ${missing.join(', ')}.` }) : '',
         this.runText !== null && this.runText !== this.host.current()?.text ? el('p', { class: 'hint', text: 'The netlist has changed since this fit was made.' }) : '',

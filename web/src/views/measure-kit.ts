@@ -121,6 +121,27 @@ export function scrollRegion(label: string, content: HTMLElement): HTMLElement {
   return el('div', { class: 'table-wrap mv-table-wrap', attrs: { role: 'region', 'aria-label': label, tabindex: 0 } }, content);
 }
 
+/**
+ * Re-renders `container` without losing the keyboard focus: the focused
+ * element's `data-k` is found again in the new content (else the element
+ * marked `data-k="home"`), so a control that re-renders its own card keeps
+ * the focus (WCAG 2.4.3).
+ */
+export function keepFocus(container: HTMLElement, render: () => void): void {
+  const active = document.activeElement as HTMLElement | null;
+  const inside = !!active && container.contains(active);
+  const key = inside ? active!.dataset.k : undefined;
+  render();
+  if (!inside) return;
+  // An element moved into the new content (a reused figure) keeps the focus.
+  if (container.contains(active)) {
+    active!.focus({ preventScroll: true });
+    return;
+  }
+  const next = (key ? container.querySelector<HTMLElement>(`[data-k="${CSS.escape(key)}"]`) : null) ?? container.querySelector<HTMLElement>('[data-k="home"]');
+  next?.focus({ preventScroll: true });
+}
+
 export function errorBox(title: string, message: string, detail?: string): HTMLElement {
   return el(
     'div',

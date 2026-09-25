@@ -111,11 +111,16 @@ test('fit: a virtual-rig measurement, downloaded and read back, recovers the per
   const apply = panel.locator('.mv-apply');
   await expect(apply.locator('tr[data-param="leak_gap_mm"] td').nth(2)).toHaveText('0.08 mm');
   await expect(apply.locator('tr[data-param="leak_gap_mm"] input[type="checkbox"]')).toBeChecked();
-  await apply.getByRole('button', { name: 'Apply fitted values' }).click();
+  // From the keyboard; the re-solve that follows rebuilds the section and the focus stays on the button.
+  const applyBtn = apply.getByRole('button', { name: 'Apply fitted values' });
+  await applyBtn.focus();
+  await page.keyboard.press('Enter');
   const expected = TEMPLATE.replace('"leak_gap_mm": {"value": 0.08,', `"leak_gap_mm": {"value": ${JSON.stringify(p.value)},`);
   expect(expected).not.toBe(TEMPLATE);
   await expect(page.locator('#netlist')).toHaveValue(expected);
   await expect(apply).toContainText(`Wrote leak_gap_mm = ${String(p.value)} into the netlist.`);
+  await expect(apply).toContainText('The netlist has changed since this fit was made.');
+  await expect(applyBtn).toBeFocused();
 });
 
 test('fit: “Load as a measurement” reads the rig’s file back; the uncertainty band is the budget’s', async ({ page }) => {
@@ -174,6 +179,28 @@ test('fit: malformed files are refused with the file and the line named', async 
   await expect(errors.filter({ hasText: '“broken.json”' })).toContainText('is not valid JSON');
   await expect(panel.locator('li.mv-curve')).toHaveCount(0);
   await expect(panel.getByRole('button', { name: 'Run fit', exact: true })).toBeDisabled();
+
+  // Drag and drop: a curve file and its sidecar dropped together are read as a pair.
+  const call = await engine();
+  const ref = call('virtual_measure', TEMPLATE, JSON.stringify(rigSpec()));
+  const dt = await page.evaluateHandle(
+    ([frd, sidecar]) => {
+      const d = new DataTransfer();
+      d.items.add(new File([frd], 'dropped.frd', { type: 'text/plain' }));
+      d.items.add(new File([sidecar], 'dropped.frd.sidecar.json', { type: 'application/json' }));
+      return d;
+    },
+    [ref.text, ref.sidecar],
+  );
+  const zone = panel.locator('[data-drop="curves"]');
+  await zone.dispatchEvent('dragover', { dataTransfer: dt });
+  await expect(zone).toHaveClass(/over/);
+  await zone.dispatchEvent('drop', { dataTransfer: dt });
+  await expect(zone).not.toHaveClass(/over/);
+  const card = curveCard(page, 'dropped.frd');
+  await expect(card).toContainText('VIRTUAL RIG · synthetic, not measured');
+  await expect(card.locator('[data-field="compat"]')).toContainText('Compatible', { timeout: 30_000 });
+  await expect(panel.locator('.mv-error li')).toHaveCount(0);
 });
 
 test('fit: the compatibility check names the blocking fields; suggestion, SPL-only refusal and cancel', async ({ page }) => {
@@ -239,6 +266,13 @@ test('fit: keyboard, axe in both themes with a report and the sidecar form open,
   await panel.getByRole('button', { name: 'Run fit', exact: true }).focus();
   await page.keyboard.press('Enter');
   await expect(panel.locator('.mv-job[data-state="done"]')).toBeVisible({ timeout: 60_000 });
+  // A setting that re-renders its card keeps the focus: fitting the phase of
+  // this pressure curve adds its phase plot.
+  const phase = card.locator('select[data-k="phase"]');
+  await phase.focus();
+  await phase.selectOption('yes');
+  await expect(card.locator('figure[data-group="phase"]')).toBeVisible();
+  await expect(card.locator('select[data-k="phase"]')).toBeFocused();
   await card.getByRole('button', { name: 'Edit sidecar' }).click();
   await expect(card.getByRole('button', { name: 'Apply sidecar' })).toBeVisible();
   for (const theme of ['light', 'dark'] as const) {
