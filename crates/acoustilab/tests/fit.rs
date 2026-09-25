@@ -208,6 +208,56 @@ fn lm_and_covariance_match_scipy() {
 }
 
 #[test]
+fn jacobian_of_full_solves_matches_the_closed_form() {
+    // d(20·log10|Z|)/d(ln fs) and d(arg Z)/d(ln fs) of a D0 driver in free
+    // air, by the fit's central differences of network solves (step 1e-4 in
+    // ln fs), against the derivative of Z = Re + (Re/Qes)/(jw + 1/Qms +
+    // 1/(jw)), w = f/fs: dZ/d(ln fs) = −w·dZ/dw.
+    let p = Parametric::parse(PRIMARY).unwrap();
+    let freqs = [30.0, 73.6, 81.8, 100.0, 300.0, 3000.0];
+    let (fs, qms, qes, re) = (81.8f64, 2.71, 1.01, 32.8);
+    let mut f = |u: &[f64]| -> Result<Vec<f64>, String> {
+        let mut c = Circuit::from_parametric(&p, &ov(&[("fs_Hz", u[0].exp())]))
+            .map_err(|e| e.to_string())?;
+        c.freqs = freqs.to_vec();
+        let r = c.solve().map_err(|e| e.to_string())?;
+        let z = &r.probe("zin").unwrap().values;
+        Ok(z.iter()
+            .map(|z| 20.0 * z.norm().log10())
+            .chain(z.iter().map(|z| z.arg().to_degrees()))
+            .collect())
+    };
+    let u = [fs.ln()];
+    let r0 = f(&u).unwrap();
+    let (jac, _) =
+        acoustilab::fit::jacobian::central_differences(&mut f, &u, &r0, &[1e-4], &|_, _| true)
+            .unwrap();
+    let j = acoustilab::C64::new(0.0, 1.0);
+    for (i, &fr) in freqs.iter().enumerate() {
+        let w = fr / fs;
+        let d = j * w + 1.0 / qms + 1.0 / (j * w);
+        let z = re + (re / qes) / d;
+        let dz_dw = -(re / qes) * (j - 1.0 / (j * w * w)) / (d * d);
+        let g = -w * dz_dw / z; // d(ln Z)/d(ln fs)
+        let (dl, dp) = (20.0 / std::f64::consts::LN_10 * g.re, g.im.to_degrees());
+        let n = freqs.len();
+        // Truncation (h²/6 times the third derivative) dominates near the
+        // resonance: 1.6e-7 relative there, 1e-8 or less elsewhere.
+        let tol = |x: f64| 1e-6 * x.abs().max(1.0);
+        assert!(
+            (jac.get(i, 0) - dl).abs() < tol(dl),
+            "{fr} Hz level: {} vs {dl}",
+            jac.get(i, 0)
+        );
+        assert!(
+            (jac.get(n + i, 0) - dp).abs() < tol(dp),
+            "{fr} Hz phase: {} vs {dp}",
+            jac.get(n + i, 0)
+        );
+    }
+}
+
+#[test]
 fn svd_matches_numpy() {
     let fx = fixture();
     let sv = &fx["svd"];

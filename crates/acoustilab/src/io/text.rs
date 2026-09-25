@@ -32,8 +32,9 @@
 //! * Frequencies are sorted; an exact repeat of a point is dropped and a
 //!   repeated frequency with different values is an error naming both
 //!   lines. Errors name the line.
-//! * In a REW export a phase column of zeros means "no phase" (REW writes
-//!   0.0 when a measurement has none).
+//! * In a REW export (recognised by its first header line, whatever the
+//!   extension) a phase column of zeros means "no phase": REW writes 0.0
+//!   when a measurement has none.
 //!
 //! Writing: FRD, ZMA and REW text are written as tab-separated columns with
 //! six decimals (the precision REW and most crossover tools use), after a
@@ -595,9 +596,7 @@ pub fn import(text: &str, format: Format, quantity: Option<Quantity>) -> Result<
             "the magnitude column is in dB but the curve is an impedance (ZMA holds ohm)",
         ));
     }
-    let rew = matches!(format, Format::Auto | Format::Rew)
-        .then(|| rew_header(&comments))
-        .flatten();
+    let rew = rew_header(&comments);
     let phase_radians = pcol.is_some_and(|c| matches!(roles[c], Role::Phase { radians: true }));
     let mut pts = Vec::with_capacity(rows.len());
     for r in &rows {

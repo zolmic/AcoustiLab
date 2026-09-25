@@ -5,11 +5,13 @@
 //! adjoint) can replace it without touching the optimiser.
 //!
 //! Central differences with step h have a truncation error of order
-//! h²·r'''/6 and a rounding error of order ε_r/h, where ε_r is the absolute
+//! h²·r‴/6 and a rounding error of order ε_r/h, where ε_r is the absolute
 //! accuracy of one residual evaluation. For full network solves in
-//! log-parameter space, ε_r is about 1e-13 relative, so h = 1e-4 balances
-//! the two near 1e-9 relative, far below anything a fit or an
-//! identifiability test resolves (docs/fitting.md).
+//! log-parameter space ε_r is about 1e-13 relative, so with h = 1e-4 the
+//! rounding part is near 1e-9; the truncation part reaches about 1e-7
+//! relative next to a resonance (tests/fit.rs checks both against a closed
+//! form). Either is far below anything a fit or an identifiability test
+//! resolves (docs/fitting.md).
 
 use super::dense::Mat;
 

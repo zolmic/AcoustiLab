@@ -521,13 +521,19 @@ pub fn unwrap_deg(p: &[f64]) -> Vec<f64> {
 }
 
 /// Exchange grid: the frequencies 1 kHz·2^(k/n) within [f_lo, f_hi] for
-/// integer k, with n points per octave.
+/// integer k, with n points per octave. Empty for invalid arguments or a
+/// grid of more than [`crate::grid::MAX_POINTS`] points.
 pub fn exchange_grid(f_lo: f64, f_hi: f64, points_per_octave: f64) -> Vec<f64> {
-    assert!(f_lo > 0.0 && f_hi >= f_lo && points_per_octave > 0.0);
     let n = points_per_octave;
-    let k0 = ((f_lo / 1000.0).log2() * n - 1e-9).ceil() as i64;
-    let k1 = ((f_hi / 1000.0).log2() * n + 1e-9).floor() as i64;
-    (k0..=k1)
+    if !(f_lo > 0.0 && f_hi >= f_lo && f_hi.is_finite() && n > 0.0 && n.is_finite()) {
+        return Vec::new();
+    }
+    let k0 = ((f_lo / 1000.0).log2() * n - 1e-9).ceil();
+    let k1 = ((f_hi / 1000.0).log2() * n + 1e-9).floor();
+    if k1 - k0 >= crate::grid::MAX_POINTS as f64 {
+        return Vec::new();
+    }
+    (k0 as i64..=k1 as i64)
         .map(|k| 1000.0 * 2f64.powf(k as f64 / n))
         .collect()
 }
@@ -558,5 +564,8 @@ mod tests {
         // 10 Hz to 20 kHz is 10.97 octaves: 526 or 527 points.
         assert!(g.len() == 527 || g.len() == 526, "{}", g.len());
         assert_eq!(exchange_grid(1000.0, 2000.0, 48.0).len(), 49);
+        assert!(exchange_grid(10.0, 20.0, 0.0).is_empty());
+        assert!(exchange_grid(10.0, 20_000.0, 1e9).is_empty());
+        assert!(exchange_grid(-1.0, 20.0, 48.0).is_empty());
     }
 }

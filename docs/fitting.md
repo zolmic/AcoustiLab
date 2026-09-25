@@ -251,9 +251,11 @@ the Δχ² = 1 of one standard deviation).
 **Jacobian.** Central differences of full solves, step 1e-4 in u, one-sided
 at a bound or where one side cannot be evaluated
 (`fit::jacobian::central_differences`, the one place a sensitivity method
-would plug in). Its error is about 1e-8 relative for network solves
-(truncation h²·r'''/6 ~ 1e-9, rounding ε/h ~ 1e-9 at ε ~ 1e-13). Offsets have
-analytic columns.
+would plug in). Against the closed-form derivative of a driver's impedance
+its error is 1.6e-7 relative next to the resonance, where the truncation
+h²·r‴/6 dominates, and 1e-8 or less elsewhere (rounding ε/h ~ 1e-9 at a solve
+accuracy ε ~ 1e-13); `jacobian_of_full_solves_matches_the_closed_form`.
+Offsets have analytic columns.
 
 **Multi-start.** `starts` > 1 adds starts from a Latin hypercube over the
 parameters' ranges in u (for a parameter without both bounds: a factor of 2
@@ -492,7 +494,8 @@ module, `crates/acoustilab-wasm/tests/fit.rs` and
 | resampling | a level and phase linear in ln f | 1e-9 |
 | impedance-only fit of the physical set | the null direction is (1, 2, −2, 2)/√13 in (Bl, Mms, Cms, Rms); Bl²/Mms, Bl²·Cms, Bl²/Rms recovered | 1e-4 (direction), 1 % (combinations) |
 | added mass, known volume, laser, calibrated SPL in a box | every parameter recovered within 2.576 sd (99 %) | — |
-| interval calibration, 30 seeds × 4 parameters | 95 % coverage ≥ 102 of 120 (binomial: 114 ± 2.4); empirical over reported sd within 0.7–1.3 | measured: passes |
+| interval calibration, 30 seeds × 4 parameters | 95 % coverage ≥ 102 of 120 (binomial: 114 ± 2.4); empirical over reported sd within 0.7–1.3 | measured: 115 of 120; ratios 0.92 to 1.14 |
+| Jacobian of network solves (d level and d phase by d ln fs of a driver) | closed-form derivative of the D0 impedance | 1e-6 relative (measured: 1.6e-7 next to the resonance, ≤ 1e-8 elsewhere) |
 | model-form error (creep and Le in the data, not the model) | runs z < −3, ρ > 0.5, inflation > 3, intervals ≥ 5× the right model's | — |
 | complex averaging | exp(−(2πfσ_τ)²/2) with 4000 seatings | 0.04 |
 | case study (over-ear template, impedance + drum, 5 seatings, calibration and coupler errors) | leak gap, front depth, Re within 99 %; the fs–Qms–Qes direction named; Qes/fs within 2 %, Qms/fs within 5 % | — |
