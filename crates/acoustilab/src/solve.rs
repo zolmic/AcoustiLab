@@ -99,7 +99,7 @@ impl SolveResult {
 }
 
 /// Per-frequency factor applied to the solution for the stated drive.
-enum Scale {
+pub(crate) enum Scale {
     Constant(f64),
     /// Constant current `amps` through the source element `source`.
     Current {
@@ -128,7 +128,7 @@ impl Circuit {
             .map(|v| (first.0, v))
     }
 
-    fn drive_scale(&self) -> Result<(Scale, DriveInfo)> {
+    pub(crate) fn drive_scale(&self) -> Result<(Scale, DriveInfo)> {
         let vs = self.sole_vsource();
         let zs = vs.map(|(_, v)| v.zs);
         let zs_text =

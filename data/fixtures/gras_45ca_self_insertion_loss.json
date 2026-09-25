@@ -1,0 +1,22 @@
+{
+  "fixture": "GRAS 45CA headphone/hearing-protector test fixture (configurations 45CA-1, 45CA-2)",
+  "quantity": "self-insertion loss: the lower bound of any passive insertion loss the fixture can measure",
+  "condition": "measured with closed ear simulators (manufacturer's statement)",
+  "bands": [
+    {"f_min_Hz": 80, "f_max_Hz": 250, "exceeds_dB": 50},
+    {"f_min_Hz": 350, "f_max_Hz": 4000, "exceeds_dB": 65},
+    {"f_min_Hz": 5000, "f_max_Hz": 20000, "exceeds_dB": 55}
+  ],
+  "provenance": {
+    "origin": "datasheet",
+    "source": "GRAS Sound & Vibration, product page 'GRAS 45CA Headphone/Hearing-protector Test Fixture', specification 'Self-insertion loss'",
+    "url": "https://www.grasacoustics.com/products/test-fixtures/for-hearing-protector-test/product/734-45ca",
+    "retrieved": "2026-09-25",
+    "licence": "manufacturer's published specification, quoted as facts with attribution",
+    "status": "datasheet",
+    "notes": [
+      "The AcoustiLab v2 spec (Section 10) quotes the first two bands; the 5-20 kHz band is from the product page.",
+      "The figures are lower bounds ('>'), not a curve; between the bands the page gives nothing."
+    ]
+  }
+}
