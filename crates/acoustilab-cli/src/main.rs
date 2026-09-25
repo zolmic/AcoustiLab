@@ -4,6 +4,8 @@
 //! acoustilab solve <netlist.json> [--csv] [--out FILE]
 //! acoustilab check <netlist.json>
 //! acoustilab types
+//! acoustilab help | --help | -h
+//! acoustilab version | --version | -V
 //! ```
 
 use acoustilab::Circuit;
@@ -13,7 +15,9 @@ use std::process::ExitCode;
 const USAGE: &str = "usage:
   acoustilab solve <netlist.json> [--csv] [--out FILE]   solve and print results (JSON by default)
   acoustilab check <netlist.json>                        parse and validate only
-  acoustilab types                                       list element types";
+  acoustilab types                                       list element types
+  acoustilab help                                        print this message
+  acoustilab version                                     print the engine version";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -36,6 +40,14 @@ fn run(args: &[String]) -> Result<(), String> {
         return Err(USAGE.into());
     };
     match cmd.as_str() {
+        "help" | "--help" | "-h" => {
+            println!("{USAGE}");
+            Ok(())
+        }
+        "version" | "--version" | "-V" => {
+            println!("{}", acoustilab::solve::ENGINE);
+            Ok(())
+        }
         "types" => {
             for t in acoustilab::elements::known_types() {
                 println!("{t}");
