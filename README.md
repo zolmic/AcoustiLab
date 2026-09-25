@@ -44,6 +44,7 @@ parameters and use expressions (`docs/parameters.md`);
 ```sh
 cargo run -p acoustilab-cli -- params examples/design_over_ear.json
 cargo run -p acoustilab-cli -- solve examples/design_over_ear.json --set vent_count=3 --set rear=open --csv
+cargo run -p acoustilab-cli -- explain examples/design_over_ear.json   # also sens, tornado, readouts, mc: docs/analysis.md
 ```
 
 On-ear and in-ear templates, and the sources behind every template's defaults, are in `docs/templates.md`.
@@ -51,6 +52,12 @@ On-ear and in-ear templates, and the sources behind every template's defaults, a
 Target curves (with provenance and fixture), response error metrics and
 preference scores are described in `docs/targets.md`:
 `cargo run -p acoustilab-cli -- score examples/design_over_ear.json --target ravizza2023_5128`.
+
+Measured curves (FRD, ZMA, REW text, CSV with a metadata sidecar), parameter
+identification with an identifiability report, and a virtual rig for
+synthetic measurements are described in `docs/fitting.md`.
+
+Impulse responses, pole/Q tables and passive isolation: `acoustilab ir | poles | isolation` (`docs/time-domain.md`, `docs/isolation.md`).
 
 To run the browser UI:
 `cd web && npm ci && npm run dev` (details in `docs/web.md`).

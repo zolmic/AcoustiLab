@@ -598,118 +598,69 @@ pub fn initial_model(
 
 /// Fits [`ImpedanceModel`] to a complex impedance curve by Levenberg–
 /// Marquardt in log-parameter space (every free parameter stays positive;
-/// spec Section 3, "Fitting and optimisation"). Residuals are the real and
-/// imaginary parts of (Z_model − Z)/|Z|; the Jacobian is by central
-/// differences in the log parameters.
+/// spec Section 3, "Fitting and optimisation"), using the optimiser of
+/// [`crate::fit::lm`]. Residuals are the real and imaginary parts of
+/// (Z_model − Z)/|Z|; the Jacobian is by central differences in the log
+/// parameters.
 pub fn fit_impedance(
     freqs: &[f64],
     z: &[C64],
     initial: ImpedanceModel,
     opts: &FitOptions,
 ) -> Result<FitResult, String> {
+    use crate::fit::lm::{self, Bound, FnProblem, LmOptions};
     if freqs.len() != z.len() || freqs.is_empty() {
         return Err("frequency and impedance arrays must be non-empty and equal in length".into());
     }
     let free = free_indices(opts);
-    let mut p = to_vec(&initial);
+    let p0 = to_vec(&initial);
     for &k in &free {
-        if p[k].is_nan() || p[k] <= 0.0 {
+        if p0[k].is_nan() || p0[k] <= 0.0 {
             return Err(format!(
                 "initial value of free parameter {} must be positive",
                 PARAM_NAMES[k]
             ));
         }
     }
-    let mut theta: Vec<f64> = free.iter().map(|&k| p[k].ln()).collect();
-    let resid = |theta: &[f64], p: &mut [f64; 8]| -> Vec<f64> {
+    let theta: Vec<f64> = free.iter().map(|&k| p0[k].ln()).collect();
+    let with = |theta: &[f64]| -> [f64; 8] {
+        let mut p = p0;
         for (t, &k) in theta.iter().zip(&free) {
             p[k] = t.exp();
         }
-        let m = from_vec(p);
-        let mut r = Vec::with_capacity(2 * z.len());
-        for (f, zd) in freqs.iter().zip(z) {
-            let e = (m.impedance(*f) - zd) / zd.norm();
-            r.push(e.re);
-            r.push(e.im);
-        }
-        r
+        p
     };
-    let cost = |r: &[f64]| r.iter().map(|x| x * x).sum::<f64>();
-    let mut r = resid(&theta, &mut p);
-    let mut c = cost(&r);
-    let mut mu = 1e-3;
-    let np = theta.len();
-    let mut converged = false;
-    let mut it = 0;
-    while it < opts.max_iterations {
-        it += 1;
-        // Jacobian by central differences.
-        let h = 1e-6;
-        let mut jac = vec![vec![0.0; r.len()]; np];
-        for k in 0..np {
-            let mut tp = theta.clone();
-            tp[k] += h;
-            let rp = resid(&tp, &mut p);
-            let mut tm = theta.clone();
-            tm[k] -= h;
-            let rm = resid(&tm, &mut p);
-            for (jk, (a, b)) in jac[k].iter_mut().zip(rp.iter().zip(&rm)) {
-                *jk = (a - b) / (2.0 * h);
+    let mut problem = FnProblem {
+        f: |theta: &[f64]| -> Result<Vec<f64>, String> {
+            let m = from_vec(&with(theta));
+            let mut r = Vec::with_capacity(2 * z.len());
+            for (f, zd) in freqs.iter().zip(z) {
+                let e = (m.impedance(*f) - zd) / zd.norm();
+                r.push(e.re);
+                r.push(e.im);
             }
-        }
-        let mut jtj = vec![vec![0.0; np]; np];
-        let mut jtr = vec![0.0; np];
-        for a in 0..np {
-            for b in 0..np {
-                jtj[a][b] = jac[a].iter().zip(&jac[b]).map(|(x, y)| x * y).sum();
-            }
-            jtr[a] = jac[a].iter().zip(&r).map(|(x, y)| x * y).sum();
-        }
-        let mut accepted = false;
-        while mu < 1e14 {
-            let mut a = jtj.clone();
-            for (k, row) in a.iter_mut().enumerate() {
-                row[k] += mu * jtj[k][k].max(1e-30);
-            }
-            let rhs: Vec<f64> = jtr.iter().map(|g| -g).collect();
-            let Some(delta) = solve_dense(a, rhs) else {
-                mu *= 10.0;
-                continue;
-            };
-            let trial: Vec<f64> = theta.iter().zip(&delta).map(|(t, d)| t + d).collect();
-            let rt = resid(&trial, &mut p);
-            let ct = cost(&rt);
-            if ct.is_finite() && ct < c {
-                let step_small = delta.iter().all(|d| d.abs() < 1e-12);
-                let rel = (c - ct) / c.max(1e-300);
-                theta = trial;
-                r = rt;
-                c = ct;
-                mu = (mu / 3.0).max(1e-15);
-                accepted = true;
-                if rel < 1e-14 || c < 1e-28 || step_small {
-                    converged = true;
-                }
-                break;
-            }
-            mu *= 4.0;
-        }
-        if !accepted {
-            // No descent direction left: at a (local) minimum.
-            converged = true;
-        }
-        if converged {
-            break;
-        }
-    }
-    for (t, &k) in theta.iter().zip(&free) {
-        p[k] = t.exp();
-    }
+            Ok(r)
+        },
+        steps: vec![1e-6; free.len()],
+    };
+    let o = LmOptions {
+        max_iterations: opts.max_iterations,
+        max_evaluations: usize::MAX,
+        ftol: 1e-14,
+        xtol: 1e-12,
+        cost_floor: 1e-28,
+        null_tolerance: 0.0,
+        min_sigma: 0.0,
+        unfreeze_above: f64::INFINITY,
+        stall: (0, 0.0),
+        mu0: 1e-3,
+    };
+    let r = lm::minimize(&mut problem, &theta, &vec![Bound::Free; free.len()], &o)?;
     Ok(FitResult {
-        model: from_vec(&p),
-        rms_relative_error: (c / freqs.len() as f64).sqrt(),
-        iterations: it,
-        converged,
+        model: from_vec(&with(&r.u)),
+        rms_relative_error: (r.cost / freqs.len() as f64).sqrt(),
+        iterations: r.iterations,
+        converged: r.stop.converged(),
     })
 }
 
@@ -744,37 +695,6 @@ fn from_vec(p: &[f64; 8]) -> ImpedanceModel {
         l2: p[6],
         r2: p[7],
     }
-}
-
-/// Gaussian elimination with partial pivoting for the small normal
-/// equations; `None` if singular.
-fn solve_dense(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
-    let n = b.len();
-    for col in 0..n {
-        let piv = (col..n).max_by(|&i, &j| a[i][col].abs().total_cmp(&a[j][col].abs()))?;
-        if a[piv][col] == 0.0 || !a[piv][col].is_finite() {
-            return None;
-        }
-        a.swap(col, piv);
-        b.swap(col, piv);
-        let (upper, lower) = a.split_at_mut(col + 1);
-        let pivot = &upper[col];
-        for (i, row) in lower.iter_mut().enumerate() {
-            let f = row[col] / pivot[col];
-            if f != 0.0 {
-                for (x, y) in row[col..].iter_mut().zip(&pivot[col..]) {
-                    *x -= f * y;
-                }
-                b[col + 1 + i] -= f * b[col];
-            }
-        }
-    }
-    let mut x = vec![0.0; n];
-    for row in (0..n).rev() {
-        let s: f64 = (row + 1..n).map(|k| a[row][k] * x[k]).sum();
-        x[row] = (b[row] - s) / a[row][row];
-    }
-    x.iter().all(|v| v.is_finite()).then_some(x)
 }
 
 #[cfg(test)]
@@ -836,12 +756,5 @@ mod tests {
         }
         .validate()
         .is_err());
-    }
-
-    #[test]
-    fn dense_solver() {
-        let x = solve_dense(vec![vec![2.0, 1.0], vec![1.0, 3.0]], vec![3.0, 5.0]).unwrap();
-        assert!((x[0] - 0.8).abs() < 1e-15 && (x[1] - 1.4).abs() < 1e-15);
-        assert!(solve_dense(vec![vec![1.0, 2.0], vec![2.0, 4.0]], vec![1.0, 2.0]).is_none());
     }
 }

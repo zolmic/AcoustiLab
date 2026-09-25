@@ -10,13 +10,17 @@
 //! ```
 
 pub mod air;
+pub mod analysis;
 pub mod circuit;
 pub mod diag;
 pub mod drive;
 pub mod elements;
 pub mod error;
 pub mod expr;
+pub mod fit;
 pub mod grid;
+pub mod io;
+pub mod isolation;
 pub mod linalg;
 pub mod mna;
 pub mod modes;
@@ -26,6 +30,7 @@ pub mod solve;
 pub mod special;
 pub mod targets;
 pub mod thermoviscous;
+pub mod time;
 pub mod ts;
 pub mod units;
 pub mod validity;

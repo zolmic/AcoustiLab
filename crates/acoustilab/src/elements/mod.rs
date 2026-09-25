@@ -17,6 +17,7 @@ pub mod radiation;
 pub mod driver;
 pub mod ear;
 pub mod materials;
+pub mod shell;
 
 use crate::air::AirState;
 use crate::diag::{Note, Operating};
@@ -182,6 +183,7 @@ const FAMILIES: &[fn(&str) -> Option<Constructor>] = &[
     materials::constructor,
     driver::constructor,
     ear::constructor,
+    shell::constructor,
 ];
 
 /// Builds an element from its raw record.
@@ -224,6 +226,7 @@ pub fn known_types() -> Vec<&'static str> {
     v.extend_from_slice(materials::TYPES);
     v.extend_from_slice(driver::TYPES);
     v.extend_from_slice(ear::TYPES);
+    v.extend_from_slice(shell::TYPES);
     v
 }
 

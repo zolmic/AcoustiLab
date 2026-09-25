@@ -203,3 +203,81 @@ corrected statement. "p." is the PDF page.
     third-party curves.
   - AES Express Papers are reviewed on a summary, so the source is
     classed as research, not peer-reviewed.
+
+## Found by the fitting package
+
+- **E50 — scale-ambiguous parameters (p. 44).** "After an impedance-only fit
+  the tool marks Bl, Mms and Cms as scale-ambiguous" leaves out Rms. The
+  impedance Re + Bl²/(jωMms + Rms + 1/(jωCms)) is unchanged by Bl → α·Bl,
+  Mms → α²·Mms, Cms → Cms/α² only if also Rms → α²·Rms: the data fix Bl²/Rms,
+  not Rms, as the spec's own list of determined combinations says. With an
+  acoustic load Sd²·Z_a the invariance holds with Sd → α·Sd, so Sd is
+  scale-ambiguous too when it is fitted. Verified numerically: an
+  impedance-only fit has one null singular direction, (1, 2, −2, 2)/√13 in
+  ln (Bl, Mms, Cms, Rms) (`tests/fit.rs`,
+  `impedance_only_fit_flags_the_bl_scale_ambiguity`). The engine marks all
+  four, and Sd when fitted.
+- **E51 — known coupler volume (p. 44).** A known volume resolves the scale
+  only together with a second impedance under another known volume, usually
+  free air, and a known Sd. In a sealed
+  volume of compliance Ca the mechanical impedance is
+  jωMms + Rms + 1/(jω·C_tot) with 1/C_tot = 1/Cms + Sd²/Ca, so the impedance
+  in the box alone again determines only three combinations, Bl²/Mms,
+  Bl²/Rms and Bl²·C_tot, of the four unknowns. With the free-air Bl²·Cms = A
+  and the box's Bl²·C_tot = B, Bl² = B·(Sd²/Ca)/(1 − B/A). The engine counts
+  the known-volume method only for impedance curves under two conditions that
+  differ in a cavity on the driver's face, with Sd not fitted.
+  - With the box alone, Cms > 0 bounds Bl only from below,
+    Bl² > B·Sd²/Ca. In a box much stiffer than the suspension the
+    linearised intervals then make Bl look determined while Cms is not
+    (checked on `examples/driver_bench.json` with a 20 cm³ box), so the
+    rule, not the singular values, decides.
+
+## Package `time` (impulse responses, minimum phase, isolation)
+
+- **E52 — causality test (Section 17, p. 58).** "The impulse response from
+  the full-band complex response has pre-response energy below −80 dB" fails
+  for a correct pipeline whenever the response is still significant at the
+  top of the band, however long N is. Band-limiting at the edge of the
+  solved band (Section 16's Tukey window and guard band, or Nyquist itself)
+  is zero-phase, so it spreads the impulse symmetrically in time. At fs =
+  48 kHz and N = 8192, with the band solved to 20 kHz and tapered to
+  Nyquist, a 100 Hz high-pass (flat to 20 kHz) keeps −15.0 dB of its energy
+  at negative times and a 1 kHz, Q = 5 resonator (−52 dB at 20 kHz)
+  −61.1 dB. A 100 Hz, Q = 5 resonator (−92 dB at 20 kHz) meets −80 dB
+  (−89 dB) once N covers E46 (N = 16 384). The design template's drum
+  response rises towards a resonance just above the band (a fitted pole at
+  20.4 kHz, Q = 28); its energy above the solved band is −25 dB of the
+  total (`tools/time/ir_refs.py`, `tools/time/minphase_study.py`,
+  `tests/time.rs`; the four network figures were reproduced by an
+  independent numpy script in review). Apply the −80 dB test to the
+  minimum-phase filter, which is causal by construction (−89 dB for the
+  high-pass), provided N also holds its decay (E46, and the time constant
+  of a low-frequency corner when the response vanishes at DC), or to
+  networks negligible above the solved band, and report the band-edge
+  energy with every mixed-phase IR.
+- **Note on E46.** An envelope falls 80 dB in (4·ln 10/π)·Q/f = 2.93·Q/f. At
+  exactly 2.9·Q/f the late energy of a Q = 20 resonator is −79.1 dB, so the
+  engine uses 2.93. A causal half of 2.2·Q/f (T60) leaves −60.1 dB, and a
+  buffer of one T60 −30.0 dB.
+
+## Found by the analysis package
+
+- **E53 — explain panel from sensitivities (pp. 13, 52).** The spec generates
+  the explain sentences "from the adjoint sensitivities and the solved
+  curves". A 10 % change is not small near the coupled resonance, so a
+  linearised change can be wrong by several decibels, and even in sign. For
+  a resonance of quality Q, a relative frequency shift δ leaves the level at
+  the old peak unchanged to first order, but lowers it by about
+  10·log10(1 + (2Qδ)²) (near the peak, |H|² ≈ 1/(1 + (2Q·Δf/f)²); for
+  Q = 6 and δ = 5 %, 1.34 dB against 1.28 dB exactly). The linear model
+  holds only while 2Qδ ≪ 1. On `examples/design_over_ear.json` (in-situ
+  Qts ≈ 6), sensitivity × 100·ln 1.1 against a re-solve at +10 %, in the
+  credible band:
+  - Sd predicts +4.57 dB at 973 Hz, where the re-solve gives −0.22 dB.
+  - Mms predicts +0.72 dB at 919 Hz, where the re-solve gives −0.63 dB.
+  - Front radius predicts −0.50 dB at 919 Hz, where the re-solve gives
+    −1.50 dB.
+
+  The engine generates the sentences from re-solves (`docs/analysis.md`).
+  Sensitivities in dB per percent describe small changes only.

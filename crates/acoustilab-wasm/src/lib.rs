@@ -13,6 +13,9 @@
 //! * `check(netlist_json)`: `{"ok": true, "nodes": .., ..}` or an error.
 //! * `element_types()`: a JSON array of element type names.
 //! * `engine_version()`: the engine's name and version.
+//! * design analyses (`sensitivity`, `tornado`, `explain`, `readouts`,
+//!   `mc_plan`, `mc_run`, `mc_envelope`, `mc_csv`): see `analysis.rs` and
+//!   docs/analysis.md.
 //! * `take_last_panic()`: the message of the last Rust panic, if any. A panic
 //!   aborts (traps) on wasm32; the caller reads the message from the trapped
 //!   instance and then instantiates a fresh module.
@@ -20,6 +23,7 @@
 //! Build with `web/scripts/build-wasm.sh` (see docs/web.md).
 
 pub mod api;
+pub mod time;
 
 use std::sync::{Mutex, Once};
 use wasm_bindgen::prelude::*;
@@ -197,4 +201,194 @@ pub fn reconstruct_target(baseline_spec: &str, options_json: &str) -> String {
         baseline_spec,
         options_json,
     ))
+}
+
+// ----- Curves, fitting and the virtual rig (docs/fitting.md) -----------------
+//
+// JSON in, JSON out; logic and error shapes in `fit.rs`.
+
+pub mod fit;
+
+/// Reads an FRD, ZMA, REW text or CSV file into a curve document. `options`
+/// is a format name (`auto`, `frd`, `zma`, `rew`, `csv`) or
+/// `{"format", "quantity", "sidecar"}`.
+#[wasm_bindgen]
+pub fn import_curve(text: &str, options: &str) -> String {
+    install_panic_hook();
+    api::to_string(&fit::import_curve_value(text, options))
+}
+
+/// Writes a curve document as `format` (`frd`, `zma`, `rew`, `csv`):
+/// `{"format", "extension", "text", "sidecar"}`.
+#[wasm_bindgen]
+pub fn export_curve(curve_json: &str, format: &str) -> String {
+    install_panic_hook();
+    api::to_string(&fit::export_curve_value(curve_json, format))
+}
+
+/// Checks that two curves were measured under the same conditions
+/// (fixture, compensation, drive, ...); `allow_json` lists fields to
+/// ignore.
+#[wasm_bindgen]
+pub fn compare_curves(a_json: &str, b_json: &str, allow_json: &str) -> String {
+    install_panic_hook();
+    api::to_string(&fit::compare_curves_value(a_json, b_json, allow_json))
+}
+
+/// Fits netlist parameters to curves (`acoustilab-fit/0.1` spec); returns
+/// the fit report. Bounded by the spec's `max_iterations` and
+/// `max_evaluations`.
+#[wasm_bindgen]
+pub fn fit(netlist_json: &str, spec_json: &str) -> String {
+    install_panic_hook();
+    api::to_string(&fit::fit_value(netlist_json, spec_json))
+}
+
+/// A synthetic measurement from the virtual rig: `{"curve", "format",
+/// "extension", "text", "sidecar"}`.
+#[wasm_bindgen]
+pub fn virtual_measure(netlist_json: &str, spec_json: &str) -> String {
+    install_panic_hook();
+    api::to_string(&fit::virtual_measure_value(netlist_json, spec_json))
+}
+
+/// Probe `probe` of the solved netlist (with parameter overrides, "" for
+/// none) as a curve document with a `simulated` sidecar.
+#[wasm_bindgen]
+pub fn probe_curve(netlist_json: &str, overrides_json: &str, probe: &str) -> String {
+    install_panic_hook();
+    api::to_string(&fit::probe_curve_value(netlist_json, overrides_json, probe))
+}
+
+// ----- Time domain, vector fitting and isolation (docs/time-domain.md, docs/isolation.md)
+
+/// Impulse, step and energy-time curve (mixed and minimum phase), excess
+/// phase and group delay, the Section 16 phase decision and the E46
+/// impulse-length check of a probe (options: see `time::impulse_value`).
+#[wasm_bindgen]
+pub fn impulse(netlist_json: &str, overrides_json: &str, options_json: &str) -> String {
+    install_panic_hook();
+    debug_panic_hook(netlist_json);
+    api::to_string(&time::impulse_value(
+        netlist_json,
+        overrides_json,
+        options_json,
+    ))
+}
+
+/// Vector fit of a probe: poles/Q table, zeros, fit error, group delay and
+/// optionally the attribution of resonances to parameters (options: see
+/// `time::vector_fit_value`).
+#[wasm_bindgen]
+pub fn vector_fit(netlist_json: &str, overrides_json: &str, options_json: &str) -> String {
+    install_panic_hook();
+    debug_panic_hook(netlist_json);
+    api::to_string(&time::vector_fit_value(
+        netlist_json,
+        overrides_json,
+        options_json,
+    ))
+}
+
+/// Passive insertion loss at the drum and the bleed estimate (options: see
+/// `time::isolation_value`).
+#[wasm_bindgen]
+pub fn isolation(netlist_json: &str, overrides_json: &str, options_json: &str) -> String {
+    install_panic_hook();
+    debug_panic_hook(netlist_json);
+    api::to_string(&time::isolation_value(
+        netlist_json,
+        overrides_json,
+        options_json,
+    ))
+}
+
+// ----- Design analyses (docs/analysis.md; logic in analysis.rs) -----------
+
+pub mod analysis;
+
+/// Sensitivities (Jacobian in dB and degrees per percent) of a design.
+#[wasm_bindgen]
+pub fn sensitivity(netlist_json: &str, overrides_json: &str, options_json: &str) -> String {
+    install_panic_hook();
+    api::to_string(&analysis::sensitivity_value(
+        netlist_json,
+        overrides_json,
+        options_json,
+    ))
+}
+
+/// Tornado chart of one metric over the parameters' tolerances.
+#[wasm_bindgen]
+pub fn tornado(netlist_json: &str, overrides_json: &str, options_json: &str) -> String {
+    install_panic_hook();
+    api::to_string(&analysis::tornado_value(
+        netlist_json,
+        overrides_json,
+        options_json,
+    ))
+}
+
+/// Explain sentences generated from re-solves.
+#[wasm_bindgen]
+pub fn explain(netlist_json: &str, overrides_json: &str, options_json: &str) -> String {
+    install_panic_hook();
+    api::to_string(&analysis::explain_value(
+        netlist_json,
+        overrides_json,
+        options_json,
+    ))
+}
+
+/// Impedance, driver and response readouts.
+#[wasm_bindgen]
+pub fn readouts(netlist_json: &str, overrides_json: &str, options_json: &str) -> String {
+    install_panic_hook();
+    api::to_string(&analysis::readouts_value(
+        netlist_json,
+        overrides_json,
+        options_json,
+    ))
+}
+
+/// Monte Carlo or design-of-experiments plan.
+#[wasm_bindgen]
+pub fn mc_plan(netlist_json: &str, overrides_json: &str, spec_json: &str) -> String {
+    install_panic_hook();
+    api::to_string(&analysis::mc_plan_value(
+        netlist_json,
+        overrides_json,
+        spec_json,
+    ))
+}
+
+/// Solves one chunk of a plan's samples.
+#[wasm_bindgen]
+pub fn mc_run(
+    netlist_json: &str,
+    overrides_json: &str,
+    samples_json: &str,
+    options_json: &str,
+) -> String {
+    install_panic_hook();
+    api::to_string(&analysis::mc_run_value(
+        netlist_json,
+        overrides_json,
+        samples_json,
+        options_json,
+    ))
+}
+
+/// Median, 5/10/90/95 % and extreme envelopes of collected runs.
+#[wasm_bindgen]
+pub fn mc_envelope(runs_json: &str) -> String {
+    install_panic_hook();
+    api::to_string(&analysis::mc_envelope_value(runs_json))
+}
+
+/// Design-of-experiments table of collected runs, as `{"csv": ".."}`.
+#[wasm_bindgen]
+pub fn mc_csv(runs_json: &str, parameters_json: &str) -> String {
+    install_panic_hook();
+    api::to_string(&analysis::mc_csv_value(runs_json, parameters_json))
 }
