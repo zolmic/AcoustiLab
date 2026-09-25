@@ -531,6 +531,7 @@ Without `mass.zma` the same fit marks Bl, Mms, Cms and Rms scale-ambiguous.
 | `fit(netlist, spec_json)` | the fit report |
 | `probe_curve(netlist, overrides_json, probe)` | a curve document of the solved probe with a `simulated` sidecar |
 | `virtual_measure(netlist, spec_json)` | `{"curve", "format", "extension", "text", "sidecar"}`; the rig spec may add `"format"` |
+| `curve_uncertainty(curve_json)` | `{"frequencies_Hz", "seatings", "level_dB", "phase_deg"}`: the combined standard uncertainty at each frequency from the sidecar budget (null without such a term); used by the web UI's Fit view (docs/web.md) |
 
 `examples/driver_bench.json` is an identification bench: a driver in its
 physical set (Re, Bl, Mms, Cms, Rms, Sd, creep, Le and an external LR-2
