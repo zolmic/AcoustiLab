@@ -1,36 +1,39 @@
 //! Levenberg–Marquardt least squares with smooth box bounds.
 //!
 //! Minimises the cost Σ r_i(u)² over the fitting variables u (the natural
-//! logarithms of positive parameters, or the parameters themselves on a
-//! linear scale). Bounds are removed by a smooth change of variable u = T(z)
-//! ([`Bound`]) and the iteration runs on the unconstrained z:
+//! logarithms of positive parameters, or scaled parameters on a linear
+//! scale). The iterate lives in an unconstrained variable z with u = T(z)
+//! ([`Bound`]), so every trial point satisfies the bounds:
 //!
 //! * two bounds a < u < b: u = a + (b − a)·σ(z), σ the logistic function;
 //! * a lower bound only: u = a + ln(1 + e^z);
 //! * an upper bound only: u = b − ln(1 + e^(−z)).
 //!
-//! A smooth transform is used rather than projecting steps onto the box
-//! because projection makes the cost non-smooth at the faces, so the
-//! Gauss–Newton model the damping relies on is wrong there, and a variable
-//! pinned to a face stops moving without a clean stationarity test. The
-//! price is that dT/dz vanishes at a bound: a variable whose optimum lies
-//! at or beyond a bound creeps towards it and is reported as at the bound
-//! (the fit's report, not this module, decides that).
-//!
-//! Each iteration takes the Jacobian J = ∂r/∂z, its singular value
+//! Each iteration takes the Jacobian J = ∂r/∂u, its singular value
 //! decomposition J = U·Σ·Vᵀ, and solves the Marquardt-damped normal
-//! equations (JᵀJ + μ·D)·δ = −Jᵀr, D = diag(JᵀJ), within the span of the
+//! equations (JᵀJ + μ·D)·δu = −Jᵀr, D = diag(JᵀJ), within the span of the
 //! right singular vectors whose singular value exceeds
-//! [`LmOptions::null_tolerance`] times the largest: with δ = V_r·y,
+//! [`LmOptions::null_tolerance`] times the largest and the absolute floor
+//! [`LmOptions::min_sigma`]: with δu = V_r·y,
 //! (Σ_r² + μ·V_rᵀ·D·V_r)·y = −Σ_r·U_rᵀ·r. Directions the data do not
-//! constrain at all (a numerically null singular value) are thus never
-//! stepped along, so unidentifiable parameters stay where they started
-//! instead of wandering on noise; optionally, so are directions whose
-//! singular value is below an absolute floor ([`LmOptions::min_sigma`]).
-//! With every direction kept this is the ordinary Marquardt step. A trial point that lowers the cost is accepted
-//! and μ divided by 3; otherwise μ is multiplied by 4 (by 10 when the
-//! damped system is singular). A trial point where the model cannot be
-//! evaluated, such as a singular network, counts as a rejected step.
+//! constrain (a numerically null or statistically flat singular value)
+//! are thus never stepped along, so parameters that only move along them
+//! stay where they started instead of wandering on noise. With every
+//! direction kept this is the ordinary Marquardt step.
+//!
+//! The step is carried to z to first order, δz_k = δu_k/T'(z_k), and the
+//! trial point is T(z + δz): away from the bounds this is the step itself;
+//! towards a bound it saturates smoothly instead of crossing it. This
+//! rather than projecting onto the box: projection makes the cost
+//! non-smooth at the faces and pins a variable there. Working in u rather
+//! than z keeps the step and the flatness test independent of how close a
+//! variable is to its bound (dT/dz vanishes there); a variable whose
+//! optimum lies beyond a bound ends next to it, and the fit reports that.
+//!
+//! A trial point that lowers the cost is accepted and μ divided by 3;
+//! otherwise μ is multiplied by 4 (by 10 when the damped system is
+//! singular). A trial point where the model cannot be evaluated, such as a
+//! singular network, counts as a rejected step.
 
 use super::dense::{self, Mat};
 use super::jacobian;
@@ -187,8 +190,8 @@ pub struct LmOptions {
     /// Relative singular value below which a direction is left out of the
     /// step (see the module documentation). 0 keeps every direction.
     pub null_tolerance: f64,
-    /// Directions whose singular value (in z) is at most this are also left
-    /// out of the step. For residuals weighted by their standard
+    /// Directions whose singular value is at most this are also left out of
+    /// the step. For residuals weighted by their standard
     /// uncertainties, σ < 1 means that moving one unit along the direction
     /// changes χ² by less than 1: the data do not determine it, and
     /// stepping along it only chases noise (the fit then leaves that
@@ -308,11 +311,8 @@ pub fn minimize(
             break Stop::MaxEvaluations;
         }
         iterations += 1;
-        let (mut jac, used) = problem.jacobian(&u, &r, bounds)?;
+        let (jac, used) = problem.jacobian(&u, &r, bounds)?;
         evaluations += used;
-        for (k, b) in bounds.iter().enumerate() {
-            jac.scale_col(k, b.du_dz(z[k]));
-        }
         let d = dense::svd(&jac);
         let smax = d.s.first().copied().unwrap_or(0.0);
         let keep: Vec<usize> = (0..n)
@@ -365,7 +365,12 @@ pub fn minimize(
             let delta: Vec<f64> = (0..n)
                 .map(|k| keep.iter().zip(&y).map(|(&i, y)| d.v.get(k, i) * y).sum())
                 .collect();
-            let zt: Vec<f64> = z.iter().zip(&delta).map(|(z, d)| z + d).collect();
+            let zt: Vec<f64> = z
+                .iter()
+                .zip(&delta)
+                .zip(bounds)
+                .map(|((z, d), b)| z + (d / b.du_dz(*z).max(1e-300)).clamp(-60.0, 60.0))
+                .collect();
             let ut = to_u(&zt);
             evaluations += 1;
             match problem.residuals(&ut) {
