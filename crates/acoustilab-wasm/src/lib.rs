@@ -299,3 +299,17 @@ pub fn isolation(netlist_json: &str, overrides_json: &str, options_json: &str) -
         options_json,
     ))
 }
+
+// ----- Measurement views of the web UI (docs/web.md, "Fit") ----------------------
+
+pub mod measure;
+
+/// Combined standard uncertainty of a curve's level (dB) and phase (degrees)
+/// at each of its frequencies, from its sidecar's budget and seatings:
+/// `{"frequencies_Hz", "seatings", "level_dB", "phase_deg"}` (null terms
+/// when the budget has none).
+#[wasm_bindgen]
+pub fn curve_uncertainty(curve_json: &str) -> String {
+    install_panic_hook();
+    api::to_string(&measure::curve_uncertainty_value(curve_json))
+}
