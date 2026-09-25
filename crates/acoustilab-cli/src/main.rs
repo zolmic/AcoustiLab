@@ -14,6 +14,7 @@
 //! acoustilab ir <netlist.json> [--probe ID] [--fs 48000] [--n 8192] [--wav FILE] ...
 //! acoustilab poles <netlist.json> [--probe ID] [--order 30] [--attribute] ...
 //! acoustilab isolation <netlist.json> [--probe ID] [--entrance NODE] [--csv] ...
+//! acoustilab validate <measurement dir> | --predict | --verify | --drift | --session | --simulate
 //! acoustilab help | --help | -h
 //! acoustilab version | --version | -V
 //! ```
@@ -29,6 +30,7 @@ use std::process::ExitCode;
 
 mod score;
 mod time;
+mod validate;
 
 const USAGE: &str = "usage:
   acoustilab solve <netlist.json> [--csv] [--out FILE]   solve and print results (JSON by default)
@@ -118,10 +120,16 @@ fn run(args: &[String]) -> Result<(), String> {
     };
     match cmd.as_str() {
         "help" | "--help" | "-h" => {
-            println!("{USAGE}\n{}\n{}", fit_cmd::USAGE, time::USAGE);
+            println!(
+                "{USAGE}\n{}\n{}\n{}",
+                fit_cmd::USAGE,
+                time::USAGE,
+                validate::USAGE
+            );
             Ok(())
         }
         "fit" | "measure" | "convert" | "export" => fit_cmd::run(args, &overrides),
+        "validate" => validate::run(args, &overrides),
         "ir" | "poles" | "isolation" => {
             let path = args.get(1).ok_or(USAGE)?;
             let rest = &args[2..];
