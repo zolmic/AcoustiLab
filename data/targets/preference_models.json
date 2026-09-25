@@ -17,7 +17,24 @@
       "notes": [
         "Band: the patent defines SD and AS from 20 Hz to 10 kHz for its variables. Erratum E7 and AutoEq (MIT licence, autoeq/frequency_response.py, harman_overear_preference_score, v4.1.2) use 50 Hz to 10 kHz for this model, AutoEq stating that its implementation reproduces Listen Inc.'s Excel template, which the model's authors supplied. This file follows E7; the primary paper was not available to settle it.",
         "AutoEq uses the unrounded intercept 114.490443008238 and AS weight 15.5163857197367 (and 12.62 for SD). The rounded patent values used here differ from them by less than 0.01 points for |AS| below 2.",
-        "Grid: Listen's SoundCheck template expects R40 (1/12-octave) data from 20 Hz to 20 kHz, averages left and right and normalises at 500 Hz (Listen Inc. sequence note, archived 2023-03-27)."
+        "Grid: Listen's SoundCheck template expects R40 (1/12-octave) data from 20 Hz to 20 kHz, averages left and right and normalises at 500 Hz (Listen Inc. sequence note, archived 2023-03-27).",
+        "The band matters: on the synthetic test curves of tools/targets/reference.py, 20 Hz instead of 50 Hz moves the score by about 10 points, in either direction. harman_oe_2018_20Hz reports the other reading."
+      ]
+    },
+    {
+      "id": "harman_oe_2018_20Hz",
+      "label": "Harman around-ear and on-ear model, SD and AS over 20 Hz-10 kHz (literal reading of the patent)",
+      "kind": "over_ear",
+      "intercept": 114.49,
+      "terms": [
+        {"variable": "SD", "weight": 12.62, "band_Hz": [20, 10000]},
+        {"variable": "AS", "weight": 15.52, "band_Hz": [20, 10000]}
+      ],
+      "fit": {"r": 0.86, "rmse": 6.705, "observations": 32},
+      "training": {"fixture": "gras45ca_harman", "target_family": "harman_ae_oe_2018"},
+      "source": "US patent application 2019/0087739 A1 (above), Eq. (5) with the variables as the patent defines them for Eq. (1)-(3) (SD and AS from 20 Hz to 10 kHz), which it says are also the candidates for the AE/OE model. This is also the band printed in the spec (Section 11).",
+      "notes": [
+        "Not the default: erratum E7 and the implementation that reproduces Listen's template (AutoEq) use 50 Hz (harman_oe_2018). Reported so that the effect of the unresolved band is visible."
       ]
     },
     {

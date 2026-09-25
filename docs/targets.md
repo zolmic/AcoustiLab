@@ -406,7 +406,8 @@ are as above; ME is the mean |e|.
 
 | model | formula | bands | fit | source |
 |---|---|---|---|---|
-| `harman_oe_2018` (around-ear, on-ear) | 114.49 − 12.62·SD − 15.52·AS | SD, AS: 50 Hz–10 kHz | r = 0.86, RMSE 6.7 | US 2019/0087739 A1 Eq. (5), Table 2; model paper AES 144th 2018, paper 9919 |
+| `harman_oe_2018` (around-ear, on-ear) | 114.49 − 12.62·SD − 15.52·AS | SD, AS: 50 Hz–10 kHz (E7) | r = 0.86, RMSE 6.7 | US 2019/0087739 A1 Eq. (5), Table 2; model paper AES 144th 2018, paper 9919 |
+| `harman_oe_2018_20Hz` (same, other band reading) | 114.49 − 12.62·SD − 15.52·AS | SD, AS: 20 Hz–10 kHz | as above | the patent's variable definitions, and the spec's band; not the default |
 | `harman_ie_patent` (in-ear) | 68.685 − 3.238·SD − 4.473·AS − 2.658·ME | SD, AS: 20 Hz–10 kHz; ME: 40 Hz–10 kHz | r = 0.91, RMSE 5.5 | US 2019/0087739 A1 Eq. (1)–(4), Table 1, claim 9 |
 | `harman_ie_listen` (in-ear) | 100.0795 − 8.5·SD − 6.796·AS − 3.475·ME | as above | not published | AutoEq `harman_inear_preference_score` (MIT), stated there to reproduce Listen's Excel template (E7) |
 
@@ -421,12 +422,17 @@ What was verified, and against what:
 - **Olive 2022.** The Acoustics Today article gives r = 0.86 and an error of
   6.7 points for the over-ear model, but no coefficients. The spec's
   attribution of the coefficients to it is corrected in E48.
-- **The over-ear band.** The patent defines SD and AS on 20 Hz–10 kHz. E7
-  and AutoEq use 50 Hz–10 kHz for the over-ear model, AutoEq stating that it
-  reproduces Listen's Excel template, which the authors supplied (Listen
-  sequence note). The model paper (AES 144th, paywalled) was not available
-  to settle it. This project follows E7; the band is data, so it can be
-  changed in one place.
+- **The over-ear band.** This is the least certain part. The patent
+  defines SD and AS on 20 Hz–10 kHz, and says the same variables were the
+  candidates for the AE/OE model. E7 and AutoEq use 50 Hz–10 kHz. AutoEq
+  says its implementation gives "the exact same numbers as the Excel from
+  Listen Inc", which was built from the authors' own spreadsheets (Listen
+  sequence note), and exact agreement would be impossible with a different
+  band. The model paper (AES 144th, paywalled) was not available to settle
+  it. This project follows E7 in `harman_oe_2018` and reports the literal
+  patent reading as `harman_oe_2018_20Hz`, because the choice matters: on
+  the synthetic test curves the two differ by about 10 points, in either
+  direction (a bass shortfall below 60 Hz lowers the 20 Hz score).
 - **The coefficients.** AutoEq uses the unrounded 114.490443008238 and
   15.5163857197367. The rounded patent values used here differ by
   0.0004 + 0.0036·AS points.

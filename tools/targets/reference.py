@@ -6,7 +6,7 @@ shared with the Rust engine, everything crates/acoustilab/tests/targets.rs
 checks:
 
 * the 1/12-octave evaluation grid 10^(k/40), k = 52..172, and band
-  membership by nearest grid point on a log axis;
+  membership within half a 1/12-octave step of a band on a log axis;
 * linear interpolation in dB on log frequency (numpy.interp on log10 f);
 * 1/N-octave power smoothing: window f*G^(+-1/2N), G = 10^0.3, shrunk
   symmetrically at the ends, mean of the piecewise-linear power over log10 f,

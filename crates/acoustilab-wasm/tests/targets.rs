@@ -91,7 +91,12 @@ fn list_names_targets_fixtures_and_models() {
         .collect();
     assert_eq!(
         models,
-        ["harman_oe_2018", "harman_ie_patent", "harman_ie_listen"]
+        [
+            "harman_oe_2018",
+            "harman_oe_2018_20Hz",
+            "harman_ie_patent",
+            "harman_ie_listen"
+        ]
     );
     assert_eq!(v["smoothing_fractions"], json!([1, 2, 3, 6, 12, 24, 48]));
 }

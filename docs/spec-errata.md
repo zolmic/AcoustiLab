@@ -183,7 +183,10 @@ corrected statement. "p." is the PDF page.
   Convention 2018, paper 9919.
   - The patent defines SD and AS from 20 Hz to 10 kHz. The 50 Hz lower
     bound of E7 comes from the implementation that reproduces Listen's
-    template, not from a publication that could be checked.
+    template, not from a publication that could be checked. The two
+    readings differ by about 10 points on smooth test curves, so the engine
+    keeps E7 as the default (`harman_oe_2018`) and also reports the 20 Hz
+    reading (`harman_oe_2018_20Hz`; docs/targets.md).
   - The same article (p. 65) is the origin of the spec's "IEC 60318-1 ear
     simulator with a custom pinna" (see E6).
 - **E49 — Ravizza et al. 2023 data (pp. 41, 46).** The Zenodo record

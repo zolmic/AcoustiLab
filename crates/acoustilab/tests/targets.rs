@@ -94,7 +94,7 @@ fn grid_is_the_exact_twelfth_octave_series() {
 }
 
 #[test]
-fn band_membership_uses_the_nearest_grid_points() {
+fn band_membership_within_half_a_step() {
     let g = grid::twelfth_octave();
     let r = reference();
     for (key, v) in r["band_indices"].as_object().unwrap() {
@@ -677,6 +677,12 @@ fn score_formulas_by_hand() {
         "over-ear",
     );
     close(
+        rep.score("harman_oe_2018_20Hz").unwrap().score.unwrap(),
+        114.49 - 12.62 * sd20 - 15.52 * a,
+        1e-9,
+        "over-ear, 20 Hz band",
+    );
+    close(
         rep.score("harman_ie_patent").unwrap().score.unwrap(),
         68.685 - 3.238 * sd20 - 4.473 * a - 2.658 * me40,
         1e-9,
@@ -709,6 +715,11 @@ fn model_data_hold_the_published_coefficients() {
     assert_eq!(oe.intercept, 114.49);
     let w: Vec<(f64, (f64, f64))> = oe.terms.iter().map(|t| (t.weight, t.band_hz)).collect();
     assert_eq!(w, vec![(12.62, (50.0, 10000.0)), (15.52, (50.0, 10000.0))]);
+    // The patent's literal band, reported alongside (same coefficients).
+    let o20 = scores::model("harman_oe_2018_20Hz").unwrap();
+    assert_eq!(o20.intercept, 114.49);
+    let w: Vec<(f64, (f64, f64))> = o20.terms.iter().map(|t| (t.weight, t.band_hz)).collect();
+    assert_eq!(w, vec![(12.62, (20.0, 10000.0)), (15.52, (20.0, 10000.0))]);
     let ip = scores::model("harman_ie_patent").unwrap();
     assert_eq!(ip.intercept, 68.685);
     let w: Vec<f64> = ip.terms.iter().map(|t| t.weight).collect();
