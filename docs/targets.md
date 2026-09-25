@@ -317,7 +317,7 @@ h_i = min(h, x_i − x_0, x_{n−1} − x_i)
 
 - **Integral.** Exact (trapezoids over the window's pieces). The segments'
   integrals are kept in a sum tree, so a dense curve (an FFT measurement
-  with 65 536 points) is smoothed in O(n log n), in tens of milliseconds.
+  with 65 536 points) is smoothed in O(n log n), in about 30 ms natively.
 - **Ends.** Near the ends the window shrinks symmetrically, so a sloped
   response is not tilted; the two end points keep their levels.
 - **Where it is used.** In the metrics, smoothing is applied to each ear's
