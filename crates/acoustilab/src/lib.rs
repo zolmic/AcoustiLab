@@ -11,6 +11,7 @@
 
 pub mod air;
 pub mod circuit;
+pub mod drive;
 pub mod elements;
 pub mod error;
 pub mod grid;
@@ -20,6 +21,7 @@ pub mod netlist;
 pub mod solve;
 pub mod special;
 pub mod thermoviscous;
+pub mod ts;
 pub mod units;
 pub mod validity;
 
