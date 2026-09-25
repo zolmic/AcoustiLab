@@ -38,7 +38,8 @@ documents are still accepted.
 
 Ground names: `gnd` is valid in any domain. Domain-specific aliases are
 `e_gnd`, `m_gnd` or `frame`, and `a_amb`, `a_gnd` or `ambient`. Terminals that
-are omitted default to ground.
+are omitted default to ground. Passive isolation tells them apart: only
+`ambient` and `a_amb` are the outside air (see "Outside air" below).
 
 ## Elements
 
@@ -533,9 +534,11 @@ are the same reference. Passive isolation (`acoustilab isolation`, wasm
 `isolation`) drives every terminal named **`ambient` or `a_amb`** with the
 outside pressure and keeps `gnd`, `a_gnd` and omitted terminals at zero.
 Name the outer end of every path to the outside air `ambient` (leaks,
-vents, grilles and radiation loads, an open driver's rear face, a `shell`).
-Isolation warns when such an element ends at the reference instead.
-Cavities and ear-simulator internals stay on the reference. See
+vents, grilles and radiation loads, an open driver's or piston's rear face,
+a `shell`). Isolation warns when such an element ends at the reference
+instead. Cavities, the air compliance of a closed volume and ear-simulator
+internals stay on the reference; an `acoustic_compliance` that ends at
+`ambient` is warned, because isolation would drive it. See
 `docs/isolation.md`.
 
 ### Impulse responses, poles and isolation

@@ -22,10 +22,16 @@ Name the outer terminal of every path to the outside air `ambient`: leaks,
 vents, grilles and their radiation loads, the rear face of an open driver,
 and a `shell`. Isolation warns (`undriven_path`) when a `leak`, `vent`,
 `radiation`, `mesh`, `perforated_plate`, `membrane_vent`, `porous_layer`,
-`shell`, duct, lumped acoustic path, the rear face of a `driver`, or a
-`modal_cavity` port ends at the reference instead, because it will not be
-driven. A netlist without any ambient terminal gets `no_ambient` and an
-infinite loss.
+`shell`, duct, lumped acoustic path, the rear face of a `driver` or a
+`piston`, or a `modal_cavity` port ends at the reference instead, because
+it will not be driven. A netlist without any ambient terminal gets
+`no_ambient` and an infinite loss. The opposite mistake is warned too
+(`compliance_to_ambient`): an `acoustic_compliance` written "to ambient"
+(as `docs/conventions.md` phrases a cavity) is driven with the outside
+pressure. That is right for a flexible wall between the inside and the
+outside, and wrong for the air of a closed volume, whose compressibility
+is referred to the static pressure: a sealed rigid cup modelled that way
+reads 0 dB instead of an infinite loss.
 
 ## Method
 
@@ -67,6 +73,18 @@ headphone, and the call is refused.
 driven alone (the other ambient terminals held at the reference). The
 contributions sum to p_occluded to 1e-12, and each is reported as a level
 relative to p_open.
+
+**Coherent and incoherent loss.** The main IL drives every opening with
+the same phase. In a diffuse field, openings more than about half a
+wavelength apart are reached with independent phases, and the paths then
+add in power: `insertion_loss_incoherent_dB` =
+10·log10(|p_open|²/Σ|p_path|²) (reported when there are two or more
+paths). Where the in-phase paths cancel, the coherent IL is optimistic: in
+the design template the leak and vent contributions cancel near 1.16 kHz,
+40.5 dB coherent against 28.3 dB in power. Neither is the measured diffuse-
+field loss, which lies between them depending on the openings' separation;
+below about 1 kHz (openings a few centimetres apart) the coherent value
+applies.
 
 **ETSI TS 103 640.** Following V1.4.1 (2026-04), clause 5.1.3 (passive
 insertion loss: the difference of the open-ear and occluded levels at the
@@ -122,12 +140,25 @@ matters).
 A measured isolation cannot exceed the fixture's self-insertion loss. For
 the GRAS 45CA the manufacturer states more than 50 dB from 80 to 250 Hz,
 more than 65 dB from 350 Hz to 4 kHz, and more than 55 dB from 5 to 20 kHz,
-measured with closed ear simulators. The spec quotes the first two bands.
-The record is `data/fixtures/gras_45ca_self_insertion_loss.json`, with the
-URL and retrieval date. The report lists the frequencies where the
-predicted loss exceeds those bounds (`fixture_self_insertion_loss.exceeded_at_Hz`):
-a measurement on that fixture could not confirm the prediction there. For
-the design template these are 5.0–6.9 kHz and 15.9–18.3 kHz.
+measured with closed ear simulators (checked against the product page on
+2026-09-25). The spec quotes the first two bands. The record is
+`data/fixtures/gras_45ca_self_insertion_loss.json`, with the URL and
+retrieval date. The figures are lower bounds on the self-insertion loss.
+The report lists the frequencies where the predicted loss exceeds them
+(`fixture_self_insertion_loss.exceeded_at_Hz`): there a measurement on
+that fixture is not guaranteed to resolve the prediction. For the design
+template these are 5.0–6.9 kHz and 15.9–18.3 kHz.
+
+That is a statement about the model more than about the fixture. The
+design template has no `shell` path (no cup moving on its cushion, no wall
+transmission) and no porous pad path, so its IL is an upper bound set by
+the leak and the vent alone: 41–61 dB from 1.25 to 8 kHz in 1/3-octave
+bands, where real closed over-ear headphones measure a few tens of dB. The
+84 dB peak at 5.8 kHz is the front cavity's depth line acting as a
+quarter-wave side branch at the ear entrance (c/(4·15 mm) = 5.7 kHz): the
+leak path's own zero, a feature of the one-dimensional cavity model with
+a point leak. `examples/closed_cup_isolation.json` adds the cushion and
+wall paths.
 
 ## Bleed
 
@@ -167,7 +198,8 @@ The JSON report (also returned by the wasm export
 `isolation(netlist, overrides, options)`, whose options are `drum_probe`,
 `entrance_node`, `paths`, `bleed` and `bleed_distances_m`) holds:
 
-* `frequencies_Hz`, `insertion_loss_dB`, and `p_occluded` and `p_open`
+* `frequencies_Hz`, `insertion_loss_dB`, `insertion_loss_incoherent_dB`
+  (null with fewer than two paths), and `p_occluded` and `p_open`
   {re, im, spl_dB} (spl_dB for 1 Pa outside, 94 dB SPL);
 * `third_octave_bands` [{nominal_Hz, center_Hz, insertion_loss_dB}] and
   `summary` {max_dB, max_at_Hz, range_6dB_Hz, mean_dB};
@@ -187,7 +219,8 @@ the bleed; in wasm, 87 ms for both.
 
 * One blocked pressure, in phase at every opening. Real diffuse fields
   arrive with random phase at openings a few centimetres apart; above
-  about 2 kHz the paths no longer add coherently.
+  about 2 kHz the paths no longer add coherently. The incoherent IL above
+  brackets this.
 * No head, pinna or torso: the open-ear reference is the outside pressure
   at the entrance, not a diffuse-field HRTF.
 * The occlusion-effect estimate of Section 10 (the canal wall driven as a
