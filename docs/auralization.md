@@ -301,9 +301,19 @@ true-peak limiter → output.
   0.70 dB margin. Running minimum of the required gain over the
   look-ahead, then a moving average over it: the gain on each sample
   leaving the delay line is never above what that sample requires.
-  Measured by an independent 16× reconstruction, the output never
-  exceeds −1 dBTP (Node and Chromium). Below the ceiling it is an exact
-  delay (112 samples at 48 kHz, the same for A and B).
+  Measured by an independent 16× reconstruction, the output does not
+  exceed −1 dBTP for the tests' signals (pink noise at +5 dBFS peaks, an
+  fs/4 burst; Node and Chromium). The guarantee holds for content below
+  about 20 kHz at 48 kHz (0.42·fs), where the 32-tap interpolator is exact
+  to 0.002 dB; above that it under-reads (at the half-sample phase −1.2 dB
+  at 22 kHz, −5.4 dB at 23 kHz, nothing at Nyquist), so content near
+  Nyquist passes above the ceiling: in review stress tests a 23.5 kHz tone
+  at +16 dBFS came out at +1.9 dBTP, full-band white noise at 8 times full
+  scale at −0.3 dBTP, while impulses, steps and sparse spikes stayed
+  below −1.2 dBTP. No 4×-oversampling limiter bounds content at Nyquist;
+  this is well inside the output's full scale and not a loudness risk.
+  Below the ceiling it is an exact delay (112 samples at 48 kHz, the same
+  for A and B).
 - **Start-up**: nothing plays until Play is pressed; the volume starts at
   −20 dB below the matched level; a warning says to start with the
   headphone volume low, states what bounds the output on the path in use

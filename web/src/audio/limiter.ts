@@ -3,7 +3,10 @@
 // a peak arrives. It never lets a 4× interpolated peak exceed the ceiling
 // minus the inter-point margin (oversample.ts), which keeps the true peak
 // of the output, measured by 16× reconstruction in the tests, at or below
-// the ceiling.
+// the ceiling for content below about 0.42·fs (20 kHz at 48 kHz). Above
+// that the 32-tap interpolator under-reads (−5.4 dB at 23 kHz at the
+// half-sample phase), and a tone near Nyquist can pass a few dB above the
+// ceiling (docs/auralization.md).
 //
 // For each sample s the detector gives p[s], the largest 4× |value| over
 // (s − 1, s + 1] across both channels, and the required gain is
