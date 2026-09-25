@@ -450,7 +450,9 @@ been edited since). They share `views/measure-kit.ts` and
   ...) are listed with their code and element.
 - A summary over the 1/3-octave bands (ETSI TS 103 640, 5.1.1: the largest
   loss and its band, the bands with at least 6 dB, the mean) and the ear
-  (drum probe and node, entrance, ear-load elements, driven paths).
+  (drum probe and node, entrance, ear-load elements, driven paths). The
+  engine's `range_6dB_Hz` runs from the lowest to the highest band with at
+  least 6 dB; bands between them with less are named with their loss.
 - One figure: the insertion loss (in phase, and with the paths added in
   power when there are two or more) with the GRAS 45CA self-insertion loss
   drawn as a limit (its stated lower bounds over their bands; legend tag
@@ -471,7 +473,8 @@ round trip of spec Section 12 with `import_curve`, `export_curve`,
 `compare_curves`, `probe_curve`, `fit`, `virtual_measure` and
 `curve_uncertainty`.
 
-- **Import**: "Choose files…" or drag and drop onto the drop zone. FRD,
+- **Import**: "Choose files…" or drag and drop onto the drop zone (files
+  dropped elsewhere on the view are refused, not opened by the browser). FRD,
   ZMA, REW text (`.txt`, `.dat`), CSV, or a curve document (JSON), each
   paired by name with its `FILE.sidecar.json`; a sidecar dropped alone
   applies to the loaded curve of that name. The format follows the
@@ -482,7 +485,10 @@ round trip of spec Section 12 with `import_curve`, `export_curve`,
   offending line quoted.
 - **Each curve** has a card: its origin (a "VIRTUAL RIG · synthetic, not
   measured" badge, a marked card and a "(virtual rig)" series name for
-  virtual-rig data), what its sidecar states, and its fit settings: the
+  virtual-rig data: a sidecar with origin `virtual_rig`, or a file whose
+  comments carry the view's virtual-rig mark or the engine's REW
+  "Source: virtual rig" line, so a rig file read without its sidecar is
+  still labelled), what its sidecar states, and its fit settings: the
   probe it is compared with (probes of the same quantity; default the
   rig's probe, else `ui.primary_probe`), weight, phase (default: fitted for
   impedance, displacement and velocity, not for pressure), level offset,
@@ -503,8 +509,10 @@ round trip of spec Section 12 with `import_curve`, `export_curve`,
   budget (`curve_uncertainty`, below; 1σ), and the model: the probe solved
   at the curve's frequencies and, for a level curve, at the drive its
   sidecar states (as the fit does), under the curve's condition. After a
-  fit: the model with the fitted values, and the level (and phase)
-  residuals from the report. The phase is plotted where the fit uses it.
+  fit: the model with the fitted values, plus the curve's fitted level
+  offset when it has one (as the fit compares them), and the level (and
+  phase) residuals from the report. The phase is plotted where the fit uses
+  it.
 - **Fit set-up**: free parameters are the netlist's continuous parameters
   (none by default; those the netlist does not use are disabled). "Suggest"
   fits each used parameter alone for one step from its netlist value as a
@@ -513,20 +521,32 @@ round trip of spec Section 12 with `import_curve`, `export_curve`,
   button frees the ones determined alone. Band (default 10 Hz–20 kHz), an
   iteration cap (default 100) and the SPL-only override.
 - **The fit job** runs `fit` in calls of at most 4 iterations, each
-  starting from the previous report's `fitted` values (docs/fitting.md,
-  "Bounded runtime"), with progress (iterations of the cap, reduced χ², the
-  current values) and Cancel. It stops when the report converges, the
-  evaluations run out or the cap is reached. A refusal (`fit_refused`) is
-  shown with the engine's message.
-- **Report**: how it stopped (the engine's sentence) with the iterations and
-  evaluations over all calls, χ², the summary sentences, the parameters
+  starting from the previous report's `fitted` values with the `scale` the
+  first call chose for each parameter (docs/fitting.md, "Bounded runtime":
+  the engine picks a default scale from the start value, so a linear
+  parameter starting at 0 would otherwise turn log once resumed, changing
+  its interval and status), with progress (iterations of the cap, reduced
+  χ², the current values) and Cancel. It stops when a call converges, the
+  evaluations run out or the cap is reached; a run stopped by the cap, or
+  cancelled after a step, can be continued from its fitted values
+  ("Continue", up to the cap again). A refusal (`fit_refused`) is shown
+  with the engine's message.
+- **Report**: how it stopped (converged with the engine's reason, stopped
+  at the cap, or cancelled) with the iterations and evaluations over all
+  calls, χ², what the data were (virtual-rig curves, differences from the
+  model that were allowed), the summary sentences, the parameters
   (start of the first call, fitted value, 95 % interval, status, scale,
   driver roles, notes), level offsets, residual statistics per curve, the
   singular values and every named direction, the Section 12 findings with
   what would resolve them, the correlation matrix and the warnings.
 - **Apply** lists the fitted parameters that are number parameters of the
   current netlist with their value now, the fitted value and the change;
-  the determined and weakly determined ones are checked. "Apply fitted
+  the determined and weakly determined ones are checked. It repeats what the
+  data were, and checks nothing when the fit allowed a difference from the
+  model other than the drive (a fixture, simulator, reference point,
+  compensation or source impedance: the fitted values absorb it), or when
+  the netlist has changed since the fit in more than the fitted parameters'
+  value tokens (the values belong to the earlier netlist). "Apply fitted
   values" writes the checked ones through `setParameters` (the value
   tokens only; the text is otherwise unchanged) and says what it wrote.
 - **Virtual rig**: probe, band, points per octave, seed, file format, noise
@@ -534,7 +554,11 @@ round trip of spec Section 12 with `import_curve`, `export_curve`,
   offset and slope, coupler ripple) and true values that differ from the
   netlist. The result can be downloaded (the data file and
   `FILE.sidecar.json`) and read back ("Load as a measurement" reads the
-  file text with its sidecar, as a dropped pair is read).
+  file text with its sidecar, as a dropped pair is read). The data file is
+  the engine's text with one comment line added, `VIRTUAL RIG: synthetic
+  data from the AcoustiLab virtual rig, not a measurement (probe, seed, true
+  values)`, after the engine's first header line (`*`), or first with `#`
+  in a CSV; a virtual curve's CSV export carries the same mark.
 
 The views' engine export beyond the analysis ones is
 `curve_uncertainty(curve_json)` (`crates/acoustilab-wasm/src/measure.rs`):
@@ -781,10 +805,13 @@ through the page.
   changes lies within 6 px of x(1 kHz). Attribution on the template equals
   the export's (top parameter and d ln f/d ln p per pole; the 936 Hz pole
   goes to the diaphragm area); a cancel at once leaves the reports in
-  place. Keyboard crosshair, zoom, reset and Esc; axe in both themes;
-  390 px.
+  place. Every tick label drawn on the time plots reads as its tick's value
+  (ticks every 2.5 ms and 2.5 Pa on the template; `tickDecimals` of
+  `format.ts` also checked alone). Keyboard crosshair, zoom, reset and Esc;
+  axe in both themes; 390 px.
 - **Isolation.** On `closed_cup_isolation`, the view's report equals the
-  export's; the summary, all 30 band rows and the readouts at four
+  export's; the summary (the 100 and 125 Hz bands below 6 dB inside the
+  engine's 6 dB range named), all 30 band rows and the readouts at four
   frequencies show its numbers; the IL curve's y positions at those four
   points lie on one linear dB axis (0.75 px), the curve's colour is found
   on it at each point with the crosshair hidden, and the fixture's 65 dB
@@ -792,20 +819,34 @@ through the page.
   reference is warned `undriven_path`; the bleed readouts equal the export
   and ±6 dB; `sealed_cup` (no drum probe) shows the engine's refusal. axe
   in both themes with the bleed shown; 390 px.
-- **Fit.** The rig's files equal the engine's `virtual_measure` output;
+- **Fit.** The rig's files equal the engine's `virtual_measure` output
+  (the data file with the virtual-rig comment line after its first line);
   read back through the file picker as a pair, a leak measured at 0.12 mm
   and fitted from the template's 0.08 mm is determined with 0.12 inside
   its 95 % interval, in more than one resumed call, agreeing with one
   unbounded engine call to a tenth of an sd; the report shows those
-  values; "Apply" from the keyboard makes the netlist text equal to the
-  template with exactly that value token replaced (and keeps the focus).
+  values and that the data are synthetic; "Apply" from the keyboard makes
+  the netlist text equal to the template with exactly that value token
+  replaced (and keeps the focus), and after a further edit of another
+  value Apply proposes nothing. On `driver_bench` (two rig impedance
+  curves, one with a 300 mg test mass as its condition, six parameters,
+  Le_uH starting at 0): a run capped at 4 iterations says it stopped at
+  the cap, "Continue" converges, and both that run and an uncapped one in
+  bounded calls report every parameter's scale, status, value (1e-6) and
+  sd (1e-3) as one engine call does; Le_uH stays linear. With a sensor
+  offset in the rig, the fitted model drawn is `probe_curve` at the fitted
+  values plus the report's offset. The rig's data file read alone under
+  another name is still labelled virtual-rig data, and its CSV export
+  carries the mark; a file dropped beside the drop zone is refused.
   "Load as a measurement": the band is 0.1 dB/√4 seatings = 0.05 dB, the
   model curve equals `probe_curve` at the curve's frequencies and drive.
   Malformed files (a short line, a repeated frequency, no data, a sidecar
   with an unknown key, broken JSON) are each listed with the file and, where
   the engine gives one, the line; a pair dropped on the drop zone is read.
   A fixture and drive difference blocks the fit until both are allowed;
-  the suggestion finds the leak determined and driver parameters refused;
+  fitted so, the report and Apply name the fixture difference (not the
+  drive) and Apply proposes nothing; the suggestion finds the leak
+  determined and driver parameters refused;
   a driver parameter on SPL alone is refused with the engine's reason; a
   running fit can be cancelled. axe in both themes with a report and the
   sidecar form open; the focus stays on a setting that re-renders its
@@ -849,11 +890,17 @@ ends, per-seating terms averaged down).
   a band per curve, parameter bounds and scales other than the declared
   ones, and editing tabulated uncertainty terms or the provenance in the
   form (they are kept). Each resumed call restarts the optimiser's damping
-  and the level offsets from their defaults. The suggestion checks one
-  parameter at a time, so parameters determined alone may still be
-  correlated in a joint fit (the report's directions say so). Curves live
-  in the page only, and a removed curve's figure keeps its observers until
-  the page reloads.
+  and the level offsets from their defaults (the fit spends an iteration
+  or two of each call re-fitting the offsets; on the review's cases, the
+  template's leak, depth and rear volume with and without offsets, the
+  over-ear case study and a driver bench, the resumed runs ended where one
+  call ends, to 1e-6); and a linear-scale parameter without both bounds
+  has its unit, max(|start|, 1), taken from each call's start, which moves
+  the floor of its relative uncertainty (every example's linear parameters
+  have both bounds). The engine's warning "run again from the fitted values"
+  is what "Continue" does. The suggestion checks one parameter at a time,
+  so parameters determined alone may still be correlated in a joint fit
+  (the report's directions say so). Curves live in the page only.
 - From spec Section 15 and the rest of the interface chapter: the schematic
   view, live L0 recompute with ghost curves while a higher level solves,
   a pinned inspection frequency, smoothing, target curves, the explain

@@ -75,11 +75,45 @@ export function originOf(c: CurveDoc): string | null {
   return c.sidecar.provenance?.origin ?? null;
 }
 
-export const isVirtual = (c: CurveDoc) => originOf(c) === 'virtual_rig' || c.sidecar.virtual_rig !== undefined;
+/**
+ * The comment line the Fit view writes into every virtual-rig data file it
+ * offers (the rig's file and a virtual curve's CSV), so that the file says
+ * what it is even without its sidecar.
+ */
+export const VIRTUAL_MARK = 'VIRTUAL RIG: synthetic data from the AcoustiLab virtual rig, not a measurement';
+
+/** The file's own comments mark it as virtual-rig data (the Fit view's mark, or the "Source: virtual rig" line of the engine's REW text). */
+const markedVirtual = (c: CurveDoc) => (c.comments ?? []).some((l) => l.startsWith(VIRTUAL_MARK) || /^Source: virtual rig\b/i.test(l));
+
+/** Virtual-rig data, by its sidecar or by the comments of its file. */
+export const isVirtual = (c: CurveDoc) => originOf(c) === 'virtual_rig' || c.sidecar.virtual_rig !== undefined || markedVirtual(c);
+
+/**
+ * `text` (a file of `format`) with the virtual-rig mark as a comment line:
+ * after the first line when that is a `*` comment (REW takes its first line
+ * for the tool), else first, with the comment sign of the format.
+ */
+export function markVirtualText(text: string, format: string, detail: string): string {
+  const mark = `${VIRTUAL_MARK} (${detail})`;
+  const nl = text.includes('\r\n') ? '\r\n' : '\n';
+  if (text.startsWith('*')) {
+    const k = text.indexOf('\n');
+    return k < 0 ? `${text}${nl}* ${mark}` : `${text.slice(0, k + 1)}* ${mark}${nl}${text.slice(k + 1)}`;
+  }
+  return `${format === 'csv' ? '#' : '*'} ${mark}${nl}${text}`;
+}
 
 /** A badge naming where a curve comes from; virtual-rig data is marked unmistakably. */
 export function originBadge(c: CurveDoc): HTMLElement {
-  if (isVirtual(c)) return el('span', { class: 'mv-badge', text: 'VIRTUAL RIG · synthetic, not measured' });
+  if (isVirtual(c)) {
+    const bySidecar = originOf(c) === 'virtual_rig' || c.sidecar.virtual_rig !== undefined;
+    return el(
+      'span',
+      { class: 'mv-badge' },
+      'VIRTUAL RIG · synthetic, not measured',
+      bySidecar ? null : el('span', { class: 'mv-badge-note', text: ' (so marked in the file; its sidecar does not say so)' }),
+    );
+  }
   const o = originOf(c);
   return el('span', { class: 'mv-badge plain', text: o ? `origin: ${o.replace(/_/g, ' ')}` : 'origin not stated' });
 }

@@ -73,11 +73,38 @@ export interface RunInfo {
   iterations: number;
   evaluations: number;
   failed: number;
+  /** Iteration cap of the run ("At most iterations"; raised by "Continue"). */
+  cap: number;
   /** Start values of the first call. */
   starts: Map<string, number>;
   /** Names of the fitted curves, by index. */
   curveNames: string[];
+  /** Differences from the model's probe that were allowed for each fitted curve (compare_curves). */
+  allowed: { field: string; a: string; b: string }[][];
+  /** Whether each fitted curve is virtual-rig (synthetic) data. */
+  virtual: boolean[];
   cancelled: boolean;
+}
+
+/**
+ * What a reader of the fitted values must know about the data they came
+ * from: virtual-rig curves, and differences from the model that were
+ * allowed. A drive difference is not listed: the fit simulates each curve
+ * at the drive its sidecar states (docs/fitting.md, "Drive and level
+ * offsets"). Returns the sentences and whether any allowed difference
+ * changes what the model is compared with.
+ */
+export function cautions(run: RunInfo): { sentences: string[]; modelDiffers: boolean } {
+  const sentences: string[] = [];
+  const diffs = run.allowed.flatMap((list, k) => list.filter((d) => d.field !== 'drive').map((d) => `${run.curveNames[k]}: ${words(d.field)} (curve ${d.a}; model ${d.b})`));
+  const virtual = run.curveNames.filter((_, k) => run.virtual[k]);
+  if (virtual.length) sentences.push(`Fitted to synthetic virtual-rig data, not to a measurement: ${virtual.join(', ')}.`);
+  if (diffs.length) {
+    sentences.push(
+      `The fit allowed differences between the curves and the model: ${diffs.join('; ')}. The fitted values absorb them, so they describe that set-up rather than the netlist’s.`,
+    );
+  }
+  return { sentences, modelDiffers: diffs.length > 0 };
 }
 
 export function statusClass(status: string): string {
@@ -90,12 +117,21 @@ const withUnit = (v: number, unit: string | null) => `${formatParam(v, 6)}${unit
 
 export function renderReport(r: FitReport, run: RunInfo): HTMLElement {
   const root = el('div', { class: 'mv-report' });
+  // How the run ended. The engine's stop reason belongs to the last call,
+  // whose iteration limit is the view's step of a few iterations, not the cap.
+  const how = run.cancelled
+    ? `after ${run.iterations} iterations; the report is that of the last completed step, which had not converged`
+    : r.converged
+      ? r.stop_reason.replace(/^converged: /, '')
+      : r.stop === 'max_iterations' && run.iterations >= run.cap
+        ? `stopped at the cap of ${run.cap} iterations before converging`
+        : r.stop_reason;
   root.append(
     el(
       'p',
       { class: 'mv-summary', attrs: { 'data-field': 'stop' } },
-      el('strong', { text: run.cancelled ? 'Cancelled: ' : r.converged ? 'Converged: ' : 'Not converged: ' }),
-      `${r.stop_reason}. `,
+      el('strong', { text: run.cancelled ? 'Cancelled' : r.converged ? 'Converged' : 'Not converged' }),
+      `: ${how}. `,
       `${run.iterations} iterations and ${run.evaluations} model evaluations in ${run.calls} call${run.calls === 1 ? '' : 's'}` +
         (run.failed ? ` (${run.failed} trial points could not be evaluated)` : '') +
         `; χ² ${formatNumber(r.cost, 4)} over ${r.degrees_of_freedom} degrees of freedom, reduced χ² ${formatNumber(r.reduced_chi2, 4)}` +
@@ -103,6 +139,8 @@ export function renderReport(r: FitReport, run: RunInfo): HTMLElement {
         '.',
     ),
   );
+  const c0 = cautions(run).sentences;
+  if (c0.length) root.append(el('div', { class: 'mv-apply-warn', attrs: { 'data-field': 'cautions' } }, ...c0.map((x) => el('p', { text: x }))));
   if (r.summary.length) root.append(el('ul', { class: 'mv-sentences', attrs: { 'aria-label': 'Summary (engine)' } }, ...r.summary.map((s) => el('li', { text: s }))));
 
   // Parameters.

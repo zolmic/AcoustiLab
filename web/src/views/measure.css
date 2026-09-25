@@ -340,6 +340,23 @@ button.mv-mark[aria-pressed='true'] {
   color: var(--ink);
   font-weight: 600;
 }
+.mv-badge-note {
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.mv-apply-warn {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-left: 4px solid var(--badge-border);
+  background: var(--warn-bg);
+  font-size: 13px;
+}
+.mv-apply-warn p {
+  margin: 0;
+}
+.mv-apply-warn p + p {
+  margin-top: 4px;
+}
 .mv-compat {
   margin: 6px 0 0;
   font-size: 13px;

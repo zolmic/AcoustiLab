@@ -20,6 +20,7 @@ import {
   isVirtual,
   lineOf,
   magnitudeOf,
+  markVirtualText,
   originBadge,
   pairFiles,
   parseAssignments,
@@ -31,7 +32,8 @@ import {
   type Quantity,
   type Sidecar,
 } from './fit-curves';
-import { renderReport, statusClass, type FitReport, type RunInfo } from './fit-report';
+import { cautions, renderReport, statusClass, type FitReport, type RunInfo } from './fit-report';
+import { paramValueNode, scan } from '../jsonscan';
 import {
   FreqFigure,
   JobStatus,
@@ -100,6 +102,50 @@ interface ModelCurve {
   values: (number | null)[];
   phase: (number | null)[] | null;
   label: string;
+  /** The curve's fitted level offset, dB (drawn with the fitted model, as the fit compares them). */
+  offsetDb?: number;
+}
+
+/** A fit run: its inputs, kept for "Continue", and its totals over the calls. */
+interface FitRun {
+  text: string;
+  ms: Measured[];
+  names: string[];
+  /** The spec without parameters and iteration limit. */
+  base: Record<string, unknown>;
+  /**
+   * Scale of each parameter as the first call chose it. The engine picks a
+   * parameter's default scale from its start (log for a positive start with
+   * a non-negative minimum), so a linear parameter that started at 0 would
+   * turn log once resumed from a positive value, changing its interval and
+   * status; resumed calls therefore name the first call's scale.
+   */
+  scales: Record<string, string> | null;
+  info: RunInfo;
+}
+
+/**
+ * Text `a` with the value tokens of parameters `names` replaced by those of
+ * text `b`, character for character; null when either text does not parse
+ * or lacks one of them.
+ */
+function withValuesOf(a: string, b: string, names: string[]): string | null {
+  try {
+    const ra = scan(a);
+    const rb = scan(b);
+    const edits = names.map((n) => {
+      const x = paramValueNode(ra, n);
+      const y = paramValueNode(rb, n);
+      if (!x || !y) throw new Error(n);
+      return { start: x.start, end: x.end, text: b.slice(y.start, y.end) };
+    });
+    edits.sort((p, q) => q.start - p.start);
+    let out = a;
+    for (const e of edits) out = out.slice(0, e.start) + e.text + out.slice(e.end);
+    return out;
+  } catch {
+    return null;
+  }
 }
 
 interface RigResult {
@@ -173,8 +219,8 @@ class FitView implements ResultView {
   private stale!: HTMLElement;
   private report: FitReport | null = null;
   private run: RunInfo | null = null;
+  private fitRun: FitRun | null = null;
   private runUids: number[] = [];
-  private runText: string | null = null;
   private jobRunning = false;
   /** Outcome of the last "Apply" (kept until the next fit). */
   private applied = '';
@@ -223,6 +269,17 @@ class FitView implements ResultView {
       ev.preventDefault();
       drop.classList.remove('over');
       if (ev.dataTransfer?.files.length) void this.importFiles(ev.dataTransfer.files);
+    });
+    // Files dropped anywhere else on the view are refused rather than left to
+    // the browser, which would open the file in place of the page.
+    const files = (ev: DragEvent) => !!ev.dataTransfer && [...ev.dataTransfer.types].includes('Files');
+    root.addEventListener('dragover', (ev) => {
+      if (!files(ev) || drop.contains(ev.target as Node)) return;
+      ev.preventDefault();
+      ev.dataTransfer!.dropEffect = 'none';
+    });
+    root.addEventListener('drop', (ev) => {
+      if (files(ev) && !drop.contains(ev.target as Node)) ev.preventDefault();
     });
     this.importErrors = el('div', { attrs: { 'aria-live': 'polite' } });
     root.append(el('h3', { class: 'mv-h', text: 'Measured curves' }), drop, opts.root, this.importErrors);
@@ -292,6 +349,7 @@ class FitView implements ResultView {
           compare: m.compare,
           uncertainty: m.uncertainty,
           model: m.model?.values ?? null,
+          fitted: m.fitted ? { values: m.fitted.values, offsetDb: m.fitted.offsetDb ?? null } : null,
           figure: m.fig?.hook() ?? null,
         })),
     });
@@ -372,6 +430,15 @@ class FitView implements ResultView {
 
   /** Reads one curve file through the engine; returns an error sentence, or null. */
   private async importOne(f: PairedFile): Promise<string | null> {
+    try {
+      return await this.readOne(f);
+    } catch (e) {
+      if (e instanceof Cancelled) return `“${f.name}” was not read: a cancel stopped this view’s engine while it was reading; read the file again.`;
+      throw e;
+    }
+  }
+
+  private async readOne(f: PairedFile): Promise<string | null> {
     let sidecar: unknown = undefined;
     if (f.sidecar) {
       try {
@@ -455,7 +522,14 @@ class FitView implements ResultView {
   private async applySidecar(m: Measured, sidecar: unknown, source: string): Promise<string | null> {
     const o: Record<string, unknown> = { format: m.format, sidecar };
     if (m.quantityOption) o.quantity = m.quantityOption;
-    const v = valueOf(await this.call('import_curve', m.text, JSON.stringify(o)));
+    let reply;
+    try {
+      reply = await this.call('import_curve', m.text, JSON.stringify(o));
+    } catch (e) {
+      if (e instanceof Cancelled) return `${source}: not applied, a cancel stopped this view’s engine; apply it again.`;
+      throw e;
+    }
+    const v = valueOf(reply);
     if (isEngineError(v)) return `${source}: ${v.error}`;
     m.curve = v as CurveDoc;
     m.uncertainty = undefined;
@@ -547,6 +621,9 @@ class FitView implements ResultView {
   // ----- curve cards --------------------------------------------------------------
 
   private renderCard(m: Measured): void {
+    // A curve removed while one of its engine calls ran is not drawn again
+    // (its figure has been disposed).
+    if (!this.curves.includes(m)) return;
     const c = m.curve;
     const f = c.frequencies_Hz;
     m.card.className = `mv-curve${isVirtual(c) ? ' virtual' : ''}`;
@@ -738,7 +815,11 @@ class FitView implements ResultView {
       series.push({ id: 'measured +u (1σ)', slot: 8, values: up }, { id: 'measured −u (1σ)', slot: 16, values: dn });
     }
     if (m.model) series.push({ id: 'model', slot: 1, values: m.model.values });
-    if (m.fitted) series.push({ id: 'model, fitted values', slot: 2, values: m.fitted.values });
+    const off = m.fitted?.offsetDb ?? 0;
+    if (m.fitted) {
+      const shifted = off ? m.fitted.values.map((v) => (v === null ? null : mag.db ? v + off : v * 10 ** (off / 20))) : m.fitted.values;
+      series.push({ id: off ? 'model, fitted values and offset' : 'model, fitted values', slot: 2, values: shifted });
+    }
     const unitText = mag.db ? 'dB re 20 µPa' : mag.unit === 'ohm' ? 'Ω' : mag.unit;
     let lo = Infinity;
     let hi = -Infinity;
@@ -819,6 +900,7 @@ class FitView implements ResultView {
       'p',
       { class: 'hint' },
       m.model ? `Model: probe ${m.probe} at the curve’s frequencies and drive (${m.model.label})${m.condition ? `, condition ${m.condition}` : ''}. ` : '',
+      m.fitted && off ? `The fitted model includes the curve’s fitted level offset (${off >= 0 ? '+' : '−'}${Math.abs(off).toFixed(3)} dB), as the fit compares them. ` : '',
       u ? 'The dashed lines are the measured level ± the combined standard uncertainty of the sidecar’s budget (engine).' : 'The sidecar states no level uncertainty.',
     );
     return el('div', {}, note, m.fig.root);
@@ -828,6 +910,8 @@ class FitView implements ResultView {
     const k = this.curves.indexOf(m);
     this.curves = this.curves.filter((c) => c !== m);
     m.card.remove();
+    m.fig?.panel.dispose();
+    m.fig = null;
     // The focus goes to the next curve, else to the file picker.
     const next = this.curves[Math.min(k, this.curves.length - 1)];
     (next?.card.querySelector<HTMLElement>('[data-k="home"]') ?? this.pickBtn).focus();
@@ -836,7 +920,16 @@ class FitView implements ResultView {
   }
 
   private async downloadCurve(m: Measured): Promise<void> {
-    const v = valueOf(await this.call('export_curve', JSON.stringify(m.curve), 'csv'));
+    let reply;
+    try {
+      reply = await this.call('export_curve', JSON.stringify(m.curve), 'csv');
+    } catch (e) {
+      if (!(e instanceof Cancelled)) throw e;
+      m.formError = 'Not exported: a cancel stopped this view’s engine; export again.';
+      this.renderCard(m);
+      return;
+    }
+    const v = valueOf(reply);
     if (isEngineError(v)) {
       m.formError = `Not exported: ${v.error}`;
       this.renderCard(m);
@@ -844,7 +937,7 @@ class FitView implements ResultView {
     }
     const x = v as { text: string; sidecar: string; extension: string };
     const base = safeName(m.name.replace(/\.[^.]+$/, ''));
-    download(`${base}.csv`, x.text, 'text/csv');
+    download(`${base}.csv`, isVirtual(m.curve) ? markVirtualText(x.text, 'csv', `exported from ${m.name}`) : x.text, 'text/csv');
     download(`${base}.csv.sidecar.json`, x.sidecar, 'application/json');
   }
 
@@ -969,7 +1062,11 @@ class FitView implements ResultView {
       return;
     }
     const res = v as Omit<RigResult, 'probe' | 'seed' | 'truth'>;
-    this.rigLast = { ...res, probe: String(spec.probe), seed: Math.round(numv(r.seed)), truth: truth.values };
+    const seed = Math.round(numv(r.seed));
+    const probe = String(spec.probe);
+    // The data file says what it is even without its sidecar.
+    const text = markVirtualText(res.text, res.format, `probe ${probe}, seed ${seed}${Object.keys(truth.values).length ? `, true values ${assignmentsText(truth.values)}` : ''}`);
+    this.rigLast = { ...res, text, probe, seed, truth: truth.values };
     this.renderRigResult();
     this.host.announce('Synthetic measurement generated.');
   }
@@ -1118,56 +1215,100 @@ class FitView implements ResultView {
     this.updateRunState();
   }
 
+  /** The iteration cap from its field. */
+  private cap(): number {
+    return Math.max(1, Math.round(Number(this.maxIt.value)) || 100);
+  }
+
   private async runFit(): Promise<void> {
     const cur = this.host.current();
     const band = this.band();
     if (!cur || typeof band === 'string' || this.jobRunning || this.blocker()) return;
     const ms = this.fitCurves();
-    const text = cur.text;
     const names = [...this.free];
-    const maxIt = Math.max(1, Math.round(Number(this.maxIt.value)) || 100);
-    const base = {
-      schema: 'acoustilab-fit/0.1',
-      curves: this.curveSpecs(ms),
-      ...band,
-      allow_spl_only: this.allowSpl.checked,
+    const run: FitRun = {
+      text: cur.text,
+      ms,
+      names,
+      base: { schema: 'acoustilab-fit/0.1', curves: this.curveSpecs(ms), ...band, allow_spl_only: this.allowSpl.checked },
+      scales: null,
+      info: {
+        calls: 0,
+        iterations: 0,
+        evaluations: 0,
+        failed: 0,
+        cap: this.cap(),
+        starts: new Map(),
+        curveNames: ms.map((m) => m.name),
+        allowed: ms.map((m) => (m.compare?.blocking ?? []).filter((d) => m.allow.has(d.field))),
+        virtual: ms.map((m) => isVirtual(m.curve)),
+        cancelled: false,
+      },
     };
-    const run: RunInfo = { calls: 0, iterations: 0, evaluations: 0, failed: 0, starts: new Map(), curveNames: ms.map((m) => m.name), cancelled: false };
-    let starts: Record<string, number> | null = null;
+    this.fitJob.start(`Fitting ${names.join(', ')} to ${ms.length} curve${ms.length === 1 ? '' : 's'}…`);
+    this.host.announce('Fit started.');
+    await this.iterate(run, null);
+  }
+
+  /** Resumes the last run from its fitted values, for up to the cap's iterations more. */
+  private async continueFit(): Promise<void> {
+    const run = this.fitRun;
+    const r = this.report;
+    if (!run || !r || r.converged || this.jobRunning) return;
+    run.info.cap = run.info.iterations + this.cap();
+    run.info.cancelled = false;
+    this.fitJob.start(`Continuing the fit of ${run.names.join(', ')} from the fitted values…`);
+    this.host.announce('Fit continued.');
+    await this.iterate(run, r.fitted);
+  }
+
+  /**
+   * Runs `fit` in calls of at most ITERATIONS_PER_CALL iterations, each
+   * starting from the previous call's fitted values (docs/fitting.md,
+   * "Bounded runtime"), until a call converges, the evaluations run out or
+   * the run's cap is reached. `from`: start values of the first call (null:
+   * the netlist's).
+   */
+  private async iterate(run: FitRun, from: Record<string, number> | null): Promise<void> {
+    const info = run.info;
+    let starts = from;
     let last: FitReport | null = null;
+    let error: { error: string; kind: string } | null = null;
     this.jobRunning = true;
     this.updateRunState();
-    this.fitJob.start(`Fitting ${names.join(', ')} to ${ms.length} curve${ms.length === 1 ? '' : 's'}…`);
-    this.fitJob.progress(0, maxIt);
-    this.host.announce('Fit started.');
-    let error: { error: string; kind: string } | null = null;
+    this.fitJob.progress(info.iterations, info.cap);
     try {
       for (;;) {
         const spec = {
-          ...base,
-          parameters: names.map((n) => (starts && n in starts ? { name: n, start: starts[n] } : n)),
-          max_iterations: Math.min(ITERATIONS_PER_CALL, maxIt - run.iterations),
+          ...run.base,
+          parameters: run.names.map((n) =>
+            starts && n in starts ? { name: n, start: starts[n], ...(run.scales?.[n] ? { scale: run.scales[n] } : {}) } : n,
+          ),
+          max_iterations: Math.min(ITERATIONS_PER_CALL, info.cap - info.iterations),
         };
-        const v = valueOf(await this.call('fit', text, JSON.stringify(spec)));
+        const v = valueOf(await this.call('fit', run.text, JSON.stringify(spec)));
         if (isEngineError(v)) {
           error = v;
           break;
         }
         const r = v as FitReport;
         last = r;
-        run.calls++;
-        run.iterations += r.iterations;
-        run.evaluations += r.evaluations;
-        run.failed += r.failed_evaluations;
-        if (run.calls === 1) for (const p of r.parameters) run.starts.set(p.name, p.start);
+        info.calls++;
+        info.iterations += r.iterations;
+        info.evaluations += r.evaluations;
+        info.failed += r.failed_evaluations;
+        if (info.calls === 1) {
+          for (const p of r.parameters) info.starts.set(p.name, p.start);
+          run.scales = Object.fromEntries(r.parameters.map((p) => [p.name, p.scale]));
+        }
         const vals = r.parameters.map((p) => `${p.name} ${formatParam(p.value, 5)}`).join(', ');
-        this.fitJob.progress(run.iterations, maxIt, `Iteration ${run.iterations} of at most ${maxIt}: reduced χ² ${formatNumber(r.reduced_chi2, 4)}; ${vals}`);
-        if (r.converged || r.stop === 'max_evaluations' || r.iterations === 0 || run.iterations >= maxIt) break;
+        this.fitJob.progress(info.iterations, info.cap, `Iteration ${info.iterations} of at most ${info.cap}: reduced χ² ${formatNumber(r.reduced_chi2, 4)}; ${vals}`);
+        if (r.converged || r.stop === 'max_evaluations' || r.iterations === 0 || info.iterations >= info.cap) break;
         starts = r.fitted;
       }
     } catch (e) {
       if (!(e instanceof Cancelled)) throw e;
-      run.cancelled = true;
+      info.cancelled = true;
     }
     this.jobRunning = false;
     this.updateRunState();
@@ -1175,26 +1316,42 @@ class FitView implements ResultView {
       const refused = error.kind === 'fit_refused';
       this.fitJob.finish(refused ? 'The engine refused the fit (spec Section 12).' : 'The fit failed.', 'failed');
       this.reportEl.replaceChildren(errorBox(refused ? 'Fit refused' : 'Fit not run', error.error, `Kind: ${error.kind}.`));
+      this.report = null;
+      this.fitRun = null;
+      this.renderApply();
       this.host.announce(refused ? 'Fit refused.' : 'Fit failed.');
       return;
     }
     if (!last) {
+      // Cancelled before the first call returned: what was shown stays.
       this.fitJob.finish('Cancelled before the first step finished.', 'cancelled');
       return;
     }
     this.report = last;
-    this.run = run;
+    this.run = info;
+    this.fitRun = run;
     this.applied = '';
     this.applyChoice.clear();
-    this.runUids = ms.map((m) => m.uid);
-    this.runText = text;
+    this.runUids = run.ms.map((m) => m.uid);
     this.fitJob.finish(
-      run.cancelled ? `Cancelled after ${run.iterations} iterations; the report is the last completed step’s.` : `${last.converged ? 'Converged' : 'Stopped'} after ${run.iterations} iterations.`,
-      run.cancelled ? 'cancelled' : 'done',
+      info.cancelled
+        ? `Cancelled after ${info.iterations} iterations; the report is the last completed step’s.`
+        : `${last.converged ? 'Converged' : 'Stopped without converging'} after ${info.iterations} iterations.`,
+      info.cancelled ? 'cancelled' : 'done',
     );
-    this.host.announce(run.cancelled ? 'Fit cancelled.' : 'Fit done.');
-    this.reportEl.replaceChildren(renderReport(last, run));
-    await this.fittedCurves(ms, text, last);
+    this.host.announce(info.cancelled ? 'Fit cancelled.' : 'Fit done.');
+    const report = renderReport(last, info);
+    if (!last.converged) {
+      report.append(
+        el(
+          'div',
+          { class: 'mv-bar' },
+          button(`Continue from the fitted values (up to ${this.cap()} more iterations)`, () => void this.continueFit(), { attrs: { 'data-k': 'continue' } }),
+        ),
+      );
+    }
+    this.reportEl.replaceChildren(report);
+    await this.fittedCurves(run.ms, run.text, last);
     this.renderApply();
   }
 
@@ -1202,10 +1359,10 @@ class FitView implements ResultView {
   private async fittedCurves(ms: Measured[], text: string, r: FitReport): Promise<void> {
     for (const m of this.curves) m.fitted = null;
     try {
-      for (const m of ms) {
+      for (const [k, m] of ms.entries()) {
         const cond = parseAssignments(m.condition);
         const res = await this.modelValues(text, m, { ...cond.values, ...r.fitted });
-        m.fitted = typeof res === 'string' ? null : res;
+        m.fitted = typeof res === 'string' ? null : { ...res, offsetDb: r.offsets.find((o) => o.curve === k)?.value_dB };
       }
     } catch (e) {
       if (!(e instanceof Cancelled)) throw e;
@@ -1286,25 +1443,46 @@ class FitView implements ResultView {
     keepFocus(this.applyEl, () => this.buildApply());
   }
 
+  /**
+   * How the netlist text differs from the one the run fitted: not at all,
+   * only in the fitted parameters' value tokens (after "Apply", or an edit of
+   * those values), or otherwise (the fitted values belong to another model).
+   */
+  private netlistChange(run: FitRun): 'none' | 'fitted-values' | 'other' {
+    const text = this.host.netlist();
+    if (text === run.text) return 'none';
+    return withValuesOf(run.text, text, run.names) === text ? 'fitted-values' : 'other';
+  }
+
   private buildApply(): void {
     const r = this.report;
+    const run = this.fitRun;
     this.applyEl.replaceChildren();
-    if (!r) return;
+    if (!r || !run) return;
     const doc = this.host.parameters();
     const current = new Map((doc?.parameters ?? this.doc?.parameters ?? []).map((p) => [p.name, p]));
+    const change = this.netlistChange(run);
+    const caution = cautions(run.info);
+    // Values fitted to another set-up or another netlist are not proposed by default.
+    const propose = !caution.modelDiffers && change !== 'other';
     const rows: { name: string; now: number | null; fitted: number; status: string; box: HTMLInputElement; unit: string }[] = [];
     for (const p of r.parameters) {
       const d = current.get(p.name);
       if (!d || d.kind !== 'number') continue;
       const box = el('input', { attrs: { type: 'checkbox', 'aria-label': `Apply ${p.name}`, 'data-param': p.name, 'data-k': `apply-${p.name}` } });
-      box.checked = this.applyChoice.get(p.name) ?? (p.status === 'determined' || p.status === 'weakly_determined');
+      box.checked = this.applyChoice.get(p.name) ?? (propose && (p.status === 'determined' || p.status === 'weakly_determined'));
       box.addEventListener('change', () => this.applyChoice.set(p.name, box.checked));
       rows.push({ name: p.name, now: typeof d.value === 'number' ? d.value : null, fitted: p.value, status: p.status, box, unit: paramUnit(p.unit) });
     }
     const missing = r.parameters.filter((p) => !current.get(p.name) || current.get(p.name)!.kind !== 'number').map((p) => p.name);
     const msg = el('p', { class: 'hint', attrs: { role: 'status' }, text: this.applied });
+    const warnings = [...caution.sentences];
+    if (change === 'other') {
+      warnings.push('The netlist has changed since this fit in more than the fitted parameters’ values: the values were fitted to the earlier netlist. Fit again before applying them.');
+    }
     const t = table(
-      'What “Apply” writes into the netlist: the checked fitted values replace the parameters’ values (determined and weakly determined ones are checked)',
+      'What “Apply” writes into the netlist: the checked fitted values replace the parameters’ values' +
+        (propose ? ' (determined and weakly determined ones are checked)' : ' (none is checked: see the notes above)'),
       ['Apply', 'Parameter', 'In the netlist now', 'Fitted', 'Change', 'Status'],
       rows.map((x) => [
         x.box,
@@ -1337,9 +1515,12 @@ class FitView implements ResultView {
         'section',
         { class: 'mv-apply', attrs: { 'aria-labelledby': 'fit-apply-h' } },
         el('h4', { id: 'fit-apply-h', text: 'Apply fitted values', attrs: { tabindex: -1, 'data-k': 'home' } }),
+        warnings.length ? el('div', { class: 'mv-apply-warn', attrs: { 'data-field': 'apply-cautions' } }, ...warnings.map((x) => el('p', { text: x }))) : '',
         rows.length ? scrollRegion('Values to apply', t) : el('p', { class: 'hint', text: 'No fitted parameter is a number parameter of the current netlist.' }),
         missing.length ? el('p', { class: 'hint', text: `Not in the current netlist: ${missing.join(', ')}.` }) : '',
-        this.runText !== null && this.runText !== this.host.current()?.text ? el('p', { class: 'hint', text: 'The netlist has changed since this fit was made.' }) : '',
+        change === 'fitted-values'
+          ? el('p', { class: 'hint', text: 'The fitted parameters’ values in the netlist have changed since this fit (applied or edited); the rest of the netlist is as fitted.' })
+          : '',
         rows.length ? apply : '',
         msg,
       ),
