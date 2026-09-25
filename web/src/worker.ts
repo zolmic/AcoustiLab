@@ -1,20 +1,45 @@
 // Web Worker hosting the WebAssembly engine, so a solve never blocks the UI.
 //
 // Request:  { id, op: 'solve' | 'check' | 'parameters' | 'types' | 'version', netlist? }
+//           { id, op: 'call', fn, args }  any wasm export by name, with
+//                                         string arguments (result views use
+//                                         this; see views/types.ts)
 // Reply:    { id, ok: true, value, ms }   value = parsed engine JSON
 //           { id, ok: false, crash }      the engine trapped (Rust panic) or
 //                                         failed to load; the client
 //                                         (engine.ts) then replaces this
 //                                         worker with a fresh one.
 
-import init, { check, element_types, engine_version, parameters, solve, take_last_panic } from '@engine/acoustilab_wasm.js';
+import init, * as engine from '@engine/acoustilab_wasm.js';
+import { check, element_types, engine_version, parameters, solve, take_last_panic } from '@engine/acoustilab_wasm.js';
 import wasmUrl from '@engine/acoustilab_wasm_bg.wasm?url';
 
-type Op = 'solve' | 'check' | 'parameters' | 'types' | 'version';
+type Op = 'solve' | 'check' | 'parameters' | 'types' | 'version' | 'call';
 interface Request {
   id: number;
   op: Op;
   netlist?: string;
+  /** For `call`: the export's name and its string arguments. */
+  fn?: string;
+  args?: string[];
+}
+
+/** Exports that `call` may not reach (lifecycle and test hooks). */
+const NOT_CALLABLE = new Set(['default', 'initSync', 'take_last_panic']);
+
+/** Calls a wasm export by name; JSON text results are parsed. */
+function callExport(fn: string, args: string[]): unknown {
+  const f = (engine as unknown as Record<string, unknown>)[fn];
+  if (NOT_CALLABLE.has(fn) || typeof f !== 'function') {
+    return { error: `the engine has no export '${fn}'`, kind: 'other' };
+  }
+  const out = (f as (...a: string[]) => unknown)(...args);
+  if (typeof out !== 'string') return out;
+  try {
+    return JSON.parse(out);
+  } catch {
+    return out;
+  }
 }
 
 // The DOM lib types `self` as a Window; in a dedicated worker it is the
@@ -39,6 +64,8 @@ function run(req: Request): unknown {
       return JSON.parse(element_types());
     case 'version':
       return engine_version();
+    case 'call':
+      return callExport(req.fn ?? '', req.args ?? []);
   }
 }
 

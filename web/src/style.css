@@ -693,6 +693,20 @@ figure.plot canvas {
   color: var(--ink);
   background: var(--row-hover);
 }
+/* Result views: many tabs, so they wrap rather than scroll the page. */
+.result-tabs {
+  flex-wrap: wrap;
+}
+.design-table td.unused {
+  color: var(--ink-2);
+}
+.design-table td.changed {
+  font-weight: 600;
+}
+.element-list {
+  columns: 16rem;
+  padding-left: 1.2rem;
+}
 
 /* ----- switches ----- */
 

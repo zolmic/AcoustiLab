@@ -71,7 +71,7 @@ test('the template opens in Design mode with its groups, sketch and primary prob
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await open(page);
-  await expect(page.getByRole('tab', { name: 'Design' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tab', { name: 'Design', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#panel-design')).toBeVisible();
   await expect(page.locator('#panel-netlist')).toBeHidden();
   expect(await text(page)).toBe(TEMPLATE);
@@ -486,14 +486,14 @@ test('freeze baselines, Δ readout, difference plot, rename and remove', async (
 
 test('a hand edit in the Netlist tab updates the Design tab, and back', async ({ page }) => {
   await open(page);
-  await page.getByRole('tab', { name: 'Design' }).focus();
+  await page.getByRole('tab', { name: 'Design', exact: true }).focus();
   await page.keyboard.press('ArrowRight');
-  await expect(page.getByRole('tab', { name: 'Netlist' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('tab', { name: 'Netlist' })).toBeFocused();
+  await expect(page.getByRole('tab', { name: 'Netlist', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tab', { name: 'Netlist', exact: true })).toBeFocused();
   await expect(page.locator('#netlist')).toBeVisible();
 
   await page.locator('#netlist').fill(withValue(TEMPLATE, 'front_depth_mm', '15', '20'));
-  await page.getByRole('tab', { name: 'Design' }).click();
+  await page.getByRole('tab', { name: 'Design', exact: true }).click();
   await expect(page.locator('#p-front_depth_mm')).toHaveValue('20');
   await expect(row(page, 'front_volume_cm3').locator('output')).toHaveText(`${((Math.PI * 625 * 20) / 1000).toPrecision(4)} cm³`);
   // The Design view solves what it shows.
@@ -503,15 +503,15 @@ test('a hand edit in the Netlist tab updates the Design tab, and back', async ({
   await expect(row(page, 'front_depth_mm')).toHaveClass(/changed/);
 
   // A netlist that cannot be read: the Design tab says so and offers the editor.
-  await page.getByRole('tab', { name: 'Netlist' }).click();
+  await page.getByRole('tab', { name: 'Netlist', exact: true }).click();
   await page.locator('#netlist').fill(TEMPLATE.replace('"level": "=fidelity",', '"level": "=fidelity",,'));
-  await page.getByRole('tab', { name: 'Design' }).click();
+  await page.getByRole('tab', { name: 'Design', exact: true }).click();
   await expect(page.locator('#design-message')).toContainText('The netlist cannot be read');
   await expect(page.locator('#design-groups')).toBeHidden();
   await page.getByRole('button', { name: 'Open the Netlist tab' }).click();
-  await expect(page.getByRole('tab', { name: 'Netlist' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tab', { name: 'Netlist', exact: true })).toHaveAttribute('aria-selected', 'true');
   await page.locator('#netlist').fill(TEMPLATE);
-  await page.getByRole('tab', { name: 'Design' }).click();
+  await page.getByRole('tab', { name: 'Design', exact: true }).click();
   await expect(page.locator('#design-groups')).toBeVisible();
   await expect(page.locator('#p-front_depth_mm')).toHaveValue('15');
 
@@ -537,7 +537,7 @@ test('race: a Run still solving older text is followed by a solve of the text th
   // A Run from the Netlist tab is still solving a dense sweep when the text
   // is edited and the Design tab is shown: the design text is solved after
   // it, and its result is what stays on screen.
-  await page.getByRole('tab', { name: 'Netlist' }).click();
+  await page.getByRole('tab', { name: 'Netlist', exact: true }).click();
   const slow = TEMPLATE.replace('"points_per_octave": "=points_per_octave"}', '"points_per_octave": 3000}');
   expect(slow).not.toBe(TEMPLATE);
   await page.locator('#netlist').fill(slow);
@@ -545,7 +545,7 @@ test('race: a Run still solving older text is followed by a solve of the text th
   await expect(page.locator('body')).toHaveAttribute('data-state', 'solving');
   const edited = withValue(TEMPLATE, 'front_depth_mm', '15', '20');
   await page.locator('#netlist').fill(edited);
-  await page.getByRole('tab', { name: 'Design' }).click();
+  await page.getByRole('tab', { name: 'Design', exact: true }).click();
   await expect
     .poll(async () => (await hook(page, (h) => ({ n: h.result()?.frequencies_Hz.length, d: h.result()?.meta.parameters.front_depth_mm }))), {
       timeout: 30_000,
@@ -561,7 +561,7 @@ test('race: a control clicked before a hand edit is described never overwrites t
   // edited value.
   await open(page);
   const edited = withValue(TEMPLATE, 'front_depth_mm', '15', '20');
-  await page.getByRole('tab', { name: 'Netlist' }).click();
+  await page.getByRole('tab', { name: 'Netlist', exact: true }).click();
   const five = withValue(edited, 'vent_count', '1', '5');
   await page.evaluate((t) => {
     const ed = document.querySelector<HTMLTextAreaElement>('#netlist')!;
@@ -671,9 +671,9 @@ test('generic controls: switch, select, entry-only and ungrouped parameters', as
   "probes": [{"id": "z", "quantity": "impedance", "element": "src"}, {"id": "p", "quantity": "pressure", "node": "a1"}]
 }`;
   await open(page);
-  await page.getByRole('tab', { name: 'Netlist' }).click();
+  await page.getByRole('tab', { name: 'Netlist', exact: true }).click();
   await page.locator('#netlist').fill(net);
-  await page.getByRole('tab', { name: 'Design' }).click();
+  await page.getByRole('tab', { name: 'Design', exact: true }).click();
   await solved(page);
   await expect(page.locator('.pgroup:visible .pgroup-name')).toHaveText(['Parameters', 'Cavity', 'Sweep']);
   // No sketch binding, no sketch.
@@ -724,16 +724,16 @@ test('generic controls: switch, select, entry-only and ungrouped parameters', as
   await page.getByRole('button', { name: 'Show in editor' }).click();
   await expect(page.locator('.model-panel #error-box')).toBeVisible();
   expect(await page.locator('#netlist').evaluate((t: HTMLTextAreaElement) => t.value.slice(t.selectionStart, t.selectionEnd))).toContain('"id": "r"');
-  await page.getByRole('tab', { name: 'Design' }).click();
+  await page.getByRole('tab', { name: 'Design', exact: true }).click();
   await page.locator('#p-R_ohm').fill('8');
   await page.locator('#p-R_ohm').press('Enter');
   await solved(page);
   await expect(page.locator('#error-box')).toBeHidden();
 
   // A netlist without parameters: the Design tab says how to get controls.
-  await page.getByRole('tab', { name: 'Netlist' }).click();
+  await page.getByRole('tab', { name: 'Netlist', exact: true }).click();
   await page.locator('#netlist').fill(JSON.stringify({ ...JSON.parse(net), parameters: undefined, sweep: { frequencies_Hz: [100] } }).replace(/"=[^"]*"/g, '1'));
-  await page.getByRole('tab', { name: 'Design' }).click();
+  await page.getByRole('tab', { name: 'Design', exact: true }).click();
   await expect(page.locator('#design-message')).toContainText('This netlist declares no parameters');
 });
 
@@ -765,7 +765,7 @@ test('narrow screens: panels stack and nothing scrolls sideways at 390 px', asyn
   await page.getByRole('button', { name: 'Show data table' }).click();
   await page.locator('#validity-details summary').click();
   expect(await noSideScroll()).toBe(true);
-  await page.getByRole('tab', { name: 'Netlist' }).click();
+  await page.getByRole('tab', { name: 'Netlist', exact: true }).click();
   expect(await noSideScroll()).toBe(true);
 });
 

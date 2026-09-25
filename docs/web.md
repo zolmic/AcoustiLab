@@ -317,6 +317,40 @@ The text alternative lists every dimension the drawing shows.
   of the choice named by `ui.ear_load` at its solved value, else the
   ear-load elements the netlist enables unconditionally.
 
+### Result views
+
+The results panel has a tab bar: **Response** (the plots, warnings, tables
+above) and one tab per result view. A view is a module
+`web/src/views/<name>.view.ts` that exports `view: ResultView`
+(`web/src/views/types.ts`); `web/src/views/registry.ts` finds every such
+module with `import.meta.glob`, so adding a view changes no shared file. Tabs
+are ordered by the view's `order` (Response is 0) and operated like the model
+tabs (click, arrow keys, Home/End); the open tab is remembered per viewer.
+
+A view is mounted the first time its tab opens, and `refresh()` runs whenever
+it is shown and whenever a new live result lands while it is shown. It reads
+everything through its `ViewHost`:
+
+| member | what it gives |
+|---|---|
+| `netlist()` | the current netlist text |
+| `current()` | the latest successful live result and the text it was solved from |
+| `parameters()` | the `parameters()` document of the current text (null while it is being described, or without parameters) |
+| `reference()` | the loaded template's declared parameter values (what Reset restores) |
+| `call(fn, ...args)` | calls any wasm export by name, with JSON-text arguments, on a worker reserved for this view, so long jobs (Monte Carlo, fits) never delay the live solve; the reply's value is the parsed JSON |
+| `cancel()` | terminates the view's worker, cancelling its running call |
+| `setParameters(values)` | writes parameter values into the netlist text as the design controls do, then re-solves |
+| `announce(text)` | a polite live-region message |
+
+The worker's `call` operation reaches every export except the lifecycle and
+test hooks (`default`, `initSync`, `take_last_panic`).
+
+**Parameter table** (`summary.view.ts`): every parameter of the solved design
+with its value, the loaded template's value, and whether the netlist uses it
+(`meta.parameters_used`: a parameter the topology ignores, such as vent sizes
+with an open back, is marked unused), plus the resolved elements
+(`meta.elements`).
+
 ### Other behaviour
 
 - **Examples.** Every `examples/*.json` of the repository is bundled at build

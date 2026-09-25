@@ -89,6 +89,11 @@ export interface ParamDesc {
   tolerance: Tolerance | null;
   /** Expression of a derived parameter. */
   expr?: string;
+  /**
+   * Whether the value reaches the resolved netlist (false e.g. for vent sizes
+   * with an open back); null when the netlist does not resolve.
+   */
+  active?: boolean | null;
 }
 
 /** Sketch binding in the `ui` block (docs/web.md, "The ui block"). */
@@ -137,6 +142,10 @@ export interface SolveResult {
     drive?: DriveInfo;
     /** Resolved parameter values, derived ones included. */
     parameters?: Record<string, Scalar>;
+    /** Parameters whose value reached the netlist. */
+    parameters_used?: string[];
+    /** Elements of the resolved netlist. */
+    elements?: { id: string; type: string }[];
   };
   frequencies_Hz: number[];
   probes: ProbeResult[];

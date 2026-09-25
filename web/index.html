@@ -99,6 +99,12 @@
         <p id="result-title" class="result-title"></p>
         <p id="warn-jump" class="warn-jump" hidden><a href="#warnings" id="warn-jump-link"></a></p>
 
+        <div class="tabs result-tabs" role="tablist" id="result-tabs" aria-label="Result views" hidden>
+          <button type="button" role="tab" id="view-tab-response" aria-controls="view-response" aria-selected="true">Response</button>
+        </div>
+        <p id="view-status" class="visually-hidden" aria-live="polite"></p>
+
+        <div role="tabpanel" id="view-response" class="tabpanel result-view" aria-labelledby="view-tab-response">
         <div class="view-controls" role="toolbar" aria-label="Frequency view" aria-controls="plots">
           <span class="group-label">View</span>
           <button type="button" data-view="audio" aria-pressed="true">20 Hz&ndash;20 kHz</button>
@@ -161,6 +167,7 @@
           <summary>Validity limits per element</summary>
           <div id="validity-table" role="region" aria-label="Validity limits per element" tabindex="0"></div>
         </details>
+        </div>
       </section>
     </main>
     <script type="module" src="/src/main.ts"></script>

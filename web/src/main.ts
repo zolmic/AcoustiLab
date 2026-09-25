@@ -7,6 +7,8 @@
 // back from it; the plots show what `solve()` makes of it.
 
 import './style.css';
+import { VIEWS } from './views/registry';
+import type { ResultView, ViewHost } from './views/types';
 import { Baselines } from './baselines';
 import { Coalesced, EngineWorker, type Reply } from './engine';
 import { EXAMPLES, hasParameters } from './examples';
@@ -636,6 +638,7 @@ function setResult(r: SolveResult, text: string, ms: number, settled: boolean): 
   regroup();
   renderValidity(result);
   warnings.render(result);
+  refreshActiveView();
   if (settled) {
     // The status region is announced: a design change that crosses an
     // operating limit is heard, not only seen in the warnings list.
@@ -847,9 +850,12 @@ const params = new Coalesced(checker, 'parameters', onParams);
 
 /** Template values of the example the netlist came from: what "Reset" restores and the sketch's scale. */
 let referenceSeq = 0;
+/** Declared parameter values of the loaded template (what "Reset" restores). */
+let referenceValues: Map<string, Scalar> | null = null;
 async function setReferenceFrom(exampleText: string | null): Promise<void> {
   const seq = ++referenceSeq;
-  design.setReference(exampleText ? declaredValues(exampleText) : new Map());
+  referenceValues = exampleText ? declaredValues(exampleText) : null;
+  design.setReference(referenceValues ?? new Map());
   sketch.setReference(null);
   if (!exampleText || !hasParameters(exampleText)) return;
   const reply = await checker.call('parameters', exampleText);
@@ -1127,6 +1133,110 @@ Object.defineProperty(window, 'acoustilab', {
 new ResizeObserver(([e]) => {
   document.documentElement.style.setProperty('--header-h', `${Math.ceil(e.borderBoxSize?.[0]?.blockSize ?? e.contentRect.height)}px`);
 }).observe(document.querySelector('.app-header')!);
+// ----- result views (src/views/*.view.ts) ------------------------------------
+
+const resultTabs = $('result-tabs');
+const responseTab = $<HTMLButtonElement>('view-tab-response');
+const responsePanel = $('view-response');
+const viewStatus = $('view-status');
+
+interface MountedView {
+  view: ResultView;
+  tab: HTMLButtonElement;
+  panel: HTMLElement;
+  mounted: boolean;
+  worker: EngineWorker | null;
+}
+
+const views: MountedView[] = VIEWS.map((view) => {
+  const tab = document.createElement('button');
+  tab.type = 'button';
+  tab.setAttribute('role', 'tab');
+  tab.id = `view-tab-${view.id}`;
+  tab.setAttribute('aria-controls', `view-${view.id}`);
+  tab.setAttribute('aria-selected', 'false');
+  tab.tabIndex = -1;
+  tab.textContent = view.label;
+  resultTabs.append(tab);
+  const panelEl = document.createElement('div');
+  panelEl.setAttribute('role', 'tabpanel');
+  panelEl.id = `view-${view.id}`;
+  panelEl.className = 'tabpanel result-view';
+  panelEl.setAttribute('aria-labelledby', tab.id);
+  panelEl.hidden = true;
+  responsePanel.parentElement!.append(panelEl);
+  return { view, tab, panel: panelEl, mounted: false, worker: null };
+});
+resultTabs.hidden = views.length === 0;
+
+let activeView: MountedView | null = null;
+
+function hostFor(v: MountedView): ViewHost {
+  return {
+    netlist: () => editor.value,
+    current: () => (result && solvedText !== null ? { result, text: solvedText } : null),
+    parameters: () => (paramsDoc && paramsText === editor.value ? paramsDoc : null),
+    reference: () => referenceValues,
+    call: (fn, ...args) => (v.worker ??= new EngineWorker()).invoke(fn, ...args),
+    cancel: () => v.worker?.cancel(),
+    setParameters: (values) => applyParams(values),
+    announce: (message) => {
+      viewStatus.textContent = message;
+    },
+  };
+}
+
+/** Shows the result view `id` ('response' for the plots). */
+function selectView(id: string, focus = false): void {
+  const next = views.find((v) => v.view.id === id) ?? null;
+  if (activeView && activeView !== next) activeView.view.hide?.();
+  activeView = next;
+  responseTab.setAttribute('aria-selected', String(next === null));
+  responseTab.tabIndex = next === null ? 0 : -1;
+  responsePanel.hidden = next !== null;
+  for (const v of views) {
+    const on = v === next;
+    v.tab.setAttribute('aria-selected', String(on));
+    v.tab.tabIndex = on ? 0 : -1;
+    v.panel.hidden = !on;
+  }
+  if (next && !next.mounted) {
+    next.view.mount(next.panel, hostFor(next));
+    next.mounted = true;
+  }
+  if (next) next.view.refresh();
+  else panel.render();
+  if (focus) (next?.tab ?? responseTab).focus();
+  store.set('resultView', id);
+}
+
+function refreshActiveView(): void {
+  activeView?.view.refresh();
+}
+
+{
+  const allTabs = () => [responseTab, ...views.map((v) => v.tab)];
+  const idOf = (t: HTMLElement) => (t === responseTab ? 'response' : t.id.replace(/^view-tab-/, ''));
+  for (const t of allTabs()) {
+    t.addEventListener('click', () => selectView(idOf(t)));
+    t.addEventListener('keydown', (ev) => {
+      const tabs = allTabs();
+      const i = tabs.indexOf(t);
+      const j =
+        ev.key === 'ArrowRight' ? (i + 1) % tabs.length
+        : ev.key === 'ArrowLeft' ? (i - 1 + tabs.length) % tabs.length
+        : ev.key === 'Home' ? 0
+        : ev.key === 'End' ? tabs.length - 1
+        : -1;
+      if (j < 0) return;
+      ev.preventDefault();
+      selectView(idOf(tabs[j]), true);
+    });
+  }
+  const savedView = store.get('resultView');
+  if (savedView && views.some((v) => v.view.id === savedView)) selectView(savedView);
+}
+
 // Height of the sticky sketch (0 while hidden), for the panel's scroll padding.
 new ResizeObserver(([e]) => {
   const h = (e.target as HTMLElement).hidden ? 0 : Math.ceil(e.borderBoxSize?.[0]?.blockSize ?? e.contentRect.height);

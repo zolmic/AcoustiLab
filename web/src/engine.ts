@@ -71,6 +71,21 @@ export class EngineWorker {
     });
   }
 
+  /**
+   * Calls any wasm export by name with string arguments (JSON text); the
+   * reply's value is the parsed JSON. Used by the result views.
+   */
+  invoke(fn: string, ...args: string[]): Promise<Reply> {
+    const id = ++this.seq;
+    this.posted[fn] = (this.posted[fn] ?? 0) + 1;
+    this.worker ??= this.spawn();
+    const w = this.worker;
+    return new Promise<Reply>((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      w.postMessage({ id, op: 'call', fn, args });
+    });
+  }
+
   cancel(): void {
     this.worker?.terminate();
     this.worker = null;
