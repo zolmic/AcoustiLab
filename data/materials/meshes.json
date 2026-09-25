@@ -1,0 +1,83 @@
+{
+  "schema": "acoustilab-materials/0.1",
+  "description": "Woven meshes and textile facings for the 'mesh' element. Every entry states its value, method, physical state, tolerance, status, source and licence. 'status' is one of: measured, datasheet, estimated, unverified. Parameters use the element's unit-suffixed keys.",
+  "entries": [
+    {
+      "id": "saati_acoustex_003",
+      "kind": "mesh",
+      "params": {"R_s_rayl": 3, "pore_diameter_um": 285, "open_area": 0.44},
+      "method": "manufacturer datasheet (air-flow resistance, MKS rayl; grade number equals rayl)",
+      "state": "flat, unstrained",
+      "tolerance": "not stated by the supplier; industry practice assumes 10-15 % (spec Section 13)",
+      "status": "unverified",
+      "source": "Saati Acoustex range end point as quoted in the AcoustiLab v2 spec, Section 13 (p. 46); the Saati datasheet itself was not consulted in this work",
+      "licence": "facts quoted from a public datasheet"
+    },
+    {
+      "id": "saati_acoustex_260",
+      "kind": "mesh",
+      "params": {"R_s_rayl": 260, "pore_diameter_um": 18, "open_area": 0.13},
+      "method": "manufacturer datasheet (air-flow resistance, MKS rayl; grade number equals rayl)",
+      "state": "flat, unstrained",
+      "tolerance": "not stated by the supplier; industry practice assumes 10-15 % (spec Section 13)",
+      "status": "unverified",
+      "source": "Saati Acoustex range end point as quoted in the AcoustiLab v2 spec, Section 13 (p. 46); the Saati datasheet itself was not consulted in this work",
+      "licence": "facts quoted from a public datasheet"
+    },
+    {
+      "id": "textile_transparent_facing",
+      "kind": "fabric",
+      "params": {"R_s_rayl": 30},
+      "method": "ISO 9053 static air-flow resistance",
+      "state": "flat, unstrained",
+      "tolerance": "not stated",
+      "status": "unverified",
+      "source": "Hough and Law 2025, as quoted (\"about 30 rayl\") in the AcoustiLab v2 spec, Section 13 (p. 47); paper not consulted in this work",
+      "licence": "fact quoted from a publication"
+    },
+    {
+      "id": "textile_acoustic_200",
+      "kind": "fabric",
+      "params": {"R_s_rayl": 200},
+      "method": "ISO 9053 static air-flow resistance",
+      "state": "flat, unstrained",
+      "tolerance": "not stated",
+      "status": "unverified",
+      "source": "Hough and Law 2025, engineered acoustic textile, as quoted in the AcoustiLab v2 spec, Section 13 (p. 47); paper not consulted in this work",
+      "licence": "fact quoted from a publication"
+    },
+    {
+      "id": "textile_acoustic_600",
+      "kind": "fabric",
+      "params": {"R_s_rayl": 600},
+      "method": "ISO 9053 static air-flow resistance",
+      "state": "flat, unstrained",
+      "tolerance": "not stated",
+      "status": "unverified",
+      "source": "Hough and Law 2025, engineered acoustic textile, as quoted in the AcoustiLab v2 spec, Section 13 (p. 47); paper not consulted in this work",
+      "licence": "fact quoted from a publication"
+    },
+    {
+      "id": "textile_wool_felt_upholstery",
+      "kind": "fabric",
+      "params": {"R_s_rayl": 650},
+      "method": "ISO 9053 static air-flow resistance",
+      "state": "flat, unstrained",
+      "tolerance": "not stated",
+      "status": "unverified",
+      "source": "Hough and Law 2025, as quoted in the AcoustiLab v2 spec, Section 13 (p. 47); paper not consulted in this work",
+      "licence": "fact quoted from a publication"
+    },
+    {
+      "id": "textile_cotton_polyester_upholstery",
+      "kind": "fabric",
+      "params": {"R_s_rayl": 2300},
+      "method": "ISO 9053 static air-flow resistance",
+      "state": "flat, unstrained",
+      "tolerance": "not stated",
+      "status": "unverified",
+      "source": "Hough and Law 2025, as quoted in the AcoustiLab v2 spec, Section 13 (p. 47); paper not consulted in this work",
+      "licence": "fact quoted from a publication"
+    }
+  ]
+}
