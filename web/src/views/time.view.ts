@@ -166,7 +166,7 @@ const qText = (q: number | null | undefined) => (q === null || q === undefined ?
 class TimeView implements ResultView {
   readonly id = 'time';
   readonly label = 'Time';
-  readonly order = 50;
+  readonly order = 91;
   private host!: ViewHost;
 
   private probeSel!: HTMLSelectElement;

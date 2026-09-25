@@ -83,7 +83,8 @@ interface Measured {
   allow: Set<string>;
   compare: Comparison | null;
   compareError: string | null;
-  uncertainty: number[] | null;
+  /** Combined level uncertainty per point (dB, 1σ); null: the budget has none; undefined: not asked yet. */
+  uncertainty: number[] | null | undefined;
   model: ModelCurve | null;
   modelError: string | null;
   fitted: ModelCurve | null;
@@ -123,7 +124,7 @@ const QUANTITY_OF_PROBE: Record<string, Quantity> = {
 class FitView implements ResultView {
   readonly id = 'fit';
   readonly label = 'Fit';
-  readonly order = 60;
+  readonly order = 93;
   private host!: ViewHost;
   private uid = 0;
   private curves: Measured[] = [];
@@ -422,7 +423,7 @@ class FitView implements ResultView {
       allow: new Set(),
       compare: null,
       compareError: null,
-      uncertainty: null,
+      uncertainty: undefined,
       model: null,
       modelError: null,
       fitted: null,
@@ -457,7 +458,7 @@ class FitView implements ResultView {
     const v = valueOf(await this.call('import_curve', m.text, JSON.stringify(o)));
     if (isEngineError(v)) return `${source}: ${v.error}`;
     m.curve = v as CurveDoc;
-    m.uncertainty = null;
+    m.uncertainty = undefined;
     m.allow.clear();
     m.editing = false;
     m.formError = null;
@@ -506,7 +507,7 @@ class FitView implements ResultView {
     const gen = ++m.gen;
     const text = cur.text;
     try {
-      if (m.uncertainty === null) {
+      if (m.uncertainty === undefined) {
         const u = valueOf(await this.call('curve_uncertainty', JSON.stringify(m.curve)));
         if (!isEngineError(u)) m.uncertainty = (u as { level_dB: number[] | null }).level_dB;
       }

@@ -93,7 +93,7 @@ const rangeText = ([a, b]: [number, number]) => (a === b ? formatHz(a) : `${form
 class IsolationView implements ResultView {
   readonly id = 'isolation';
   readonly label = 'Isolation';
-  readonly order = 55;
+  readonly order = 92;
   private host!: ViewHost;
   private probeSel!: HTMLSelectElement;
   private entrance!: HTMLInputElement;
