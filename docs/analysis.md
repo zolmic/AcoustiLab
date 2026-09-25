@@ -195,15 +195,20 @@ continuous parameter, the design is re-solved with the parameter raised by
    largest effects of at least `threshold_dB` (0.3 dB) get a sentence; the
    rest are listed in `quiet` with their effect.
 3. A band is a run of consecutive credible grid frequencies where ΔdB stays
-   beyond ±threshold with one sign. The sentence states the two bands with
-   the largest |mean| × points. Each gets its **mean** ΔdB ("on average") and
-   its first and last grid frequencies.
-4. The coupled resonance is mentioned only when it is robust and unshaded in
-   both designs, and the two values differ at three significant digits.
+   beyond ±threshold with one sign. The sentence states the band holding
+   the largest |ΔdB| and, of the others, the one with the largest
+   |mean| × points. Each gets its **mean** ΔdB ("on average") and
+   its first and last grid frequencies. When the band's largest |ΔdB| is
+   more than twice its mean, that value and its frequency follow in
+   parentheses: next to a resonance the mean alone understates the change.
+4. The coupled resonance is mentioned only when it is robust (which
+   excludes an ambiguous one) and unshaded in both designs, and the two
+   values differ at three significant digits.
 
 On the template: "Raising diaphragm area Sd 10 % lowers p_drp by 1.4 dB on
-average from 100 to 945 Hz, raises it by 4.2 dB on average from 1.00 to
-1.06 kHz and moves the coupled resonance from 934 Hz to 1.03 kHz."
+average from 100 to 945 Hz (4.6 dB at 893 Hz), raises it by 4.2 dB on
+average from 1.00 to 1.06 kHz and moves the coupled resonance from 934 Hz
+to 1.03 kHz."
 
 A parameter whose change alters the netlist's structure is skipped and
 listed in `skipped` with the reason. Options: `{"probe", "top", "step_pct",
@@ -213,14 +218,15 @@ listed in `skipped` with the reason. Options: `{"probe", "top", "step_pct",
 {
   "probe": "p_drp", "step_pct": 10, "threshold_dB": 0.3, "statistic": "mean",
   "frequencies_Hz": [...], "credible": [false, ..., true, ...],
-  "base_resonance": {"f_Hz": 934.1, "driver": "drv", "prominence_dB": 25.9, "robust": true, "shading": 0},
+  "base_resonance": {"f_Hz": 934.1, "driver": "drv", "prominence_dB": 25.9, "competing": null,
+                     "ambiguous": false, "robust": true, "shading": 0},
   "sentences": [
     {"text": "Raising ...", "parameter": "driver_Sd_cm2", "label": "Diaphragm area Sd",
-     "direction": "raise", "from_value": 10, "to_value": 11, "effect_dB": 4.9,
-     "bands": [{"f_min_Hz": 100.0, "f_max_Hz": 944.6, "effect": "lowers", "mean_dB": -1.4,
-                "max_abs_dB": 3.1, "at_Hz": 944.6, "first": 58, "last": 134}],
+     "direction": "raise", "from_value": 10, "to_value": 11, "effect_dB": 5.38,
+     "bands": [{"f_min_Hz": 100.1, "f_max_Hz": 945.4, "effect": "lowers", "mean_dB": -1.42,
+                "max_abs_dB": 4.63, "at_Hz": 892.5, "first": 80, "last": 158}, ...],
      "stated": [0, 1],
-     "resonance": {"from_Hz": 934.1, "to_Hz": 1030.2},
+     "resonance": {"from_Hz": 934.1, "to_Hz": 1026.6},
      "delta_dB": [...per frequency...]}
   ],
   "quiet": [{"name": "driver_Re_ohm", "effect_dB": 0.41}],
@@ -589,8 +595,9 @@ sensitivity map in the table include the base design's own solve.
 * Kinks and jumps inside elements, such as a mode count that changes with a
   dimension or a switch between series and asymptotic forms, are caught only
   by the one-sided consistency check, not by the structure comparison.
-* Explain sentences report the mean change per band. A band that contains a
-  resonance shift can hide large opposite swings; see `max_abs_dB`.
+* Explain sentences state at most two bands; the others are only in
+  `bands`. With the one-sign rule, a resonance shift splits into a rise and
+  a fall, and small bands beside it can go unmentioned.
 * The bass extension walks the grid, so a notch narrower than the grid
   spacing is missed.
 * Monte Carlo samples parameter tolerances only. The spec's fit variation

@@ -1284,13 +1284,25 @@ fn check_explanation(text: &str, e: &explain::Explanation) {
             }
             let mean = delta[b.first..=b.last].iter().sum::<f64>() / (b.last - b.first + 1) as f64;
             assert!((b.mean_db - mean).abs() < 1e-12);
+            let (at, max) = (b.first..=b.last)
+                .map(|i| (i, delta[i].abs()))
+                .fold((b.first, 0.0), |m, x| if x.1 > m.1 { x } else { m });
+            assert!((b.max_abs_db - max).abs() < 1e-12);
+            assert_eq!(b.at_hz, e.freqs_hz[at]);
             assert_eq!(
                 (b.f_min, b.f_max),
                 (e.freqs_hz[b.first], e.freqs_hz[b.last])
             );
         }
-        // The text states the bands it says it states, with their numbers.
+        // The text states the bands it says it states, with their numbers,
+        // and one of them holds the largest change.
         assert!(!s.stated.is_empty() && s.stated.len() <= 2);
+        let stated_max = s
+            .stated
+            .iter()
+            .map(|&k| s.bands[k].max_abs_db)
+            .fold(0.0, f64::max);
+        assert_eq!(stated_max, s.effect_db, "{}", s.text);
         for &k in &s.stated {
             let b = &s.bands[k];
             let stated = format!("{} ", b.effect);
@@ -1312,6 +1324,18 @@ fn check_explanation(text: &str, e: &explain::Explanation) {
                 acoustilab::analysis::fmt_hz_range(b.f_min, b.f_max)
             };
             assert!(s.text.contains(&span), "{} lacks {span}", s.text);
+            // The largest change is stated when the mean understates it.
+            let peak = format!(
+                "({} dB at {})",
+                explain::fmt_db(b.max_abs_db),
+                acoustilab::analysis::fmt_hz(b.at_hz)
+            );
+            assert_eq!(
+                s.text.contains(&peak),
+                b.first != b.last && b.max_abs_db > 2.0 * b.mean_db.abs(),
+                "{}",
+                s.text
+            );
         }
         let verb = if s.direction == "raise" {
             "Raising"
@@ -1348,7 +1372,13 @@ fn check_explanation(text: &str, e: &explain::Explanation) {
 
 #[test]
 fn explain_sentences_are_supported_by_independent_re_solves() {
-    for ov in [vec![], vec![("rear", PValue::Str("open".into()))]] {
+    // Closed and open back, and a 0.3 mm leak, whose cup-radius sentence
+    // once left out the band with the largest change.
+    for ov in [
+        vec![],
+        vec![("rear", PValue::Str("open".into()))],
+        vec![("leak_gap_mm", num(0.3))],
+    ] {
         let o: Overrides = ov.iter().map(|(k, v)| (k.to_string(), v.clone())).collect();
         let d = Design::parse(TEMPLATE, &o).unwrap();
         let e = explain::explain(&d, &ExplainOptions::default()).unwrap();

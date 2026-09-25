@@ -14,17 +14,22 @@
 //!   `threshold_dB` (0.3 dB) get a sentence;
 //! * a **band** is a run of consecutive credible grid frequencies where ΔdB
 //!   stays beyond ±threshold with one sign. A sentence states at most two
-//!   bands (the two with the largest |mean| × points), each with the
+//!   bands ([`stated_bands`]: the one holding the largest |ΔdB| and, of the
+//!   others, the one with the largest |mean| × points), each with the
 //!   **mean** ΔdB over its grid points ("on average") and its first and
-//!   last grid frequencies; the structured data lists every band with its
-//!   mean, its largest |ΔdB| and where that occurs;
+//!   last grid frequencies, plus its largest |ΔdB| and where that occurs
+//!   when that is more than twice the mean ([`states_peak`]); the
+//!   structured data lists every band with its mean, its largest |ΔdB| and
+//!   where that occurs;
 //! * the coupled resonance ([`super::readouts`]) is mentioned only when it
 //!   is robust and unshaded in both solves and the two values differ at
 //!   three significant digits.
 //!
-//! Example (the template's front depth): "Raising driver-to-ear depth 10 %
-//! lowers p_drp by 0.72 dB on average from 100 to 891 Hz and moves the
-//! coupled resonance from 934 to 900 Hz." The numbers come from the solves.
+//! Example (the template's diaphragm area): "Raising diaphragm area Sd 10 %
+//! lowers p_drp by 1.4 dB on average from 100 to 945 Hz (4.6 dB at 893 Hz),
+//! raises it by 4.2 dB on average from 1.00 to 1.06 kHz and moves the
+//! coupled resonance from 934 Hz to 1.03 kHz." The numbers come from the
+//! solves.
 
 use super::readouts::{self, CoupledResonance};
 use super::{fmt_hz, fmt_hz_range, nan_vec, options_error, Design, Excluded, Point};
@@ -268,14 +273,50 @@ fn capitalise(s: &str) -> String {
     }
 }
 
+/// Indices of the bands a sentence states, in frequency order: the band
+/// holding the largest |ΔdB| (the parameter's effect), and of the others
+/// the one with the largest |mean| × points.
+pub fn stated_bands(bands: &[Band]) -> Vec<usize> {
+    let Some(peak) =
+        (0..bands.len()).max_by(|&a, &b| bands[a].max_abs_db.total_cmp(&bands[b].max_abs_db))
+    else {
+        return Vec::new();
+    };
+    let weight = |k: usize| bands[k].mean_db.abs() * (bands[k].last - bands[k].first + 1) as f64;
+    let mut order = vec![peak];
+    if let Some(k) = (0..bands.len())
+        .filter(|&k| k != peak)
+        .max_by(|&a, &b| weight(a).total_cmp(&weight(b)))
+    {
+        order.push(k);
+    }
+    order.sort_unstable();
+    order
+}
+
+/// Whether a band's clause also states its largest change: when that is
+/// more than [`PEAK_FACTOR`] times the mean, the mean alone would
+/// understate the change near a resonance.
+pub fn states_peak(b: &Band) -> bool {
+    b.first != b.last && b.max_abs_db > PEAK_FACTOR * b.mean_db.abs()
+}
+
+/// See [`states_peak`].
+pub const PEAK_FACTOR: f64 = 2.0;
+
 fn band_clause(b: &Band, object: &str) -> String {
     let span = if b.first == b.last {
         format!("at {}", fmt_hz(b.f_min))
     } else {
         format!("from {}", fmt_hz_range(b.f_min, b.f_max))
     };
+    let peak = if states_peak(b) {
+        format!(" ({} dB at {})", fmt_db(b.max_abs_db), fmt_hz(b.at_hz))
+    } else {
+        String::new()
+    };
     format!(
-        "{} {object} by {} dB on average {span}",
+        "{} {object} by {} dB on average {span}{peak}",
         b.effect,
         fmt_db(b.mean_db)
     )
@@ -428,15 +469,7 @@ pub fn explain(design: &Design, opts: &ExplainOptions) -> Result<Explanation> {
             });
             continue;
         }
-        let mut order: Vec<usize> = (0..s.bands.len()).collect();
-        order.sort_by(|&a, &b| {
-            let w = |k: usize| {
-                s.bands[k].mean_db.abs() * (s.bands[k].last - s.bands[k].first + 1) as f64
-            };
-            w(b).total_cmp(&w(a))
-        });
-        order.truncate(2);
-        order.sort_unstable();
+        let order = stated_bands(&s.bands);
         let mut clauses: Vec<String> = order
             .iter()
             .enumerate()
