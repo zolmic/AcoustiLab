@@ -79,7 +79,7 @@ test('the on-ear template opens with its sketch, drawn to scale and linked to th
   const desc = page.locator('#sketch-desc');
   await expect(desc).toContainText(`Front chamber: radius ${ri} mm, depth ${D} mm to the pinna`);
   await expect(desc).toContainText('including a 4.3 cm³ concha');
-  await expect(desc).toContainText('fit: Low leak (P.57 Type 3.2 slit), leak slit 0.26 mm high (drawn enlarged), position schematic');
+  await expect(desc).toContainText('fit: Low leak (P.57 Type 3.2 slit), leak slit 0.26 mm high (drawn enlarged) and 2.8 mm deep, position schematic');
 
   // To scale: every drawn width and depth relative to the front chamber's width 2·ri.
   const front = await size(page, '#sketch-svg [data-part="front"] rect.sk-air');
@@ -90,14 +90,22 @@ test('the on-ear template opens with its sketch, drawn to scale and linked to th
   expect(await rel('#sketch-svg [data-part="rear"] rect.sk-air', 'h')).toBeCloseTo(p.rear_depth_mm / (2 * ri), 6);
   expect(await rel('#sketch-svg [data-part="vents"] rect.sk-hole', 'w')).toBeCloseTo(ON_EAR.parameters.vent_diameter_mm.value / (2 * ri), 6);
   expect(await rel('#sketch-svg [data-part="driver"] path', 'w')).toBeCloseTo(p.driver_diameter_mm / (2 * ri), 3);
-  // One slit, drawn under one pad.
+  // One slit, drawn under one pad, as deep as the modelled slit (P.57 Type
+  // 3.2 low leak: 2.8 mm), not the whole pad face.
   await expect(page.locator('#sketch-svg [data-part="leak"] rect.sk-leak')).toHaveCount(1);
+  expect(p.leak_depth_mm).toBe(2.8);
+  expect(await rel('#sketch-svg [data-part="leak"] rect.sk-leak', 'w')).toBeCloseTo(p.leak_depth_mm / (2 * ri), 6);
 
   // The fit states change the leak (P.57 Type 3.2 high leak: 0.50 mm).
   await fit.selectOption('high');
   await solved(page);
   expect((await params(page)).leak_gap_mm).toBe(0.5);
   await expect(desc).toContainText('leak slit 0.5 mm high');
+  await expect(desc).toContainText('and 1.9 mm deep');
+  // A custom slit is as deep as the pad face.
+  await fit.selectOption('custom');
+  await solved(page);
+  expect(await rel('#sketch-svg [data-part="leak"] rect.sk-leak', 'w')).toBeCloseTo(W / (2 * ri), 6);
   await fit.selectOption('sealed');
   await solved(page);
   await expect(page.locator('#sketch-svg [data-part="leak"] rect.sk-leak')).toHaveCount(0);
@@ -189,22 +197,44 @@ test('the in-ear template opens with its sketch, drawn to scale and linked to th
   expect(errors).toEqual([]);
 });
 
-for (const name of ['design_on_ear', 'design_in_ear']) {
-  test(`${name}: nothing scrolls sideways at 390 px and the sketch fits`, async ({ page }) => {
+/**
+ * Labels of the sketch that leave the drawing, overlap another label, or
+ * sit on a solid wall (the cup's shell, the earphone's shell).
+ */
+const labelFaults = (page: Page) =>
+  page.locator('#sketch-svg').evaluate((svg: SVGSVGElement) => {
+    const w = svg.viewBox.baseVal.width;
+    const h = svg.viewBox.baseVal.height;
+    const texts = [...svg.querySelectorAll<SVGTextElement>('text')].map((t) => ({ t: t.textContent ?? '', b: t.getBBox() }));
+    const walls = [...svg.querySelectorAll<SVGRectElement>('rect.sk-solid')].map((r) => r.getBBox());
+    // Glyph boxes include the line gap: shrink them a little before comparing.
+    const hit = (a: DOMRect, b: DOMRect, m = 1.5) =>
+      a.x + m < b.x + b.width && b.x + m < a.x + a.width && a.y + m < b.y + b.height && b.y + m < a.y + a.height;
+    const out: string[] = [];
+    texts.forEach(({ t, b }, i) => {
+      if (b.x < 0 || b.x + b.width > w || b.y < 0 || b.y + b.height > h) out.push(`${t}: outside`);
+      for (const o of texts.slice(i + 1)) if (hit(b, o.b)) out.push(`${t}: on ${o.t}`);
+      // The earphone's shell carries no labels; the cup's walls none either.
+      if (walls.some((r) => hit(b, r, 3))) out.push(`${t}: on a wall`);
+    });
+    return out;
+  });
+
+for (const name of ['design_over_ear', 'design_on_ear', 'design_in_ear']) {
+  test(`${name}: nothing scrolls sideways at 390 px and the sketch's labels stay clear`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openTemplate(page, name);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    // Every label of the sketch lies inside the drawing.
-    const out = await page.locator('#sketch-svg').evaluate((svg: SVGSVGElement) => {
-      const w = svg.viewBox.baseVal.width;
-      return [...svg.querySelectorAll<SVGTextElement>('text')]
-        .map((t) => ({ t: t.textContent, b: t.getBBox() }))
-        .filter(({ b }) => b.x < 0 || b.x + b.width > w)
-        .map(({ t }) => t);
-    });
-    expect(out).toEqual([]);
+    // Every label of the sketch lies inside the drawing, clear of other
+    // labels and of the walls.
+    expect(await labelFaults(page)).toEqual([]);
     await page.getByRole('switch', { name: 'Show detailed parameters' }).click();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+
+  test(`${name}: the sketch's labels stay clear on a desktop`, async ({ page }) => {
+    await openTemplate(page, name);
+    expect(await labelFaults(page)).toEqual([]);
   });
 
   for (const scheme of ['light', 'dark'] as const) {

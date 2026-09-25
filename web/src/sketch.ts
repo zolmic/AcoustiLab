@@ -57,6 +57,7 @@ export const ON_EAR_SLOTS: Record<string, Part[]> = {
   pad_width_mm: ['pad'],
   fit: ['leak'],
   leak_gap_mm: ['leak'],
+  leak_depth_mm: ['leak'],
   open_back: ['rear', 'shell', 'vents', 'grille'],
   cup_radius_mm: ['rear', 'shell'],
   rear_depth_mm: ['rear', 'shell'],
@@ -149,6 +150,8 @@ interface Cup {
   d?: number;
   W?: number;
   gap?: number;
+  /** Depth of the on-ear leak slit, from the pad's inner edge outwards (the whole pad face when unbound). */
+  leakDepth?: number;
   /** Label of the fit state (on-ear leak). */
   fit?: string;
   open: boolean;
@@ -502,6 +505,7 @@ export class Sketch {
           d: num('driver_diameter_mm'),
           W: num('pad_width_mm'),
           gap: num('leak_gap_mm'),
+          leakDepth: onEar ? num('leak_depth_mm') : undefined,
           fit: onEar ? label(b.fit) : undefined,
           open: openV === true,
           Rr: Rc !== undefined && Rc > 0 ? Rc : R,
@@ -583,7 +587,8 @@ function describeCup(g: Cup, gapEnlarged: boolean): string {
         g.gap === undefined
           ? ''
           : g.gap > 0
-            ? `, leak slit ${mm(g.gap)} high${gapEnlarged ? ' (drawn enlarged)' : ''}, position schematic`
+            ? `, leak slit ${mm(g.gap)} high${gapEnlarged ? ' (drawn enlarged)' : ''}` +
+              `${g.leakDepth !== undefined ? ` and ${mm(g.leakDepth)} deep` : ''}, position schematic`
             : '';
       p += `${leak}${gap}.`;
     } else {
@@ -664,7 +669,9 @@ function drawCup(cv: Canvas, g: Cup, ref: Cup | null): string {
   const [xr, yr] = ref ? cupExtents(ref) : [0, 0];
   const X = Math.max(xc, xr);
   const Y = Math.max(yc, yr, 1);
-  const topReserve = g.open ? 36 : 0;
+  // Room above the cup: the open-back grille and its label, or (on-ear) the
+  // driver's dimension when the shallow rear cavity has no room for it.
+  const topReserve = g.open ? 36 : onEar ? 24 : 0;
   const s = Math.min((Wp - mL - mR) / (2 * X), (Hp - mT - mB - topReserve) / Y);
   const ox = mL + (Wp - mL - mR) / 2;
   const oy = Hp - mB;
@@ -724,22 +731,29 @@ function drawCup(cv: Canvas, g: Cup, ref: Cup | null): string {
   const gapPx = trueGapPx > 0 ? Math.max(trueGapPx, Math.min(10, 3 + 25 * g.gap!)) : 0;
   const gapEnlarged = gapPx > trueGapPx + 0.5;
   const gapMm = gapPx / s;
-  // The on-ear leak is one slit: drawn under the right-hand pad only.
+  // The on-ear leak is one slit: drawn under the right-hand pad only, as
+  // deep as the slit from the pad's inner edge (the rest of the pad rests on
+  // the pinna). The over-ear gap runs under the whole face of both pads.
   const gapUnder = (side: number) => (onEar ? (side > 0 ? gapMm : 0) : gapMm);
+  const slit = onEar && g.leakDepth !== undefined && g.leakDepth > 0 ? Math.min(g.leakDepth, W) : W;
   if (g.W !== undefined) {
     const pad = cv.part('pad');
     for (const [side, xa] of [
       [-1, px(-g.R - W)],
       [1, px(g.R)],
     ]) {
-      const gm = gapUnder(side);
+      // A pad resting beyond a shorter slit is drawn down to the pinna; the
+      // slit is drawn over it.
+      const gm = slit < W ? 0 : gapUnder(side);
       pad.append(node('rect', { x: xa, y: py(g.D), width: W * s, height: (g.D - gm) * s, rx: 2, class: 'sk-pad' }));
     }
     const yp = py(gapMm + (g.D - gapMm) * 0.32);
     if (W * s >= 44) {
       cv.lab('pad').append(dim(px(g.R), yp, px(g.R + W), yp), text((px(g.R) + px(g.R + W)) / 2, yp - 5, mm(W)));
     } else {
-      cv.lab('pad').append(text(px(g.R + W) + 4, yp + 4, mm(W), 'start'));
+      const padLabel = text(px(g.R + W) + 4, yp + 4, mm(W), 'start');
+      cv.lab('pad').append(padLabel);
+      cv.keepInside(padLabel);
     }
   }
   if (g.gap !== undefined) {
@@ -749,10 +763,13 @@ function drawCup(cv: Canvas, g: Cup, ref: Cup | null): string {
         [-1, px(-g.R - W)],
         [1, px(g.R)],
       ]) {
-        if (gapUnder(side) > 0) leak.append(node('rect', { x: xa, y: py(0) - gapPx, width: Math.max(W * s, 6), height: gapPx, class: 'sk-leak' }));
+        if (gapUnder(side) > 0) {
+          const width = onEar ? slit * s : Math.max(W * s, 6);
+          leak.append(node('rect', { x: xa, y: py(0) - gapPx, width, height: gapPx, class: 'sk-leak' }));
+        }
       }
     }
-    const xa = px(g.R + W / 2);
+    const xa = px(g.R + (onEar ? slit : W) / 2);
     const ly = oy + 39;
     const what = onEar ? 'leak slit' : 'leak gap';
     cv.lab('leak').append(
@@ -807,8 +824,12 @@ function drawCup(cv: Canvas, g: Cup, ref: Cup | null): string {
       node('path', { d: `M ${px(-g.d / 2)} ${py(g.D)} Q ${ox} ${py(g.D - 2 * dome)} ${px(g.d / 2)} ${py(g.D)}`, class: 'sk-diaphragm' }),
     );
     const yd = py(g.D) - 9;
-    if (closed ? onEar || Dr * s >= 30 : true) {
+    if (closed ? Dr * s >= 30 : true) {
       cv.lab('driver').append(dim(px(-g.d / 2), yd, px(g.d / 2), yd), text(ox, yd - 5, `driver Ø ${mm(g.d)}`));
+    } else if (onEar) {
+      // A shallow rear cavity has no room for it: above the cup, over the vent label.
+      const ya = top - tw - 24;
+      cv.lab('driver').append(dim(px(-g.d / 2), ya, px(g.d / 2), ya), text(ox, ya - 5, `driver Ø ${mm(g.d)}`));
     } else {
       cv.lab('driver').append(text(px(g.d / 2) + 4, py(g.D) + 14, `Ø ${mm(g.d)}`, 'start'));
     }

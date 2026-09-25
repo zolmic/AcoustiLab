@@ -17,6 +17,7 @@
         "pad_width_mm": "pad_width_mm",
         "fit": "fit",
         "leak_gap_mm": "leak_gap_mm",
+        "leak_depth_mm": "leak_depth_mm",
         "open_back": "open_back",
         "cup_radius_mm": "cup_radius_mm",
         "rear_depth_mm": "rear_depth_mm",
@@ -31,7 +32,7 @@
       "parts": {
         "driver": ["driver_fs_Hz", "driver_Qms", "driver_Qes", "driver_Re_ohm", "driver_Mms_g",
                    "driver_Le_uH", "driver_Xmax_mm", "driver_rated_power_mW"],
-        "leak": ["custom_gap_mm", "custom_breadth_mm", "leak_depth_mm", "leak_breadth_mm"],
+        "leak": ["custom_gap_mm", "custom_breadth_mm", "leak_breadth_mm"],
         "damping": ["damping_area_cm2", "driver_back_volume_cm3"]
       }
     }
@@ -86,7 +87,7 @@
       {"value": "high", "label": "High leak (P.57 Type 3.2 slit)"},
       {"value": "custom", "label": "Custom slit"}],
       "label": "Fit on the pinna", "group": "Pad and leak",
-      "description": "The leak between pad and pinna. Low and high are the Type 3.2 simplified pinna simulator of ITU-T P.57 (06/2021), Table 3-a, for receivers held firmly or loosely: slits 0.26 mm high and 2.8 mm deep over 84 degrees (two 42 degree slits), and 0.50 mm high and 1.9 mm deep over 240 degrees. P.57 marks these dimensions as guidance only and derives them from telephone handsets (erratum E38). The slit breadth is the arc at mid-depth of a slit in the rim of the simulator's 25 mm cavity (P.57 Figure 6; this reading is ours)."},
+      "description": "The leak between pad and pinna. Low and high are the Type 3.2 simplified pinna simulator of ITU-T P.57 (06/2021), Table 3-a, for receivers held firmly or loosely: slits 0.26 mm high and 2.8 mm deep over 84 degrees (two 42 degree slits), and 0.50 mm high and 1.9 mm deep over 240 degrees. P.57 marks these dimensions as guidance only and derives them from telephone handsets (erratum E38). The slit breadth is the arc at mid-depth of a slit in the rim of the simulator's 25 mm cavity (P.57 Figure 6; this reading is ours). As dimensioned, the high-leak slit is lighter and less damped than the high leak P.57 specifies acoustically (docs/templates.md)."},
     "custom_gap_mm": {"value": 0.3, "min": 0.02, "max": 1.5, "step": 0.01,
       "label": "Custom slit height", "group": "Pad and leak",
       "description": "Used when the fit is Custom; the slit is as deep as the pad face is wide."},
@@ -118,7 +119,7 @@
       "description": "Total area of the driver's rear openings that the cloth covers (estimate)."},
     "driver_back_volume_cm3": {"value": 1, "min": 0.1, "max": 5, "step": 0.05,
       "label": "Air space behind the diaphragm", "group": "Rear", "advanced": true,
-      "description": "Volume between the diaphragm and the damping cloth, inside the driver frame (estimate)."},
+      "description": "Volume between the diaphragm and the driver's rear openings, inside the driver frame (estimate). Without a damping cloth it opens straight into the rear cavity or grille."},
     "cup_radius_mm": {"expr": "pad_inner_radius_mm + pad_width_mm",
       "label": "Cup radius", "group": "Rear", "advanced": true,
       "description": "The rear cup is drawn as wide as the pad's outer edge."},
@@ -189,8 +190,8 @@
      "segments": "=if(fit == 'low', 2, 1)"},
     {"id": "ear", "type": "type33", "node": "a_ear", "enabled": "=ear == 'type33'"},
     {"id": "ear", "type": "type43", "node": "a_ear", "enabled": "=ear == 'type43'"},
-    {"id": "back", "type": "cavity", "node": "a_back", "volume_cm3": "=driver_back_volume_cm3",
-     "enabled": "=damping_rayl > 0"},
+    {"id": "back", "type": "cavity", "node": "=if(damping_rayl > 0, 'a_back', 'a_rear')",
+     "volume_cm3": "=driver_back_volume_cm3"},
     {"id": "damping", "type": "mesh", "nodes": ["a_back", "a_rear"], "enabled": "=damping_rayl > 0",
      "R_s_rayl": "=damping_rayl", "area_cm2": "=damping_area_cm2"},
     {"id": "rear", "type": "cavity", "node": "a_rear", "volume_cm3": "=rear_volume_cm3",

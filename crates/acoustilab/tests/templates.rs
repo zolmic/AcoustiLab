@@ -324,11 +324,11 @@ fn topology_switches_mark_the_right_parameters_inactive() {
         "{d:?}"
     );
     assert!(none(&d, &["grille_rayl", "damping_rayl"]), "{d:?}");
+    // Without the cloth the air space behind the diaphragm stays, joined to
+    // the rear cavity: only the cloth's area is unused.
     let d = inactive(&over, &ov(&[("damping_rayl", num(0.0))]));
-    assert!(
-        has(&d, &["damping_area_cm2", "driver_back_volume_cm3"]),
-        "{d:?}"
-    );
+    assert!(has(&d, &["damping_area_cm2"]), "{d:?}");
+    assert!(none(&d, &["driver_back_volume_cm3"]), "{d:?}");
 
     let on = template("design_on_ear");
     let d = inactive(&on, &ov(&[]));
@@ -379,6 +379,11 @@ fn topology_switches_mark_the_right_parameters_inactive() {
     assert!(none(&d, &["leak_diameter_mm", "leak_length_mm"]), "{d:?}");
     let d = inactive(&iem, &ov(&[("fit", s("custom"))]));
     assert!(none(&d, &["custom_leak_diameter_mm"]), "{d:?}");
+    for p in [&on, &iem] {
+        let d = inactive(p, &ov(&[("damping_rayl", num(0.0))]));
+        assert!(has(&d, &["damping_area_cm2"]), "{d:?}");
+        assert!(none(&d, &["driver_back_volume_cm3"]), "{d:?}");
+    }
     let d = inactive(&iem, &ov(&[("vent_count", num(0.0))]));
     assert!(
         has(
@@ -695,7 +700,8 @@ fn worst(
 
 /// The closed rear shared by the over-ear and on-ear templates: the air space
 /// behind the diaphragm, the damping cloth (R_s/A) into the rear cavity, and
-/// the meshed vent to the room.
+/// the meshed vent to the room. Without the cloth the air space opens
+/// straight into the rear cavity.
 fn closed_rear(
     air: &AirState,
     w: f64,
@@ -705,10 +711,11 @@ fn closed_rear(
 ) -> C64 {
     let back_v = 1e-6;
     let rear_v = rear_cm3 * 1e-6;
+    let zback = cavity(air, w, back_v, cube_area(back_v));
     let zr = par(cavity(air, w, rear_v, cube_area(rear_v)), vent.z(air, w));
     match damping {
-        Some((rayl, area)) => par(cavity(air, w, back_v, cube_area(back_v)), rayl / area + zr),
-        None => zr,
+        Some((rayl, area)) => par(zback, rayl / area + zr),
+        None => par(zback, zr),
     }
 }
 

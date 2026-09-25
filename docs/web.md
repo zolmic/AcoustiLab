@@ -237,7 +237,8 @@ the drawing:
   vent when it has a mesh) or the open grille, and the ear-load surface with
   its label.
 - `on_ear`: the same cup resting on the compressed pinna, with the concha
-  opening under the front chamber; the leak slit is drawn under one pad, and
+  opening under the front chamber; the leak slit is drawn under one pad, as
+  deep as the modelled slit from the pad's inner edge, and
   the rear cavity is as wide as the cup (`cup_radius_mm`), wider than the
   front chamber.
 - `in_ear`: a section along the earphone's axis, the ear on the right: the
@@ -454,6 +455,7 @@ radius, plus:
 | `concha_volume_cm3` | named in the text alternative with the front volume | pinna, front |
 | `fit` | choice: its label names the leak state in the text alternative | leak |
 | `leak_gap_mm` | height of the leak slit, drawn under one pad (0: sealed) | leak |
+| `leak_depth_mm` | depth of the leak slit, drawn from the pad's inner edge (unbound: the whole pad face) | leak |
 
 `in_ear` (required: `driver_diameter_mm`, `front_depth_mm`,
 `nozzle_diameter_mm`, `nozzle_length_mm`):
@@ -604,7 +606,8 @@ and a name given twice to `setParams` takes its last value.
 2. The sketch draws every part of its kind, its caption names the schematic
    parts, and its text alternative states the dimensions. Drawn lengths
    against the parameters: on-ear, the front chamber's aspect 2·r/d, and the
-   pad, rear cavity (width and depth), vent and diaphragm relative to it;
+   pad, leak slit depth, rear cavity (width and depth), vent and diaphragm
+   relative to it;
    in-ear, the front, air space, rear, nozzle bore (length and diameter),
    canal and vent relative to the diaphragm's diameter, and the leak tube's
    path length and stroke width (its diameter). 6 digits (single-precision
@@ -615,8 +618,10 @@ and a name given twice to `setParams` takes its last value.
 4. Hover and focus link controls and parts through derived parameters (the
    pad's inner radius glows the rear cavity, the diaphragm area every depth
    drawn from it), and a click on a part focuses its control.
-5. At 390 px nothing scrolls sideways and every sketch label lies inside
-   the drawing; axe-core finds nothing in light and dark themes with the
+5. For all three templates, at 390 px and on a desktop, every sketch label
+   lies inside the drawing, clear of the other labels and of the shell's
+   walls, and at 390 px nothing scrolls sideways. For the on-ear and in-ear
+   templates, axe-core finds nothing in light and dark themes with the
    detailed view and the template description open.
 
 `smoke.spec.ts` (the netlist editor and plots, on `sealed_cup` and
