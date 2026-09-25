@@ -472,12 +472,15 @@ These flags are notices and do not grey a score:
 | `outside_scale` | the value falls outside the 0–100 rating scale the linear model was fitted to |
 
 A greyed score keeps its value. In this tool today, every score of a
-simulated design is greyed, because no engine ear load is the training
-fixture. A score can only be un-greyed for a measured response on the
-training fixture, against a target the user holds the rights to. For the
-over-ear model that means a CSV tagged `# fixture: gras45ca_harman` and
-`# family: harman_ae_oe_2018`, scored with `measured: true` and
-`fixture: gras45ca_harman`.
+simulated design is greyed when its fixture is inferred from the ear load,
+because no engine ear load is a training fixture. A score is un-greyed
+only for a response tagged with the training fixture, against a target the
+user holds the rights to. For the over-ear model that means a CSV tagged
+`# fixture: gras45ca_harman` and `# family: harman_ae_oe_2018`, and a
+response scored with `fixture: gras45ca_harman` (and `measured: true` for a
+measurement). The fixture option is the caller's statement: a simulated
+response tagged with the training fixture by hand is not greyed, but it
+still carries the `simulated` notice, which the interface must show.
 
 **Grid sensitivity.** On the synthetic test case (a response with a 7 dB
 notch 0.15 octave wide), evaluating on AutoEq's rounded R40 grid instead of

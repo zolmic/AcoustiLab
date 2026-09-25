@@ -167,8 +167,9 @@ corrected statement. "p." is the PDF page.
 - **E47 — ITU-R BS.708 mask (p. 42).** "Plus or minus 2 dB below about 250 Hz"
   misreads Figure 1 of Rec. ITU-R BS.708 (1990). The figure's mask is ±2 dB
   at 100 Hz and narrows linearly on a log axis to ±1.5 dB at 500 Hz. It is
-  ±1.5 dB from 500 Hz to 4 kHz and widens to ±4 dB at 16 kHz. It is drawn
-  only from 100 Hz to 16 kHz.
+  ±1.5 dB from 500 Hz to 4 kHz and widens to ±4 dB at 16 kHz. It covers
+  the third-octave bands from 100 Hz to 16 kHz only (the lines run flat to
+  those bands' outer edges, about 88 Hz and 18 kHz).
   - At 250 Hz the limit is 1.71 dB, not 2 dB.
   - Traced from the rendered figure against its grid, the upper line reads
     1.78 dB at 200 Hz and 2.75 dB at 8.1 kHz, against 1.785 dB and 2.78 dB
