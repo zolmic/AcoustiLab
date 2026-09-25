@@ -110,18 +110,26 @@ fn is_comment(t: &str) -> Option<&str> {
     None
 }
 
-/// Splits a line into fields.
+fn unquote(s: &str) -> &str {
+    let s = s.trim();
+    s.strip_prefix('"')
+        .and_then(|x| x.strip_suffix('"'))
+        .unwrap_or(s)
+        .trim()
+}
+
+/// Splits a line into fields (surrounding double quotes removed).
 fn fields(t: &str, d: Delim) -> Vec<&str> {
     match d {
-        Delim::Whitespace => t.split_whitespace().collect(),
+        Delim::Whitespace => t.split_whitespace().map(unquote).collect(),
         Delim::Tab => t
             .split('\t')
-            .map(str::trim)
+            .map(unquote)
             .filter(|s| !s.is_empty())
             .collect(),
         Delim::Semicolon | Delim::Comma => {
             let c = if d == Delim::Comma { ',' } else { ';' };
-            let mut v: Vec<&str> = t.split(c).map(str::trim).collect();
+            let mut v: Vec<&str> = t.split(c).map(unquote).collect();
             while v.last().is_some_and(|s| s.is_empty()) {
                 v.pop();
             }
@@ -133,8 +141,9 @@ fn fields(t: &str, d: Delim) -> Vec<&str> {
 /// Does the line begin with a number (REW's test for a data line)?
 fn starts_with_number(t: &str) -> bool {
     let head: String = t
+        .trim_start_matches('"')
         .chars()
-        .take_while(|c| !c.is_whitespace() && *c != ',' && *c != ';')
+        .take_while(|c| !c.is_whitespace() && *c != ',' && *c != ';' && *c != '"')
         .collect();
     head.parse::<f64>().is_ok_and(f64::is_finite)
 }

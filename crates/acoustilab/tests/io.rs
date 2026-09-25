@@ -249,6 +249,15 @@ fn generic_text_with_headers_units_and_decimal_commas() {
     assert_eq!(c.quantity, Quantity::Impedance);
     assert!((c.magnitude[1] - 10.0).abs() < 1e-12);
     assert!((c.phase_deg.as_ref().unwrap()[0] - 4f64.atan2(3.0).to_degrees()).abs() < 1e-12);
+    // Quoted fields.
+    let c = import(
+        "\"Frequency (Hz)\",\"SPL (dB)\"\n\"20\",\"80.5\"\n\"40\",\"81\"\n",
+        Format::Csv,
+        None,
+    )
+    .unwrap();
+    assert_eq!(c.freqs_hz, vec![20.0, 40.0]);
+    assert!((c.level_db()[1] - 81.0).abs() < 1e-12);
     // AutoEq-style CSV: the first magnitude column, "raw", is in dB.
     let c = import(
         "frequency,raw,error,smoothed\n20,1.5,0.2,1.4\n21,1.6,0.1,1.5\n",

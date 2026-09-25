@@ -195,6 +195,9 @@ pub struct CurveSpec {
     pub offset: Option<Offset>,
     pub f_min: Option<f64>,
     pub f_max: Option<f64>,
+    /// Sidecar checks to override: `compensation` fits a compensated curve
+    /// to the uncompensated model probe anyway.
+    pub allow: Vec<String>,
 }
 
 impl CurveSpec {
@@ -208,6 +211,7 @@ impl CurveSpec {
             offset: None,
             f_min: None,
             f_max: None,
+            allow: Vec::new(),
         }
     }
 }
@@ -414,7 +418,7 @@ fn parse_curve_spec(v: &Value) -> Result<CurveSpec, FitError> {
     let o = v
         .as_object()
         .ok_or_else(|| spec_err("a curve entry must be an object"))?;
-    const KEYS: [&str; 8] = [
+    const KEYS: [&str; 9] = [
         "probe",
         "curve",
         "overrides",
@@ -423,6 +427,7 @@ fn parse_curve_spec(v: &Value) -> Result<CurveSpec, FitError> {
         "offset",
         "f_min_Hz",
         "f_max_Hz",
+        "allow",
     ];
     if let Some(k) = o.keys().find(|k| !KEYS.contains(&k.as_str())) {
         return Err(spec_err(format!(
@@ -469,6 +474,17 @@ fn parse_curve_spec(v: &Value) -> Result<CurveSpec, FitError> {
     };
     c.f_min = num_opt(o, "f_min_Hz")?;
     c.f_max = num_opt(o, "f_max_Hz")?;
+    if let Some(a) = o.get("allow") {
+        c.allow = a
+            .as_array()
+            .and_then(|a| a.iter().map(|x| x.as_str().map(String::from)).collect())
+            .ok_or_else(|| spec_err("'allow' must be an array of sidecar field names"))?;
+        if let Some(f) = c.allow.iter().find(|f| f.as_str() != "compensation") {
+            return Err(spec_err(format!(
+                "'allow': '{f}' cannot be overridden (only 'compensation')"
+            )));
+        }
+    }
     Ok(c)
 }
 
@@ -1072,6 +1088,23 @@ pub fn fit(p: &Parametric, spec: &FitSpec) -> Result<FitReport, FitError> {
             )));
         }
         let sc = &curve.sidecar;
+        // The model's probes are uncompensated, unsmoothed responses.
+        if let Some(comp) = &sc.compensation {
+            if comp.trim().to_lowercase() != "none" && !cs.allow.iter().any(|a| a == "compensation")
+            {
+                return Err(at(format!(
+                    "the sidecar says the curve is compensated ('{comp}'), but the model's probe is not; fit the uncompensated measurement, or allow 'compensation' explicitly"
+                )));
+            }
+        }
+        if let Some(crate::io::sidecar::Smoothing::Octave(n)) = sc.smoothing {
+            if n < 6 {
+                warnings.push(format!(
+                    "curve {ci} ({}): the measurement is smoothed to 1/{n} octave and the model is not; narrow peaks and dips will not match",
+                    cs.probe
+                ));
+            }
+        }
         // Drive and level offset.
         let mut offset = cs.offset;
         let mut drive = None;
@@ -1114,6 +1147,22 @@ pub fn fit(p: &Parametric, spec: &FitSpec) -> Result<FitReport, FitError> {
             )));
         }
         let freqs: Vec<f64> = idx.iter().map(|&i| curve.freqs_hz[i]).collect();
+        let shading = circuit.shading();
+        let dark: Vec<f64> = freqs
+            .iter()
+            .copied()
+            .filter(|&f| shading.band(f) == 2)
+            .collect();
+        if !dark.is_empty() {
+            warnings.push(format!(
+                "curve {ci} ({}): {} of {} points ({} to {} Hz) lie where the model is outside its validity (dark shading); residuals there measure the model, not the data: consider narrowing f_min_Hz/f_max_Hz",
+                cs.probe,
+                dark.len(),
+                freqs.len(),
+                dark[0],
+                dark[dark.len() - 1]
+            ));
+        }
         let level_all = curve.level_db();
         let seat = sc.seatings_or_one();
         let default_db = if q == Quantity::Impedance {

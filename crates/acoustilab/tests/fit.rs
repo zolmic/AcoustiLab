@@ -403,6 +403,14 @@ fn known_volume_resolves_the_scale_when_sd_is_known() {
     assert!(rep.identifiability.rules[0]
         .message
         .contains("known_volume"));
+    // The lumped box leaves its validity range near 2 kHz: the fit says so.
+    assert!(
+        rep.warnings
+            .iter()
+            .any(|w| w.contains("curve 1 (zin)") && w.contains("outside its validity")),
+        "{:?}",
+        rep.warnings
+    );
     // With Sd free the box stiffness Sd²·ρc²/V is unknown too: the scale
     // is ambiguous again, and the numerics agree (one null direction with
     // Sd in it).
@@ -459,6 +467,47 @@ fn laser_displacement_resolves_the_scale() {
     assert!(rep.identifiability.rules[0]
         .message
         .contains("displacement"));
+}
+
+#[test]
+fn calibrated_spl_in_a_known_load_resolves_the_scale() {
+    // Free-air impedance plus the calibrated pressure in a sealed box of
+    // known volume, Sd known: p ∝ Sd·Bl/Zm fixes what impedance leaves open.
+    let p = example("driver_bench.json");
+    let z = measure(
+        &p,
+        "zin",
+        &BENCH_TRUTH,
+        &[],
+        &exchange_grid(10.0, 20_000.0, 12.0),
+        impedance_noise(91),
+    );
+    let pb = measure(
+        &p,
+        "p_box",
+        &BENCH_TRUTH,
+        &[("box_volume_cm3", 20.0)],
+        &exchange_grid(20.0, 1000.0, 12.0),
+        Noise {
+            seed: 92,
+            level_db: 0.1,
+            ..Noise::default()
+        },
+    );
+    let mut cs = CurveSpec::new("p_box", pb);
+    cs.overrides = ov(&[("box_volume_cm3", 20.0)]);
+    let rep = fit::fit(
+        &p,
+        &FitSpec::new(params(&BENCH_TRUTH), vec![CurveSpec::new("zin", z), cs]),
+    )
+    .unwrap();
+    assert_eq!(rep.identifiability.rules[0].code, "scale_resolved");
+    assert!(rep.identifiability.rules[0]
+        .message
+        .contains("spl_known_load"));
+    for (n, t) in BENCH_TRUTH {
+        recovered(&rep, n, t);
+    }
 }
 
 #[test]
@@ -877,6 +926,15 @@ fn fit_spec_json_is_validated() {
     assert!(err(&|v| v["curves"][0]["weight"] = json!(0)).contains("weight"));
     assert!(err(&|v| v["curves"][0]["f_max_Hz"] = json!(10.5)).contains("fewer than 2 points"));
     assert!(err(&|v| v["parameters"] = json!([])).contains("no parameters"));
+    // A compensated curve is not the model's probe, unless allowed.
+    let compensated =
+        |v: &mut Value| v["curves"][0]["curve"]["sidecar"]["compensation"] = json!("diffuse_field");
+    assert!(err(&compensated).contains("compensated ('diffuse_field')"));
+    let mut v = good.clone();
+    compensated(&mut v);
+    v["curves"][0]["allow"] = json!(["compensation"]);
+    assert!(fit::fit(&p, &FitSpec::from_json(&v).unwrap()).is_ok());
+    assert!(err(&|v| v["curves"][0]["allow"] = json!(["fixture"])).contains("only 'compensation'"));
     // Integers, choices and derived parameters cannot be fitted.
     let t = example("design_over_ear.json");
     for name in ["vent_count", "ear", "front_volume_cm3"] {
@@ -1073,4 +1131,40 @@ fn rig_json_spec() {
         assert!(RigSpec::from_json(&bad).is_err(), "{bad}");
     }
     assert!(rig::measure(&p, &RigSpec::new("nope")).is_err());
+}
+
+/// Cost of the case-study fit on three grid densities; run with
+/// `cargo test --release -p acoustilab --test fit -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn fit_cost() {
+    let p = example("design_over_ear.json");
+    let truth = [
+        ("leak_gap_mm", 0.12),
+        ("front_depth_mm", 13.0),
+        ("driver_fs_Hz", 90.0),
+        ("driver_Qms", 3.0),
+        ("driver_Qes", 0.95),
+        ("driver_Re_ohm", 31.8),
+    ];
+    for ppo in [8.0, 24.0, 48.0] {
+        let grid = exchange_grid(20.0, 10_000.0, ppo);
+        let z = measure(&p, "zin", &truth, &[], &grid, impedance_noise(71));
+        let pd = measure(&p, "p_drp", &truth, &[], &grid, impedance_noise(72));
+        let spec = FitSpec::new(
+            params(&truth),
+            vec![CurveSpec::new("zin", z), CurveSpec::new("p_drp", pd)],
+        );
+        let t = std::time::Instant::now();
+        let rep = fit::fit(&p, &spec).unwrap();
+        let dt = t.elapsed().as_secs_f64();
+        println!(
+            "over-ear template, {} points per curve, 6 parameters: {:.3} s, {} evaluations ({:.2} ms each), {} iterations",
+            grid.len(),
+            dt,
+            rep.evaluations,
+            dt / rep.evaluations as f64 * 1e3,
+            rep.iterations
+        );
+    }
 }
