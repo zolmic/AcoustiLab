@@ -69,7 +69,10 @@ corrected statement. "p." is the PDF page.
   12. The 12 dB/oct slope belongs to p/V above the coupled resonance.
 - **E14 — two-port fallback.** The impedance-form fallback cannot rescue a
   half-wave line, because B and C vanish together. Stamp ABCD directly with
-  branch unknowns.
+  branch unknowns. A long, very lossy line has the opposite problem: its ABCD
+  entries grow as e^{Re Γl} and swamp the rows, while its admittance form is
+  well conditioned. The engine switches to it above Re Γl = 10
+  (`docs/conventions.md`, "Two-ports").
 - **E15 — sensitivities.** "Central finite differences reusing the
   factorisation" needs a named method: a Sherman–Morrison low-rank update, or
   forward sensitivities `A·dx/dp = −(dA/dp)·x`.

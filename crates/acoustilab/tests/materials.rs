@@ -699,7 +699,7 @@ fn one_parameter_laws_are_kept_passive_below_their_window() {
                     let zs = layer.surface_impedance(&air, w);
                     assert!(zs.re >= 0.0, "Z_s {zs} at {f} Hz, σ {sigma}, t {t}");
                     assert!(layer.lumped_impedance(&air, w).re >= 0.0);
-                    let [a, _, c, _] = layer.abcd(&air, w);
+                    let [a, _, c, _] = layer.transfer(&air, w).abcd();
                     let one = C64::new(1.0, 0.0);
                     for e in [(a + one) / c, (a - one) / c] {
                         assert!(e.re >= -1e-9 * e.norm(), "slab {e} at {f} Hz");

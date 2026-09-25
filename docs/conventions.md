@@ -124,9 +124,35 @@ right-hand sides (refinement, sensitivities) reuse them.
 
 ## Two-ports
 
-Two-ports are stamped directly in transmission (ABCD) form, with two MNA branch
-unknowns. This stays valid where B or C vanish, such as lossless half-wave
-lines, so no admittance-conversion fallback is needed (erratum E14).
+Two-ports are stamped with two MNA branch unknowns: the flow entering port 1 and
+the flow leaving port 2. They use one of two forms:
+
+- **Transmission (ABCD) form**, the default. It stays valid where B or C
+  vanish, such as lossless half-wave lines, so no admittance-conversion
+  fallback is needed there (erratum E14).
+- **Admittance form**, for long, very lossy lines. A line's A = D = cosh Γl and
+  its B and C grow as e^{Re Γl}. As cosh Γl grows towards 1/ε, the
+  transmission rows lose the input relation. The solve reported a singular
+  system from Re Γl ≈ 33. A narrow slit gets there quickly, because
+  Γ² ≈ jω·12μ/(h²·P0) in its isothermal Poiseuille limit: a 10 mm deep pad
+  leak failed from 1.6 kHz with a 1 µm gap, 6.4 kHz with 2 µm and 14.5 kHz
+  with 3 µm.
+
+Transfer matrices therefore keep the growth of their lines as a separate
+factor e^s, with s = Σ |Re Γl| over the cascaded lines (`mna::Transfer`).
+Where s > 10, the two-port is stamped as Y11 = D/B, Y22 = A/B and
+Y12 = Y21 = −1/B. For a bare line these are coth(Γl)/Zc and −1/(Zc·sinh Γl).
+There |sinh Γl| ≥ sinh 10, so B cannot vanish, and the input impedance of a
+line of any length tends to Zc without overflow. The switch changes results
+only by rounding: at e^10 the transmission rows still keep about twelve
+digits.
+
+The admittance form uses det T = 1, i.e. reciprocity, which holds for every
+two-port the engine builds. The lines of ducts, leaks, two-node cavities,
+porous layers and the ear-simulator extension tube are factored. The other ear
+models (`canal` cone chains, the ear-simulator canals and the IEC 60318-4
+coupler network) are cascaded in plain form, because their growth is
+negligible at ear-canal radii.
 
 ## Driver records
 

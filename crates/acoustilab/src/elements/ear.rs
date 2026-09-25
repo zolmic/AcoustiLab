@@ -466,17 +466,17 @@ fn canal(mut b: Build) -> Result<Box<dyn Element>> {
         canal_limits(&id, profile.max_radius(), &b.air)
     };
     b.finish()?;
-    let abcd: super::AbcdFn = if level == 0 {
-        Box::new(move |cx: &FreqCx| chain_lumped_abcd(&cones, cx.air, cx.omega, lossy))
+    let transfer: super::TransferFn = if level == 0 {
+        Box::new(move |cx: &FreqCx| chain_lumped_abcd(&cones, cx.air, cx.omega, lossy).into())
     } else {
-        Box::new(move |cx: &FreqCx| chain_abcd(&cones, cx.air, cx.omega, lossy))
+        Box::new(move |cx: &FreqCx| chain_abcd(&cones, cx.air, cx.omega, lossy).into())
     };
     Ok(Box::new(TwoPort {
         id,
         type_name: "canal",
         port1: (n1, None),
         port2: (n2, None),
-        abcd,
+        transfer,
         limits,
     }))
 }
@@ -1599,7 +1599,7 @@ fn add_coupler(mb: &mut MacroBuilder, id: &str, rp: Unknown, drp: Unknown, m: &I
         type_name: "iec60318_4",
         port1: (rp, None),
         port2: (drp, None),
-        abcd: Box::new(move |cx: &FreqCx| chain.abcd(cx.air, cx.omega)),
+        transfer: Box::new(move |cx: &FreqCx| chain.abcd(cx.air, cx.omega).into()),
         limits: Vec::new(),
     });
     if let Some(mic) = m.mic {
@@ -1674,7 +1674,9 @@ fn type33(mut b: Build) -> Result<Box<dyn Element>> {
         type_name: "tube",
         port1: (eep, None),
         port2: (rp, None),
-        abcd: Box::new(move |cx: &FreqCx| thermoviscous::abcd(&ext, cx.air, cx.omega, ext_len)),
+        transfer: Box::new(move |cx: &FreqCx| {
+            thermoviscous::transfer(&ext, cx.air, cx.omega, ext_len)
+        }),
         limits: Vec::new(),
     });
     add_coupler(&mut mb, &id, rp, drp, &m);
@@ -1743,7 +1745,9 @@ fn type43(mut b: Build) -> Result<Box<dyn Element>> {
                 type_name: "canal",
                 port1: (eep, None),
                 port2: (rp, None),
-                abcd: Box::new(move |cx: &FreqCx| chain_abcd(&outer, cx.air, cx.omega, lossy)),
+                transfer: Box::new(move |cx: &FreqCx| {
+                    chain_abcd(&outer, cx.air, cx.omega, lossy).into()
+                }),
                 limits: Vec::new(),
             });
         }
@@ -1754,7 +1758,7 @@ fn type43(mut b: Build) -> Result<Box<dyn Element>> {
         type_name: "canal",
         port1: (rp, None),
         port2: (drp, None),
-        abcd: Box::new(move |cx: &FreqCx| chain_abcd(&inner, cx.air, cx.omega, lossy)),
+        transfer: Box::new(move |cx: &FreqCx| chain_abcd(&inner, cx.air, cx.omega, lossy).into()),
         limits: Vec::new(),
     });
     mb.shunt(OnePort {

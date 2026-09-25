@@ -22,7 +22,7 @@ pub mod shell;
 use crate::air::AirState;
 use crate::diag::{Note, Operating};
 use crate::error::{Error, Result};
-use crate::mna::{Mna, Unknown};
+use crate::mna::{Mna, Transfer, Unknown};
 use crate::netlist::{Domain, NodeTable, RawElement};
 use crate::units::Params;
 use crate::validity::ValidityLimit;
@@ -235,7 +235,7 @@ pub fn known_types() -> Vec<&'static str> {
 /// Frequency-dependent admittance of a one-port.
 pub type AdmittanceFn = Box<dyn Fn(&FreqCx) -> C64 + Send + Sync>;
 /// Frequency-dependent transfer matrix of a two-port.
-pub type AbcdFn = Box<dyn Fn(&FreqCx) -> [C64; 4] + Send + Sync>;
+pub type TransferFn = Box<dyn Fn(&FreqCx) -> Transfer + Send + Sync>;
 
 /// A frequency-dependent two-terminal admittance between two nodes.
 pub struct OnePort {
@@ -282,7 +282,7 @@ pub struct TwoPort {
     pub type_name: &'static str,
     pub port1: (Unknown, Unknown),
     pub port2: (Unknown, Unknown),
-    pub abcd: AbcdFn,
+    pub transfer: TransferFn,
     pub limits: Vec<ValidityLimit>,
 }
 
@@ -297,7 +297,7 @@ impl Element for TwoPort {
         2
     }
     fn stamp(&self, cx: &FreqCx, mna: &mut Mna, br: &[usize]) {
-        mna.two_port_abcd(self.port1, self.port2, (br[0], br[1]), (self.abcd)(cx));
+        mna.two_port(self.port1, self.port2, (br[0], br[1]), &(self.transfer)(cx));
     }
     fn port_count(&self) -> usize {
         2

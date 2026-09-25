@@ -33,7 +33,7 @@ use super::{
 use crate::air::AirState;
 use crate::diag::{Note, Operating, Severity};
 use crate::error::{Error, Result};
-use crate::mna::{potential, Mna, Unknown};
+use crate::mna::{potential, Mna, Transfer, Unknown};
 use crate::netlist::Domain;
 use crate::thermoviscous::{self, Section};
 use crate::units::{Dim, Params};
@@ -920,12 +920,9 @@ pub struct PorousLayer {
 
 impl PorousLayer {
     /// Transfer matrix of the slab as a series two-port.
-    pub fn abcd(&self, air: &AirState, omega: f64) -> [C64; 4] {
+    pub fn transfer(&self, air: &AirState, omega: f64) -> Transfer {
         let (g, zc) = self.model.propagation(air, omega);
-        let zc = zc / self.area;
-        let gl = g * self.thickness;
-        let (ch, sh) = (gl.cosh(), gl.sinh());
-        [ch, zc * sh, sh / zc, ch]
+        Transfer::line(g * self.thickness, zc / self.area)
     }
 
     /// Lumped (L0) series impedance jωρ_eq·t/A: flow resistance and
@@ -1125,7 +1122,7 @@ fn porous_layer_element(mut b: Build) -> Result<Box<dyn Element>> {
                     type_name: "porous_layer",
                     port1: (n1, None),
                     port2: (n2, None),
-                    abcd: Box::new(move |cx: &FreqCx| layer.abcd(cx.air, cx.omega)),
+                    transfer: Box::new(move |cx: &FreqCx| layer.transfer(cx.air, cx.omega)),
                     limits,
                 }))
             }

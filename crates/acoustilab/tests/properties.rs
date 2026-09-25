@@ -1063,7 +1063,7 @@ fn measured_abcd_matches_the_stamped_transfer_matrix() {
             .downcast_ref::<TwoPort>()
             .expect("duct is a TwoPort at L1");
         for f in frequencies(&mut rng, 3, 10.0, 40_000.0) {
-            let stamped = (tp.abcd)(&c.cx(f));
+            let stamped = (tp.transfer)(&c.cx(f)).abcd();
             let measured = measure_abcd(&dut, domains, 1, f, [Load::Short, Load::Open]);
             for (m, s) in measured.iter().zip(&stamped) {
                 assert!(

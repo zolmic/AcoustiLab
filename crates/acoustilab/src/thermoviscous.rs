@@ -13,6 +13,7 @@
 //! `tests/thermoviscous.rs` (references from `tools/refgen/thermo_refs.py`).
 
 use crate::air::AirState;
+use crate::mna::Transfer;
 use crate::special::{shape_circle, shape_rect, shape_slit, Shape};
 use crate::C64;
 
@@ -115,6 +116,13 @@ pub fn abcd(section: &Section, air: &AirState, omega: f64, length: f64) -> [C64;
     let gl = gamma * length;
     let (ch, sh) = (gl.cosh(), gl.sinh());
     [ch, zc * sh, sh / zc, ch]
+}
+
+/// Transfer matrix of a uniform duct with the growth e^{Re Γl} factored out,
+/// for stamping (see [`Transfer`]).
+pub fn transfer(section: &Section, air: &AirState, omega: f64, length: f64) -> Transfer {
+    let (gamma, zc) = propagation(section, air, omega);
+    Transfer::line(gamma * length, zc)
 }
 
 /// Series impedance of a duct treated as lumped (L0): jωρ_eff·l/S, i.e. the

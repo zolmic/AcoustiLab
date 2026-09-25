@@ -597,6 +597,88 @@ fn leak_macro_rejects_bad_input() {
 }
 
 #[test]
+fn micron_leak_gaps_solve_at_level_1() {
+    // A pad leak of a few µm is a very lossy line: Re Γl ∝ sqrt(f)/gap
+    // reaches 33 inside the audio band (1 µm at 1.6 kHz, 2 µm at 6.4 kHz,
+    // 3 µm at 14.5 kHz), where the transmission-form rows lost the input
+    // relation and the solve was reported singular. It is stamped in
+    // admittance form there.
+    let doc = |gap_um: f64, level: u8| {
+        json!({"schema": "acoustilab-netlist/0.2",
+               "sweep": {"f_min_Hz": 10, "f_max_Hz": 20000, "points_per_octave": 96},
+               "level": level,
+               "nodes": [{"id": "a", "domain": "acoustic"}],
+               "elements": [
+                   {"id": "src", "type": "flow_source", "node": "a", "U_m3_per_s": 1e-6},
+                   {"id": "c", "type": "cavity", "node": "a", "volume_cm3": 80},
+                   {"id": "leak", "type": "leak", "nodes": ["a", "ambient"], "perimeter_mm": 245,
+                    "depth_mm": 10, "gap_mm": gap_um * 1e-3, "segments": 8}],
+               "probes": [{"id": "p", "quantity": "pressure", "node": "a"},
+                          {"id": "u", "quantity": "flow", "element": "leak", "port": 0}]})
+    };
+    for gap_um in [1.0, 2.0, 3.0] {
+        let c0 = Circuit::from_json(&doc(gap_um, 0).to_string()).unwrap();
+        let c1 = Circuit::from_json(&doc(gap_um, 1).to_string()).unwrap();
+        let r0 = c0.solve().unwrap();
+        let r1 = c1
+            .solve()
+            .unwrap_or_else(|e| panic!("{gap_um} µm at L1: {e}"));
+        let at = |r: &acoustilab::SolveResult, id: &str, i: usize| r.probe(id).unwrap().values[i];
+        // The cavity sets the pressure at 10 Hz: the levels agree there to
+        // within the leak's share of the flow (1e-5 to 1e-4; the leak is
+        // already past its lumped limit, so its two models differ).
+        let (p0, p1) = (at(&r0, "p", 0), at(&r1, "p", 0));
+        assert!((p1 / p0 - 1.0).norm() < 1e-4, "{gap_um} µm: {p1} vs {p0}");
+        // The leak itself agrees below its lumped-validity frequency: the
+        // inertance error |tan x/x − 1| ≈ |x|²/3 is 10 % there and 1 % at a
+        // tenth of it (x² ∝ f).
+        let begin = c0
+            .validity()
+            .into_iter()
+            .find(|l| l.element == "leak")
+            .and_then(|l| l.begin_hz)
+            .unwrap();
+        let y = |c: &Circuit, f: f64| {
+            let x = c.solve_at(f).unwrap();
+            let cx = c.cx(f);
+            let leak = c.element_index("leak").unwrap();
+            let u = c.elements[leak]
+                .port_flow(&cx, &x, &c.branches(leak), 0)
+                .unwrap();
+            u / c.node_value(&x, "a").unwrap()
+        };
+        let f = begin / 10.0;
+        let (y0, y1) = (y(&c0, f), y(&c1, f));
+        assert!(
+            (y1 / y0 - 1.0).norm() < 0.012,
+            "{gap_um} µm at {f} Hz: {y1} vs {y0}"
+        );
+        // At 20 kHz each segment's line is matched: its input impedance is
+        // Z_c plus the inner end's mass, whatever terminates it.
+        let n = r1.freqs_hz.len() - 1;
+        let f = r1.freqs_hz[n];
+        let omega = 2.0 * PI * f;
+        let (g, w) = (gap_um * 1e-6, 245e-3 / 8.0);
+        let (gamma, zc) = acoustilab::thermoviscous::propagation(
+            &acoustilab::thermoviscous::Section::Slit { gap: g, width: w },
+            &c1.air,
+            omega,
+        );
+        assert!(gamma.re * 10e-3 > 30.0, "{gap_um} µm: Γl {}", gamma * 10e-3);
+        let z_end = C64::new(
+            0.0,
+            omega * c1.air.rho * slit_end_correction(g, w) / (g * w),
+        );
+        let matched = 8.0 / (zc + z_end);
+        let y1 = at(&r1, "u", n) / at(&r1, "p", n);
+        assert!(
+            (y1 / matched - 1.0).norm() < 1e-12,
+            "{gap_um} µm: {y1} vs {matched}"
+        );
+    }
+}
+
+#[test]
 fn slit_end_correction_closed_form() {
     // Square piston: ∬∬ dS dS'/|r − r'| = 2.97321 for a unit square
     // (checked by direct quadrature in tools), so δ = 2.97321/(2π).

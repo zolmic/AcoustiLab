@@ -29,7 +29,7 @@ use super::{
 use crate::air::AirState;
 use crate::diag::Operating;
 use crate::error::Result;
-use crate::mna::{abcd_mul, abcd_series, potential, Mna, Unknown};
+use crate::mna::{abcd_series, potential, Mna, Transfer, Unknown};
 use crate::netlist::Domain;
 use crate::thermoviscous::{self, Section};
 use crate::units::{Dim, Params};
@@ -191,13 +191,14 @@ impl Duct {
     }
 
     /// Transfer matrix of the distributed representation (all copies).
-    pub fn abcd(&self, air: &AirState, omega: f64) -> [C64; 4] {
+    pub fn transfer(&self, air: &AirState, omega: f64) -> Transfer {
         let s = self.section.area();
-        let half_end = abcd_series(C64::new(0.0, omega * air.rho * 0.5 * self.end_length / s));
-        let line = thermoviscous::abcd(&self.section, air, omega, self.length);
-        let [a, b, c, d] = abcd_mul(abcd_mul(half_end, line), half_end);
-        let n = self.count as f64;
-        [a, b / n, c * n, d]
+        let half_end = Transfer::from(abcd_series(C64::new(
+            0.0,
+            omega * air.rho * 0.5 * self.end_length / s,
+        )));
+        let line = thermoviscous::transfer(&self.section, air, omega, self.length);
+        (half_end * line * half_end).parallel(self.count as f64)
     }
 
     /// Validity of the lumped (L0) representation: where the inertance
@@ -311,13 +312,16 @@ impl DuctModel {
         self.duct.lumped_impedance(air, omega) + self.end_resistance(air, omega)
     }
 
-    pub fn abcd(&self, air: &AirState, omega: f64) -> [C64; 4] {
-        let line = self.duct.abcd(air, omega);
+    pub fn transfer(&self, air: &AirState, omega: f64) -> Transfer {
+        let line = self.duct.transfer(air, omega);
         if self.end_rs == 0.0 {
             return line;
         }
-        let half = abcd_series(C64::new(0.5 * self.end_resistance(air, omega), 0.0));
-        abcd_mul(abcd_mul(half, line), half)
+        let half = Transfer::from(abcd_series(C64::new(
+            0.5 * self.end_resistance(air, omega),
+            0.0,
+        )));
+        half * line * half
     }
 }
 
@@ -353,7 +357,7 @@ fn duct_part(
             type_name,
             port1: (n1, None),
             port2: (n2, None),
-            abcd: Box::new(move |cx: &FreqCx| model.abcd(cx.air, cx.omega)),
+            transfer: Box::new(move |cx: &FreqCx| model.transfer(cx.air, cx.omega)),
             limits,
         })
     };
@@ -701,11 +705,11 @@ impl Element for Leak {
             mna.admittance(self.n1, self.n2, self.lumped_admittance(cx.air, cx.omega));
         } else {
             for (i, d) in self.segments.iter().enumerate() {
-                mna.two_port_abcd(
+                mna.two_port(
                     (self.n1, None),
                     (self.n2, None),
                     (br[2 * i], br[2 * i + 1]),
-                    d.abcd(cx.air, cx.omega),
+                    &d.transfer(cx.air, cx.omega),
                 );
             }
         }

@@ -437,3 +437,92 @@ fn rect_duct_limits_are_reported() {
         assert!((deep("Stinson") / stinson_bound(1e-3) - 1.0).abs() < 1e-12);
     }
 }
+
+#[test]
+fn long_lossy_line_input_impedance_tends_to_zc() {
+    // Narrow tube, slit and rectangle, 10 mm long, whose Re Γl runs from
+    // about 1 at 10 Hz to about 50 at 20 kHz. Transmission-form rows lose
+    // the input relation once cosh Γl nears 1/ε, and with another element
+    // on the driven node (here a cavity, as for a pad leak) the system was
+    // reported singular; above Re Γl = 10 the line is stamped in admittance
+    // form. The input impedance at the line's port must match the closed
+    // form across the switch, with the far end shorted and with a
+    // compliance load, and tend to Z_c whatever the load.
+    let air = AirState::spec_reference();
+    let length = 10e-3;
+    let ducts = [
+        (
+            json!({"type": "tube", "radius_mm": 0.0015}),
+            Section::Circle { radius: 1.5e-6 },
+        ),
+        (
+            json!({"type": "slit", "gap_mm": 0.002, "width_mm": 30}),
+            Section::Slit {
+                gap: 2e-6,
+                width: 30e-3,
+            },
+        ),
+        (
+            json!({"type": "rect_duct", "side_a_mm": 0.0025, "side_b_mm": 0.025}),
+            Section::Rect {
+                a: 2.5e-6,
+                b: 25e-6,
+            },
+        ),
+    ];
+    let volume = 1e-6;
+    let freqs: Vec<f64> = (0..=60)
+        .map(|i| 10.0 * 2000f64.powf(i as f64 / 60.0))
+        .collect();
+    for (duct, sec) in &ducts {
+        let (mut lo, mut hi) = (f64::INFINITY, 0.0f64);
+        for far in ["ambient", "b"] {
+            let mut d = duct.clone();
+            d["id"] = json!("line");
+            d["nodes"] = json!(["a", far]);
+            d["length_mm"] = json!(length * 1e3);
+            let doc = json!({
+                "air": {"preset": "spec_reference"},
+                "sweep": {"frequencies_Hz": freqs},
+                "level": 1,
+                "nodes": [{"id": "a", "domain": "acoustic"}, {"id": "b", "domain": "acoustic"}],
+                "elements": [
+                    {"id": "u", "type": "flow_source", "node": "a", "U_m3_per_s": 1e-6},
+                    {"id": "front", "type": "cavity", "node": "a", "volume_cm3": 1},
+                    d,
+                    {"id": "load", "type": "cavity", "node": "b", "volume_cm3": volume * 1e6,
+                     "wall_loss": false}
+                ],
+                "probes": [{"id": "z", "quantity": "impedance", "element": "line", "port": 0}]
+            });
+            let c = Circuit::from_json(&doc.to_string()).unwrap();
+            let res = c.solve().unwrap_or_else(|e| panic!("{duct} to {far}: {e}"));
+            let z = res.probe("z").unwrap();
+            for (&f, &zin) in freqs.iter().zip(&z.values) {
+                let omega = 2.0 * PI * f;
+                let (g, zc) = propagation(sec, &air, omega);
+                let gl = g * length;
+                (lo, hi) = (lo.min(gl.re), hi.max(gl.re));
+                let t = acoustilab::special::tanh(gl);
+                let exact = if far == "ambient" {
+                    zc * t
+                } else {
+                    let zl = (C64::new(0.0, omega) * volume / air.bulk_modulus()).inv();
+                    zc * (zl + zc * t) / (zc + zl * t)
+                };
+                assert!(
+                    rel(zin, exact) < 1e-9,
+                    "{duct} to {far} at {f} Hz: {zin} vs {exact}"
+                );
+                if gl.re > 30.0 {
+                    assert!(
+                        rel(zin, zc) < 1e-12,
+                        "{duct} to {far} at {f} Hz: {zin} vs Zc {zc}"
+                    );
+                }
+            }
+        }
+        // The sweep spans both stamping forms and the formerly singular band.
+        assert!(lo < 2.0 && hi > 40.0, "{duct}: Re Γl from {lo} to {hi}");
+    }
+}

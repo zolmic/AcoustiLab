@@ -16,7 +16,7 @@
 use super::{Build, Constructor, Element, FreqCx};
 use crate::air::AirState;
 use crate::error::{Error, Result};
-use crate::mna::{abcd_mul, abcd_shunt, potential, Mna, Unknown};
+use crate::mna::{abcd_shunt, potential, Mna, Transfer, Unknown};
 use crate::modes::{self, Face, Footprint, Mode, Patch, Shape};
 use crate::netlist::Domain;
 use crate::thermoviscous::{self, Section};
@@ -155,7 +155,7 @@ impl Cavity {
     }
 
     /// Transfer matrix face 1 → face 2 at L1.
-    fn line_abcd(&self, air: &AirState, omega: f64) -> [C64; 4] {
+    fn line_transfer(&self, air: &AirState, omega: f64) -> Transfer {
         let (s, p) = self
             .geometry
             .cross_section()
@@ -166,19 +166,20 @@ impl Cavity {
             let k = omega / air.c;
             let zc = air.rho_c() / s;
             let (ch, sh) = (C64::new((k * d).cos(), 0.0), C64::new(0.0, (k * d).sin()));
-            return [ch, zc * sh, sh / zc, ch];
+            return Transfer::from([ch, zc * sh, sh / zc, ch]);
         }
         let section = Section::Equivalent {
             area: s,
             perimeter: p * self.surface_factor,
         };
-        let line = thermoviscous::abcd(&section, air, omega, d);
+        let line = thermoviscous::transfer(&section, air, omega, d);
         // Thermal loss on each end face: extra compliance
         // (γ−1)·δt·S·(1 − j)/(2γP0), as a shunt admittance.
         let dc = (air.gamma - 1.0) * air.thermal_layer(omega) * s * self.surface_factor
             / (2.0 * air.bulk_modulus());
         let y_end = jw * dc * C64::new(1.0, -1.0);
-        abcd_mul(abcd_mul(abcd_shunt(y_end), line), abcd_shunt(y_end))
+        let end = Transfer::from(abcd_shunt(y_end));
+        end * line * end
     }
 }
 
@@ -206,11 +207,11 @@ impl Element for Cavity {
     fn stamp(&self, cx: &FreqCx, mna: &mut Mna, br: &[usize]) {
         match self.n2 {
             Some(n2) if self.distributed(cx.level) => {
-                mna.two_port_abcd(
+                mna.two_port(
                     (self.n1, None),
                     (n2, None),
                     (br[0], br[1]),
-                    self.line_abcd(cx.air, cx.omega),
+                    &self.line_transfer(cx.air, cx.omega),
                 );
             }
             Some(n2) => {
