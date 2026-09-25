@@ -285,6 +285,60 @@ fn generic_text_with_headers_units_and_decimal_commas() {
 }
 
 #[test]
+fn spreadsheet_and_analyser_quirks() {
+    // A lone CR ends a line (spreadsheet "CSV (Macintosh)" exports).
+    let c = import("Freq(Hz),SPL(dB)\r20,80\r40,81\r", Format::Csv, None).unwrap();
+    assert_eq!(c.freqs_hz, vec![20.0, 40.0]);
+    // The frequency need not be the first column when the header names it.
+    let c = import(
+        "SPL (dB),Frequency (Hz)\n80.5,20\n81,40\n",
+        Format::Csv,
+        None,
+    )
+    .unwrap();
+    assert_eq!(c.freqs_hz, vec![20.0, 40.0]);
+    assert!((c.level_db()[0] - 80.5).abs() < 1e-12);
+    let c = import(
+        "Index,Frequency (Hz),SPL (dB)\n0,20,80\n1,40,81\n",
+        Format::Csv,
+        None,
+    )
+    .unwrap();
+    assert_eq!(c.freqs_hz, vec![20.0, 40.0]);
+    // Comma-and-space delimiters with whole numbers on the first line are
+    // not decimal commas.
+    let c = import(
+        "Frequency (Hz), SPL (dB), Phase (deg)\n20, 85, 0\n25.5, 86.1, 1.5\n",
+        Format::Csv,
+        None,
+    )
+    .unwrap();
+    assert_eq!(c.freqs_hz, vec![20.0, 25.5]);
+    assert!((c.level_db()[1] - 86.1).abs() < 1e-12);
+    // A row of bare units under the names; a trailing delimiter.
+    let c = import(
+        "Frequency;Level;Phase\nHz;dB;deg\n20;80,5;10;\n40;81;-5;\n",
+        Format::Csv,
+        None,
+    )
+    .unwrap();
+    assert_eq!(c.quantity, Quantity::Pressure);
+    assert_eq!(c.phase_deg, Some(vec![10.0, -5.0]));
+    // A title line that happens to begin with "Frequency" is not a header
+    // that hides the data columns.
+    let c = import(
+        "Frequency response of prototype A\n20 80\n40 81\n",
+        Format::Frd,
+        None,
+    )
+    .unwrap();
+    assert!((c.level_db()[1] - 81.0).abs() < 1e-12);
+    // A NaN row is an error naming its line, not a silently dropped point.
+    let e = import("Freq(Hz)\tSPL(dB)\n20\t80\n40\tNaN\n", Format::Csv, None).unwrap_err();
+    assert_eq!(e.line, Some(3), "{e}");
+}
+
+#[test]
 fn sorts_and_merges_duplicate_frequencies() {
     let c = import(
         "* unsorted\n300 3 0\n100 1 0\n200 2 0\n100 1 0\n",

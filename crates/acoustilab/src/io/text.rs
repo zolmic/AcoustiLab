@@ -12,7 +12,8 @@
 //! Reading rules:
 //!
 //! * Lines starting with `*`, `#`, `;`, `%`, `'`, `!` or `//` are comments,
-//!   blank lines are skipped, and a UTF-8 byte-order mark is ignored.
+//!   blank lines are skipped, and a UTF-8 byte-order mark is ignored. Lines
+//!   end at LF, CR LF or a lone CR.
 //! * A data line begins with a number. As in REW, other lines are text and
 //!   are ignored, and anything after the last number of a data line is a
 //!   comment. Every data line must have the same count of numbers.
@@ -24,7 +25,9 @@
 //!   `1.234,5` (digit grouping) is rejected as ambiguous.
 //! * The column header is the last text or comment line before the data
 //!   whose first field names the frequency (`Freq(Hz)`, `frequency_Hz`,
-//!   `Frequency [kHz]`, `f`). Units in parentheses, brackets or a `_unit`
+//!   `Frequency [kHz]`, `f`), or that names it in another field and has one
+//!   field per data column and no numbers. Units in parentheses, brackets
+//!   or a `_unit`
 //!   suffix set the scale: Hz or kHz; dB, ohm, Pa, m, mm, µm, m/s, mm/s;
 //!   degrees or radians. Columns named `re`/`real` and `im`/`imag` give a
 //!   complex value. Without a header the columns are frequency, magnitude
@@ -150,7 +153,10 @@ fn starts_with_number(t: &str) -> bool {
 }
 
 fn decimal_comma_number(tok: &str) -> bool {
+    // "20," in "20, 65.1" is a number followed by a comma delimiter.
     tok.contains(',')
+        && !tok.ends_with(',')
+        && !tok.starts_with(',')
         && !tok.contains('.')
         && tok.matches(',').count() == 1
         && tok.replace(',', ".").parse::<f64>().is_ok()
@@ -367,7 +373,11 @@ fn role_of(tok: &str) -> Role {
     }
     match unit {
         Some(r @ Role::Mag(_)) => r,
-        _ => Role::Other,
+        // A header row of bare units under the names (`Hz;dB;deg`).
+        _ => match parse_unit(name) {
+            Some(r @ (Role::Mag(_) | Role::Phase { .. })) => r,
+            _ => Role::Other,
+        },
     }
 }
 
@@ -410,6 +420,9 @@ fn rew_header(comments: &[String]) -> Option<RewHeader> {
 /// otherwise.
 pub fn import(text: &str, format: Format, quantity: Option<Quantity>) -> Result<Curve, CurveError> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    // CR LF (Windows) and a lone CR (classic Mac, still written by some
+    // spreadsheet exports) end a line as LF does.
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
     let lines: Vec<(usize, &str)> = text
         .lines()
         .enumerate()
@@ -422,10 +435,10 @@ pub fn import(text: &str, format: Format, quantity: Option<Quantity>) -> Result<
             CurveError::new("no data: no line begins with a number (see docs/fitting.md, formats)")
         })?;
     let (delim, mut decimal_comma) = sniff(lines[first_data].1);
-    // Comments and text before the data; the header is the last of them
-    // whose first field names the frequency.
+    // Comments and text before the data; the header is chosen from them
+    // once the data's column count is known.
     let mut comments = Vec::new();
-    let mut header: Option<(usize, Vec<Role>, Vec<String>)> = None;
+    let mut candidates: Vec<(usize, Vec<String>)> = Vec::new();
     for &(no, t) in &lines[..first_data] {
         if t.is_empty() {
             continue;
@@ -443,8 +456,8 @@ pub fn import(text: &str, format: Format, quantity: Option<Quantity>) -> Result<
                 _ => toks.push(f.to_string()),
             }
         }
-        if toks.len() >= 2 && matches!(role_of(&toks[0]), Role::Freq { .. }) {
-            header = Some((no, toks.iter().map(|x| role_of(x)).collect(), toks));
+        if toks.len() >= 2 {
+            candidates.push((no, toks));
         }
     }
     // Data lines.
@@ -494,9 +507,23 @@ pub fn import(text: &str, format: Format, quantity: Option<Quantity>) -> Result<
         rows.push(Row { line: no, nums });
     }
     let ncol = rows[0].nums.len();
+    // The header is the last text line before the data whose first field
+    // names the frequency, or which names it in another field and has one
+    // field per data column and no numbers (`SPL (dB),Frequency (Hz)`).
+    let is_freq = |t: &String| matches!(role_of(t), Role::Freq { .. });
+    let header: Option<(usize, Vec<Role>)> = candidates
+        .iter()
+        .rev()
+        .find(|(_, toks)| {
+            is_freq(&toks[0])
+                || (toks.len() == ncol
+                    && toks.iter().any(is_freq)
+                    && !toks.iter().any(|t| unquote(t).parse::<f64>().is_ok()))
+        })
+        .map(|(no, toks)| (*no, toks.iter().map(|x| role_of(x)).collect()));
     // Column roles.
     let roles: Vec<Role> = match &header {
-        Some((_, r, _)) => (0..ncol)
+        Some((_, r)) => (0..ncol)
             .map(|i| r.get(i).copied().unwrap_or(Role::Other))
             .collect(),
         None => {
