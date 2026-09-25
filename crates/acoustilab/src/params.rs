@@ -602,10 +602,7 @@ impl Parametric {
 
     /// As [`Self::values`], plus the names each derived parameter actually
     /// read while being evaluated (`if` reads only the branch it takes).
-    fn values_and_reads(
-        &self,
-        overrides: &Overrides,
-    ) -> Result<(Vec<(String, PValue)>, Reads)> {
+    fn values_and_reads(&self, overrides: &Overrides) -> Result<(Vec<(String, PValue)>, Reads)> {
         for (name, v) in overrides {
             let def = self
                 .def(name)
