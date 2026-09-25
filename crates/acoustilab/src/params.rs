@@ -39,7 +39,9 @@ pub enum Dist {
     Normal,
     /// Uniform over ± the tolerance.
     Uniform,
-    /// Log-normal: ln(value) normal, with ±tolerance (relative) at 2σ.
+    /// Log-normal: ln(value) normal with its median at the value and
+    /// σ = ln(1 + rel)/2, so value·(1 + rel) and value/(1 + rel) are the 2σ
+    /// points (docs/parameters.md).
     Lognormal,
 }
 
