@@ -15,6 +15,7 @@ import { EXAMPLES, hasParameters } from './examples';
 import { DesignPanel } from './design';
 import { formatHz, formatNumber, formatParam, formatValue, prettyUnit } from './format';
 import { declaredValues, paramDeclSpan, scan, setParams } from './jsonscan';
+import { ReadoutsBlock } from './readouts';
 import { lineKey } from './keys';
 import { PlotPanel, RANGE_AUDIO, RANGE_FULL } from './plot';
 import { buildGroups, sameGrid, valueAt, type PlotGroup } from './series';
@@ -497,6 +498,9 @@ const baselines = new Baselines(
   () => regroup(),
 );
 
+/** Readouts of the plotted design (and their Δ against the reference baseline), on their own worker. */
+const readoutsBlock = new ReadoutsBlock($('readouts'));
+
 /** Default name of a snapshot: the parameters that differ from the template. */
 function defaultBaselineName(): string {
   const described = paramsDoc !== null && paramsText === solvedText && paramsDoc.parameters.length > 0;
@@ -528,6 +532,7 @@ function regroup(): void {
   renderLegend();
   renderReadout(panel.cursor, false);
   if (!tableWrap.hidden) renderTable();
+  readoutsBlock.show(solvedText, baselines.reference);
 }
 
 // ----- errors ---------------------------------------------------------------
@@ -1184,6 +1189,11 @@ function hostFor(v: MountedView): ViewHost {
     setParameters: (values) => applyParams(values),
     announce: (message) => {
       viewStatus.textContent = message;
+    },
+    highlight: (range) => panel.setHighlight(range),
+    focusParameter: (name) => {
+      selectTab('design');
+      design.focusParam(name);
     },
   };
 }

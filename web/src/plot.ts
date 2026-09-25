@@ -1,7 +1,7 @@
 // Canvas 2D plots sharing one log-frequency axis, validity shading and a
 // crosshair (spec Sections 2 and 15).
 
-import type { OverlaySeries, PlotGroup, Series } from './series';
+import type { BandSeries, OverlaySeries, PlotGroup, Series } from './series';
 import { DASHES, LIVE_WIDTH, OVERLAY_DASHES, OVERLAY_MIX, OVERLAY_WIDTH, PRIMARY_WIDTH, styleSlot } from './series';
 import {
   formatHzTick,
@@ -148,11 +148,12 @@ export class Plot {
     this.figure.append(this.caption, this.canvas);
   }
 
-  describe(visible: Series[], overlays: OverlaySeries[]): void {
+  describe(visible: Series[], overlays: OverlaySeries[], bands: BandSeries[] = []): void {
     const ids = visible.map((s) => (s.primary ? `${s.id} (primary)` : s.id)).join(', ') || 'no visible curves';
     const names = [...new Set(overlays.map((o) => `“${o.name}”`))];
     const label =
       `${this.group.title} ${this.group.symbol} ${this.unitEl.textContent ?? ''} against frequency: ${ids}` +
+      (bands.length ? `; filled ranges: ${bands.map((b) => b.label).join(', ')}` : '') +
       (names.length ? `; frozen baselines, drawn as thin patterned lines: ${names.join(', ')}` : '') +
       '. Arrow keys move the crosshair; values are read out above the plots and listed in the data table.';
     if (this.canvas.getAttribute('aria-label') !== label) this.canvas.setAttribute('aria-label', label);
@@ -173,7 +174,7 @@ export class Plot {
     return Math.exp(Math.log(lo) + t * (Math.log(hi) - Math.log(lo)));
   }
 
-  private axis(visible: Series[], overlays: OverlaySeries[], freqs: number[], lo: number, hi: number): Axis {
+  private axis(visible: Series[], overlays: OverlaySeries[], bands: BandSeries[], freqs: number[], lo: number, hi: number): Axis {
     const g = this.group;
     let vmin = Infinity;
     let vmax = -Infinity;
@@ -188,6 +189,10 @@ export class Plot {
     };
     for (const s of visible) scan(freqs, s.values);
     for (const o of overlays) scan(o.freqs, o.values);
+    for (const b of bands) {
+      scan(freqs, b.lower);
+      scan(freqs, b.upper);
+    }
     if (!(vmax >= vmin)) {
       vmin = g.scale === 'log' ? 1 : 0;
       vmax = g.scale === 'log' ? 10 : 1;
@@ -309,9 +314,10 @@ export class Plot {
     const r = this.plotRect();
     const visible = this.group.series.filter((s) => !hidden.has(s.id));
     const overlays = this.group.overlays.filter((o) => !hidden.has(o.id));
-    const ax = this.axis(visible, overlays, data.freqs, lo, hi);
+    const bands = (this.group.bands ?? []).filter((b) => !hidden.has(b.id));
+    const ax = this.axis(visible, overlays, bands, data.freqs, lo, hi);
     if (this.unitEl.textContent !== `(${ax.unitText})`) this.unitEl.textContent = `(${ax.unitText})`;
-    this.describe(visible, overlays);
+    this.describe(visible, overlays, bands);
 
     ctx.fillStyle = th.bg;
     ctx.fillRect(0, 0, this.cssW, this.cssH);
@@ -519,6 +525,40 @@ export class Plot {
       }
     };
     ctx.lineJoin = 'round';
+    // Filled ranges under everything else: each run of grid points where
+    // both edges exist is one polygon; its edges are thin lines in the full
+    // colour (>= 3:1 against the surface), which the faint fill is not.
+    for (const b of bands) {
+      const lower = trace(f, b.lower, i0, i1);
+      const upper = trace(f, b.upper, i0, i1);
+      const color = th.series[styleSlot(b.probe).color];
+      ctx.globalAlpha = b.alpha;
+      ctx.fillStyle = color;
+      let k = 0;
+      while (k < lower.length) {
+        while (k < lower.length && !(lower[k] && upper[k])) k++;
+        const a = k;
+        while (k < lower.length && lower[k] && upper[k]) k++;
+        if (k - a < 2) continue;
+        ctx.beginPath();
+        for (let q = a; q < k; q++) (q === a ? ctx.moveTo : ctx.lineTo).call(ctx, upper[q]![0], upper[q]![1]);
+        for (let q = k - 1; q >= a; q--) ctx.lineTo(lower[q]![0], lower[q]![1]);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      if (b.edge) {
+        ctx.setLineDash(b.edge);
+        ctx.lineCap = 'butt';
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        for (const p of [lower, upper]) {
+          tracePath(p);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+      }
+    }
     // Baselines first, thin and patterned, so live curves stay on top.
     for (const o of overlays) {
       const [a, b] = range(o.freqs);
