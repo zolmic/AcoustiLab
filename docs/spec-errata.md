@@ -161,3 +161,21 @@ corrected statement. "p." is the PDF page.
 - **E43 — companion service.** Browsers have no LAN-discovery API, and Local
   Network Access, mixed-content and TLS rules apply. Use a paired or user-entered
   endpoint with token authentication.
+
+## Found by the analysis package
+
+- **E47 — explain panel from sensitivities (pp. 13, 52).** The spec generates
+  the explain sentences "from the adjoint sensitivities and the solved
+  curves". A 10 % change is not small near the coupled resonance, so a
+  linearised change can be wrong by several decibels, and even in sign. For
+  a resonance of quality Q, a relative frequency shift δ leaves the level at
+  the old peak unchanged to first order, but lowers it by
+  10·log10(1 + (2Qδ)²) in fact. The linear model holds only while 2Qδ ≪ 1.
+  On `examples/design_over_ear.json` (in-situ Qts ≈ 6), sensitivity × 100·ln 1.1
+  against a re-solve at +10 %, in the credible band:
+  - Sd predicts +4.57 dB at 973 Hz, where the re-solve gives −0.22 dB.
+  - Mms predicts +0.73 dB at 919 Hz, where the re-solve gives −0.63 dB.
+  - Front radius predicts −0.50 dB, where the re-solve gives −1.50 dB.
+
+  The engine generates the sentences from re-solves (`docs/analysis.md`).
+  Sensitivities in dB per percent describe small changes only.
