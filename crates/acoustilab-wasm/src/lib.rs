@@ -198,3 +198,60 @@ pub fn reconstruct_target(baseline_spec: &str, options_json: &str) -> String {
         options_json,
     ))
 }
+
+// ----- Curves, fitting and the virtual rig (docs/fitting.md) -----------------
+//
+// JSON in, JSON out; logic and error shapes in `fit.rs`.
+
+pub mod fit;
+
+/// Reads an FRD, ZMA, REW text or CSV file into a curve document. `options`
+/// is a format name (`auto`, `frd`, `zma`, `rew`, `csv`) or
+/// `{"format", "quantity", "sidecar"}`.
+#[wasm_bindgen]
+pub fn import_curve(text: &str, options: &str) -> String {
+    install_panic_hook();
+    api::to_string(&fit::import_curve_value(text, options))
+}
+
+/// Writes a curve document as `format` (`frd`, `zma`, `rew`, `csv`):
+/// `{"format", "extension", "text", "sidecar"}`.
+#[wasm_bindgen]
+pub fn export_curve(curve_json: &str, format: &str) -> String {
+    install_panic_hook();
+    api::to_string(&fit::export_curve_value(curve_json, format))
+}
+
+/// Checks that two curves were measured under the same conditions
+/// (fixture, compensation, drive, ...); `allow_json` lists fields to
+/// ignore.
+#[wasm_bindgen]
+pub fn compare_curves(a_json: &str, b_json: &str, allow_json: &str) -> String {
+    install_panic_hook();
+    api::to_string(&fit::compare_curves_value(a_json, b_json, allow_json))
+}
+
+/// Fits netlist parameters to curves (`acoustilab-fit/0.1` spec); returns
+/// the fit report. Bounded by the spec's `max_iterations` and
+/// `max_evaluations`.
+#[wasm_bindgen]
+pub fn fit(netlist_json: &str, spec_json: &str) -> String {
+    install_panic_hook();
+    api::to_string(&fit::fit_value(netlist_json, spec_json))
+}
+
+/// A synthetic measurement from the virtual rig: `{"curve", "format",
+/// "extension", "text", "sidecar"}`.
+#[wasm_bindgen]
+pub fn virtual_measure(netlist_json: &str, spec_json: &str) -> String {
+    install_panic_hook();
+    api::to_string(&fit::virtual_measure_value(netlist_json, spec_json))
+}
+
+/// Probe `probe` of the solved netlist (with parameter overrides, "" for
+/// none) as a curve document with a `simulated` sidecar.
+#[wasm_bindgen]
+pub fn probe_curve(netlist_json: &str, overrides_json: &str, probe: &str) -> String {
+    install_panic_hook();
+    api::to_string(&fit::probe_curve_value(netlist_json, overrides_json, probe))
+}

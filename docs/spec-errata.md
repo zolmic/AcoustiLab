@@ -203,3 +203,32 @@ corrected statement. "p." is the PDF page.
     third-party curves.
   - AES Express Papers are reviewed on a summary, so the source is
     classed as research, not peer-reviewed.
+
+## Found by the fitting package
+
+- **E50 — scale-ambiguous parameters (p. 44).** "After an impedance-only fit
+  the tool marks Bl, Mms and Cms as scale-ambiguous" leaves out Rms. The
+  impedance Re + Bl²/(jωMms + Rms + 1/(jωCms)) is unchanged by Bl → α·Bl,
+  Mms → α²·Mms, Cms → Cms/α² only if also Rms → α²·Rms: the data fix Bl²/Rms,
+  not Rms, as the spec's own list of determined combinations says. With an
+  acoustic load Sd²·Z_a the invariance holds with Sd → α·Sd, so Sd is
+  scale-ambiguous too when it is fitted. Verified numerically: an
+  impedance-only fit has one null singular direction, (1, 2, −2, 2)/√13 in
+  ln (Bl, Mms, Cms, Rms) (`tests/fit.rs`,
+  `impedance_only_fit_flags_the_bl_scale_ambiguity`). The engine marks all
+  four, and Sd when fitted.
+- **E51 — known coupler volume (p. 44).** A known volume resolves the scale
+  only together with a second impedance under another known volume, usually
+  free air, and a known Sd. In a sealed
+  volume of compliance Ca the mechanical impedance is
+  jωMms + Rms + 1/(jω·C_tot) with 1/C_tot = 1/Cms + Sd²/Ca, so the impedance
+  in the box alone again determines only three combinations, Bl²/Mms,
+  Bl²/Rms and Bl²·C_tot, of the four unknowns. With the free-air Bl²·Cms = A
+  and the box's Bl²·C_tot = B, Bl² = B·(Sd²/Ca)/(1 − B/A). The engine counts
+  the known-volume method only for impedance curves under two conditions that
+  differ in a cavity on the driver's face, with Sd not fitted.
+  - With the box alone, Cms > 0 bounds Bl only from below,
+    Bl² > B·Sd²/Ca. In a box much stiffer than the suspension the
+    linearised intervals then make Bl look determined while Cms is not
+    (checked on `examples/driver_bench.json` with a 20 cm³ box), so the
+    rule, not the singular values, decides.
