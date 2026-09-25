@@ -353,6 +353,220 @@ with its value, the loaded template's value, and whether the netlist uses it
 with an open back, is marked unused), plus the resolved elements
 (`meta.elements`).
 
+#### Time, Isolation and Fit views
+
+Three views run the engine's time-domain, isolation and fitting exports
+(docs/time-domain.md, docs/isolation.md, docs/fitting.md) on the view's own
+worker, for the netlist as last solved (a note says so when the text has
+been edited since). They share `views/measure-kit.ts` and
+`views/measure.css`:
+
+- **Figures.** A figure is a plot panel with its view buttons, a legend
+  (show or hide each curve), a crosshair readout above the plots (moves
+  made with the keyboard are announced through `announce`) and a data
+  table of the values in view (at most 1000 rows, with a validity column on
+  frequency axes). Frequency figures are `PlotPanel`s of `plot.ts`, with the
+  validity shading of the result the numbers come from; time figures use
+  `views/time-plot.ts` (below).
+- **Calls.** Reports that follow the design are requested when the tab is
+  shown and whenever the solved text or an option changes; as for the live
+  solve, at most one call per kind is in flight and only the newest request
+  waits. A status line with a progress bar, the elapsed time and Cancel
+  shows while they run. A cancel terminates the view's worker (the only way
+  to stop a wasm call); reports another job's cancel interrupted are
+  requested again.
+- **Jobs** (attribution, fit, suggestion) have their own status line: a
+  determinate bar when the job knows its length, else an indeterminate one.
+- **Focus.** Re-rendering a section (a curve card, the Apply table, the
+  pole table) keeps the keyboard focus on the same control, else on the
+  section's heading.
+- Read-only test hooks: `window.acoustilabViews.time`, `.isolation`, `.fit`.
+
+**Time** (`time.view.ts`, `time-plot.ts`, `time-wav.ts`): the `impulse` and
+`vector_fit` exports for one probe.
+
+- Options: the probe (default: the engine's choice, `ui.primary_probe`,
+  else the first pressure probe), N (4096, 8192, 16 384: the export's
+  limit), the sample rate (48 or 96 kHz), the fit order (1–80, default 30)
+  and removal of the pure delay from the mixed-phase response
+  (`align_delay`). A summary line states the probe's unit and drive, N, fs,
+  the buffer's length and start, the bin spacing, the solved band and the
+  continuation above it.
+- **Phase decision** (Section 16): mode, the largest excess group delay and
+  where, the pure-delay estimate, the largest excess less the pure delay,
+  the threshold, the trusted band and its bins, the polarity, and the fit's
+  right-half-plane zeros in the decision band.
+- **Impulse length (E46)**: the causal half N/(2·fs), the binding and the
+  lowest resonant pole with the length each needs, whether N covers them,
+  the recommended N (a button sets it when the export allows it), the DC
+  tail (`dc_tail`), the late energy of both phases, the energy above the
+  solved band and "causal to −80 dB". The engine's `time_axis` and
+  `scaling` sentences are in a disclosure.
+- **Impulse, step and energy-time curve** on a linear time axis
+  (`time-plot.ts`): minimum and mixed phase as two curves, the decision's
+  mode drawn heavier and tagged in the legend (which hides either). The
+  plots behave as `plot.ts` does: theme tokens, a crosshair with markers,
+  the same keys (arrows by a sample, Shift by ten, +/−, Ctrl+arrows, 0,
+  Esc, Home/End), drag to zoom, double-click to reset. Views: the peak from
+  −2 to +20 ms (default) and the whole buffer. The energy-time axis spans
+  at most 120 dB below its top (the engine floors the curve at −300 dB). A
+  view with more samples than pixels is drawn as each pixel column's
+  minimum and maximum, which keeps every oscillation's envelope.
+- **Excess group delay** of the uniform grid (bin 0 left out) with lines at
+  ± the threshold drawn over the trusted band only, and the **group delay
+  of the rational fit** (`group_delay_s` on the solve's grid) with the fit's
+  order, band, iterations and errors, both on the log-frequency axis with
+  the validity shading.
+- **Poles, zeros and Q**: every pole with its frequency, pair or real, Q,
+  T60, weight, in band and resonant (resonant rows bold); "Mark" picks out
+  the pole's frequency on both frequency plots (a narrow highlighted range
+  with a label; `aria-pressed`). The zeros with their half-plane are in a
+  disclosure.
+- **Attribution** on request: `vector_fit` with `attribute: true` as a job
+  with Cancel. The export makes one call of it (a re-fit per continuous
+  parameter, about 0.6 s for the template), so its progress bar is
+  indeterminate. Per resonant pole: the parameters that move it most with
+  d ln f/d ln p, d ln Q/d ln p and the elements that use them, or the
+  elements with fixed values when no parameter moves it; the perturbed and
+  skipped parameters with the reasons are in a disclosure. A new design or
+  option clears it.
+- **WAV**: the impulse response of the decision's phase (or either phase)
+  as 32-bit IEEE-float WAV in the layout of the engine's writer
+  (`crates/acoustilab/src/time/wav.rs`: a `fmt ` chunk of 18 bytes with
+  tag 3 and a `fact` chunk). The wasm build does not export that writer,
+  so `time-wav.ts` writes the same bytes. Normalised to a peak of 1 as
+  `acoustilab ir --wav` does, or raw. The file starts at t0 (the
+  pre-samples hold negative times); the note under the button states the
+  first sample's time and the gain.
+
+**Isolation** (`isolation.view.ts`): the `isolation` export.
+
+- Options: the drum-point probe (default `ui.primary_probe`), the ear
+  entrance node (default: inferred), per-path contributions (on), and the
+  bleed at 0.3 m and 1 m (off; on request).
+- The engine's convention statement (`convention`) is shown as it is, at
+  the top, with the outside pressure (1 Pa, in phase at every ambient
+  terminal). The transformation's warnings (`undriven_path`, `no_ambient`,
+  ...) are listed with their code and element.
+- A summary over the 1/3-octave bands (ETSI TS 103 640, 5.1.1: the largest
+  loss and its band, the bands with at least 6 dB, the mean) and the ear
+  (drum probe and node, entrance, ear-load elements, driven paths). The
+  engine's `range_6dB_Hz` runs from the lowest to the highest band with at
+  least 6 dB; bands between them with less are named with their loss.
+- One figure: the insertion loss (in phase, and with the paths added in
+  power when there are two or more) with the GRAS 45CA self-insertion loss
+  drawn as a limit (its stated lower bounds over their bands; legend tag
+  "limit"); each path's contribution in dB re the open-ear drum pressure;
+  the open and occluded drum SPL for 94 dB outside. Under it, the fixture
+  record's source and the frequencies where the prediction exceeds the
+  bound, grouped into ranges of consecutive grid points.
+- The 1/3-octave bands as a table with bars: nominal and exact centre
+  frequency, IL, a bar from 0 dB, and the fixture's bound for that nominal
+  band (the datasheet's "80 Hz" is the band centred on 79.4 Hz). A bar above
+  the bound is hatched and its row says "(exceeded)".
+- Bleed: the SPL at each distance and the same curves ±`band_dB` (dashed
+  and dotted, in the distance's colour), with the drive and the engine's
+  model statement.
+
+**Fit** (`fit.view.ts`, `fit-curves.ts`, `fit-report.ts`): the measurement
+round trip of spec Section 12 with `import_curve`, `export_curve`,
+`compare_curves`, `probe_curve`, `fit`, `virtual_measure` and
+`curve_uncertainty`.
+
+- **Import**: "Choose files…" or drag and drop onto the drop zone (files
+  dropped elsewhere on the view are refused, not opened by the browser). FRD,
+  ZMA, REW text (`.txt`, `.dat`), CSV, or a curve document (JSON), each
+  paired by name with its `FILE.sidecar.json`; a sidecar dropped alone
+  applies to the loaded curve of that name. The format follows the
+  extension as the engine's `Format::from_path` does, unless chosen; the
+  quantity comes from the file unless chosen. A curve document is put in
+  the engine's canonical form through a lossless CSV. Files that cannot be
+  read are listed with the file name, the engine's message and the
+  offending line quoted.
+- **Each curve** has a card: its origin (a "VIRTUAL RIG · synthetic, not
+  measured" badge, a marked card and a "(virtual rig)" series name for
+  virtual-rig data: a sidecar with origin `virtual_rig`, or a file whose
+  comments carry the view's virtual-rig mark or the engine's REW
+  "Source: virtual rig" line, so a rig file read without its sidecar is
+  still labelled), what its sidecar states, and its fit settings: the
+  probe it is compared with (probes of the same quantity; default the
+  rig's probe, else `ui.primary_probe`), weight, phase (default: fitted for
+  impedance, displacement and velocity, not for pressure), level offset,
+  measurement condition (`name=value` overrides, e.g. an added mass) and
+  whether it is used. "Edit sidecar" opens a form over the common fields
+  (fixture, simulator, reference point, calibration, seatings, averaging,
+  smoothing, compensation, drive, source impedance, constant uncertainty
+  terms); fields it does not show are kept. The form and "Load sidecar
+  JSON…" re-read the curve through `import_curve`, so the engine validates
+  every field.
+- **Compatibility**: `compare_curves` against the model's probe as the
+  netlist solves it (`probe_curve`) names each blocking field with both
+  sides' statements. Each can be allowed explicitly (the allowance is
+  passed to the check, and for `compensation` to the fit); a curve that is
+  still blocked keeps the fit from running, and the Run button says why.
+- **Plot per curve**: the measured level (dB SPL for pressure, else the
+  linear magnitude), ± its combined standard uncertainty from the sidecar
+  budget (`curve_uncertainty`, below; 1σ), and the model: the probe solved
+  at the curve's frequencies and, for a level curve, at the drive its
+  sidecar states (as the fit does), under the curve's condition. After a
+  fit: the model with the fitted values, plus the curve's fitted level
+  offset when it has one (as the fit compares them), and the level (and
+  phase) residuals from the report. The phase is plotted where the fit uses
+  it.
+- **Fit set-up**: free parameters are the netlist's continuous parameters
+  (none by default; those the netlist does not use are disabled). "Suggest"
+  fits each used parameter alone for one step from its netlist value as a
+  job, and lists the engine's status for each (driver parameters fitted to
+  pressure curves alone are refused, and the engine's reason is shown); a
+  button frees the ones determined alone. Band (default 10 Hz–20 kHz), an
+  iteration cap (default 100) and the SPL-only override.
+- **The fit job** runs `fit` in calls of at most 4 iterations, each
+  starting from the previous report's `fitted` values with the `scale` the
+  first call chose for each parameter (docs/fitting.md, "Bounded runtime":
+  the engine picks a default scale from the start value, so a linear
+  parameter starting at 0 would otherwise turn log once resumed, changing
+  its interval and status), with progress (iterations of the cap, reduced
+  χ², the current values) and Cancel. It stops when a call converges, the
+  evaluations run out or the cap is reached; a run stopped by the cap, or
+  cancelled after a step, can be continued from its fitted values
+  ("Continue", up to the cap again). A refusal (`fit_refused`) is shown
+  with the engine's message.
+- **Report**: how it stopped (converged with the engine's reason, stopped
+  at the cap, or cancelled) with the iterations and evaluations over all
+  calls, χ², what the data were (virtual-rig curves, differences from the
+  model that were allowed), the summary sentences, the parameters
+  (start of the first call, fitted value, 95 % interval, status, scale,
+  driver roles, notes), level offsets, residual statistics per curve, the
+  singular values and every named direction, the Section 12 findings with
+  what would resolve them, the correlation matrix and the warnings.
+- **Apply** lists the fitted parameters that are number parameters of the
+  current netlist with their value now, the fitted value and the change;
+  the determined and weakly determined ones are checked. It repeats what the
+  data were, and checks nothing when the fit allowed a difference from the
+  model other than the drive (a fixture, simulator, reference point,
+  compensation or source impedance: the fitted values absorb it), or when
+  the netlist has changed since the fit in more than the fitted parameters'
+  value tokens (the values belong to the earlier netlist). "Apply fitted
+  values" writes the checked ones through `setParameters` (the value
+  tokens only; the text is otherwise unchanged) and says what it wrote.
+- **Virtual rig**: probe, band, points per octave, seed, file format, noise
+  (level, phase, seatings, averaging, repositioning and its delay, sensor
+  offset and slope, coupler ripple) and true values that differ from the
+  netlist. The result can be downloaded (the data file and
+  `FILE.sidecar.json`) and read back ("Load as a measurement" reads the
+  file text with its sidecar, as a dropped pair is read). The data file is
+  the engine's text with one comment line added, `VIRTUAL RIG: synthetic
+  data from the AcoustiLab virtual rig, not a measurement (probe, seed, true
+  values)`, after the engine's first header line (`*`), or first with `#`
+  in a CSV; a virtual curve's CSV export carries the same mark.
+
+The views' engine export beyond the analysis ones is
+`curve_uncertainty(curve_json)` (`crates/acoustilab-wasm/src/measure.rs`):
+`{"frequencies_Hz", "seatings", "level_dB", "phase_deg"}`, the combined
+standard uncertainty of the level (dB, 1σ) and phase (degrees) at each of
+the curve's frequencies from its sidecar budget averaged over its seatings
+(`Uncertainty::level_db` and `phase_deg`; null without such a term).
+
 ### Other behaviour
 
 - **Examples.** Every `examples/*.json` of the repository is bundled at build
@@ -572,7 +786,76 @@ closed-form netlists):
 9. axe-core in light and dark themes; Tab reaches the example picker, Run,
    the tabs, the editor, the legend and the plots.
 
-The Rust side (`cargo test -p acoustilab-wasm`) tests the JSON API natively.
+`time.spec.ts`, `isolation.spec.ts` and `fit.spec.ts` test the Time,
+Isolation and Fit views. `measure.helpers.ts` loads the same wasm build in
+Node, so "the export's numbers" come from calling the engine directly, not
+through the page.
+
+- **Time.** An acoustic RC high-pass (100 Hz): the mixed-phase IR shown in
+  the readout at 1, 2, 4 and 8 ms equals −(1/RC)·e^{−t/RC}·dt within 1e-3
+  of ωc·dt (observed about 1e-5), the step e^{−t/RC} within 1 % (the running
+  sum is a rectangle rule, 0.65 % low), and the decision is "minimum
+  phase"; the view's buffers equal the export's. The WAV is parsed byte by
+  byte: the engine writer's header, and every sample equal to the float32 of
+  the export's IR divided by its peak (raw: the IR itself). A series M–R–C
+  resonance (f0 = 1 kHz, Q = 5): one resonant pole, shown as 1.000 kHz,
+  Q 5.000 and T60 = ln(1000)·2Q/ω0; the group delay read out at six
+  frequencies equals (1/(ω0Q))·(1 + x²)/((1 − x²)² + x²/Q²) within 1e-3;
+  "Mark" sets the highlight on both frequency plots, and every pixel it
+  changes lies within 6 px of x(1 kHz). Attribution on the template equals
+  the export's (top parameter and d ln f/d ln p per pole; the 936 Hz pole
+  goes to the diaphragm area); a cancel at once leaves the reports in
+  place. Every tick label drawn on the time plots reads as its tick's value
+  (ticks every 2.5 ms and 2.5 Pa on the template; `tickDecimals` of
+  `format.ts` also checked alone). Keyboard crosshair, zoom, reset and Esc;
+  axe in both themes; 390 px.
+- **Isolation.** On `closed_cup_isolation`, the view's report equals the
+  export's; the summary (the 100 and 125 Hz bands below 6 dB inside the
+  engine's 6 dB range named), all 30 band rows and the readouts at four
+  frequencies show its numbers; the IL curve's y positions at those four
+  points lie on one linear dB axis (0.75 px), the curve's colour is found
+  on it at each point with the crosshair hidden, and the fixture's 65 dB
+  bound is drawn on the same axis over 350 Hz–4 kHz. A leak rewired to the
+  reference is warned `undriven_path`; the bleed readouts equal the export
+  and ±6 dB; `sealed_cup` (no drum probe) shows the engine's refusal. axe
+  in both themes with the bleed shown; 390 px.
+- **Fit.** The rig's files equal the engine's `virtual_measure` output
+  (the data file with the virtual-rig comment line after its first line);
+  read back through the file picker as a pair, a leak measured at 0.12 mm
+  and fitted from the template's 0.08 mm is determined with 0.12 inside
+  its 95 % interval, in more than one resumed call, agreeing with one
+  unbounded engine call to a tenth of an sd; the report shows those
+  values and that the data are synthetic; "Apply" from the keyboard makes
+  the netlist text equal to the template with exactly that value token
+  replaced (and keeps the focus), and after a further edit of another
+  value Apply proposes nothing. On `driver_bench` (two rig impedance
+  curves, one with a 300 mg test mass as its condition, six parameters,
+  Le_uH starting at 0): a run capped at 4 iterations says it stopped at
+  the cap, "Continue" converges, and both that run and an uncapped one in
+  bounded calls report every parameter's scale, status, value (1e-6) and
+  sd (1e-3) as one engine call does; Le_uH stays linear. With a sensor
+  offset in the rig, the fitted model drawn is `probe_curve` at the fitted
+  values plus the report's offset. The rig's data file read alone under
+  another name is still labelled virtual-rig data, and its CSV export
+  carries the mark; a file dropped beside the drop zone is refused.
+  "Load as a measurement": the band is 0.1 dB/√4 seatings = 0.05 dB, the
+  model curve equals `probe_curve` at the curve's frequencies and drive.
+  Malformed files (a short line, a repeated frequency, no data, a sidecar
+  with an unknown key, broken JSON) are each listed with the file and, where
+  the engine gives one, the line; a pair dropped on the drop zone is read.
+  A fixture and drive difference blocks the fit until both are allowed;
+  fitted so, the report and Apply name the fixture difference (not the
+  drive) and Apply proposes nothing; the suggestion finds the leak
+  determined and driver parameters refused;
+  a driver parameter on SPL alone is refused with the engine's reason; a
+  running fit can be cancelled. axe in both themes with a report and the
+  sidecar form open; the focus stays on a setting that re-renders its
+  card; 390 px.
+
+The Rust side (`cargo test -p acoustilab-wasm`) tests the JSON API natively,
+including `curve_uncertainty` against the closed form of the combined
+uncertainty (a tabulated term interpolated in ln f and held beyond its
+ends, per-seating terms averaged down).
 
 ## Not implemented yet
 
@@ -595,6 +878,29 @@ The Rust side (`cargo test -p acoustilab-wasm`) tests the JSON API natively.
   compact pinned SPL plot would fix it); no per-group ordering hint, so the
   vents sit under the driver's seven parameters; the input history of the
   editor (undo) is lost when a control rewrites the text.
+- **Time view.** No SOFA or plant export, no hybrid filter (minimum phase
+  above the validity limit, Section 16), no choice of the pre-samples (the
+  WAV starts at t0; the export's `pre_samples` is not offered), no state
+  space. The attribution's progress is indeterminate: the export perturbs
+  every parameter in one call.
+- **Isolation view.** Only the fixture record the engine embeds (GRAS
+  45CA); no occlusion effect or diffuse-field reference (engine limits,
+  docs/isolation.md).
+- **Fit view.** Not offered: multi-start (`starts`), fit-wide overrides,
+  a band per curve, parameter bounds and scales other than the declared
+  ones, and editing tabulated uncertainty terms or the provenance in the
+  form (they are kept). Each resumed call restarts the optimiser's damping
+  and the level offsets from their defaults (the fit spends an iteration
+  or two of each call re-fitting the offsets; on the review's cases, the
+  template's leak, depth and rear volume with and without offsets, the
+  over-ear case study and a driver bench, the resumed runs ended where one
+  call ends, to 1e-6); and a linear-scale parameter without both bounds
+  has its unit, max(|start|, 1), taken from each call's start, which moves
+  the floor of its relative uncertainty (every example's linear parameters
+  have both bounds). The engine's warning "run again from the fitted values"
+  is what "Continue" does. The suggestion checks one parameter at a time,
+  so parameters determined alone may still be correlated in a joint fit
+  (the report's directions say so). Curves live in the page only.
 - From spec Section 15 and the rest of the interface chapter: the schematic
   view, live L0 recompute with ghost curves while a higher level solves,
   a pinned inspection frequency, smoothing, target curves, the explain
