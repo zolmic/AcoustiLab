@@ -74,7 +74,7 @@
       "tolerance": {"abs": 0.5, "source": "estimate (pad compression)"}},
     "concha_volume_cm3": {"value": 4.3, "min": 0, "max": 8, "step": 0.1,
       "label": "Concha volume", "group": "Front chamber",
-      "description": "Concha cavity joined to the front chamber at the ear. Burkhard and Sachs measured a mean of 4.65 cm3 for men and 3.94 cm3 for women (SD 0.76 and 0.81), as quoted in US 8,638,963. With the Type 4.3 ear, 0.68 cm3 of the concha bottom is already part of the ear load.",
+      "description": "Concha cavity joined to the front chamber at the ear. Burkhard and Sachs measured a mean of 4.65 cm3 for men and 3.94 cm3 for women (SD 0.76 and 0.81), as quoted in US 8,638,963. With the Type 4.3 ear, the 0.68 cm3 between its reference plane and its entrance point (the outer canal and the bottom of the concha) is already part of the ear load.",
       "tolerance": {"abs": 1.6, "source": "Burkhard and Sachs (2 SD), as quoted in US 8,638,963"}},
     "front_volume_cm3": {"expr": "pi * pad_inner_radius_mm^2 * front_depth_mm / 1000 + concha_volume_cm3",
       "label": "Front volume", "group": "Front chamber",
