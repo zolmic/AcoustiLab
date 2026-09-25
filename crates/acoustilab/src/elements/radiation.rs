@@ -2,15 +2,21 @@
 //!
 //! `baffle: "infinite"` (default) is the exact rigid piston in an infinite
 //! baffle, Z = ρc/S·[1 − 2J1(2ka)/(2ka) + j·2H1(2ka)/(2ka)]. Its low-ka
-//! reactance is the 8a/3π end correction. `baffle: "free"` is the
-//! low-frequency approximation of an unflanged opening: half the resistance
-//! and the 0.6133a end correction (Levine & Schwinger), marked approximate.
+//! limit is R = (ka)²/2·ρc/S with the 8a/3π end correction.
+//!
+//! `baffle: "free"` is the open end of an unflanged, thin-walled circular
+//! pipe: the exact Levine–Schwinger (1948) solution for the plane mode,
+//! evaluated numerically (`special::unflanged_pipe`), Z = ρc/S·tanh(A/2 +
+//! j·ka·L/a) with |R| = e^{−A}. Its low-ka limit is R = (ka)²/4·ρc/S with
+//! the end correction L = 0.6127a (Levine & Schwinger printed 0.6133a). It
+//! is exact below the first axisymmetric cut-on ka = j₁,₁ = 3.83; above
+//! ka = 3.8 it is a passive continuation, flagged by the validity limit.
 
 use super::acoustic::acoustic_terminals;
 use super::{Build, Constructor, Element, FreqCx, OnePort};
 use crate::air::AirState;
 use crate::error::Result;
-use crate::special::{piston_r1, piston_x1};
+use crate::special::{piston_r1, piston_x1, unflanged_pipe, J1_FIRST_ZERO};
 use crate::units::Dim;
 use crate::validity::ValidityLimit;
 use crate::C64;
@@ -31,6 +37,13 @@ pub enum Baffle {
     Free,
 }
 
+/// Fraction of the cut-on ka = j₁,₁ at which the `free` validity shading
+/// begins: approaching cut-on, the evanescent (0,1) mode reaches further
+/// into the pipe (its decay length is a/sqrt(j₁,₁² − (ka)²), 0.6a here), so
+/// nearby discontinuities start to interact with the opening. A modelling
+/// judgement, not a computed error level.
+const FREE_SHADING_BEGIN: f64 = 0.9;
+
 /// Acoustic radiation impedance (Pa·s/m³) of a circular aperture.
 pub fn radiation_impedance(baffle: Baffle, radius: f64, air: &AirState, omega: f64) -> C64 {
     let s = PI * radius * radius;
@@ -39,10 +52,8 @@ pub fn radiation_impedance(baffle: Baffle, radius: f64, air: &AirState, omega: f
     match baffle {
         Baffle::Infinite => z0 * C64::new(piston_r1(2.0 * ka), piston_x1(2.0 * ka)),
         Baffle::Free => {
-            // Half the baffled resistance; reactance scaled to the 0.6133a
-            // end correction. Valid for ka ≲ 0.5.
-            let scale = 0.6133 / (8.0 / (3.0 * PI));
-            z0 * C64::new(0.5 * piston_r1(2.0 * ka), scale * piston_x1(2.0 * ka))
+            let (attenuation, end) = unflanged_pipe(ka);
+            z0 * crate::special::tanh(C64::new(0.5 * attenuation, ka * end))
         }
     }
 }
@@ -66,12 +77,12 @@ fn radiation(mut b: Build) -> Result<Box<dyn Element>> {
     let (n1, n2) = acoustic_terminals(&b)?;
     let id = b.id.clone();
     let limits = if baffle == Baffle::Free {
-        let f = 0.5 * b.air.c / (2.0 * PI * radius);
+        let f = J1_FIRST_ZERO * b.air.c / (2.0 * PI * radius);
         vec![ValidityLimit {
             element: id.clone(),
-            criterion: "unflanged radiation approximation (ka < 0.5)",
-            begin_hz: Some(f),
-            deep_hz: Some(2.0 * f),
+            criterion: "unflanged pipe radiation: first axisymmetric cut-on (ka = 3.83)",
+            begin_hz: Some(FREE_SHADING_BEGIN * f),
+            deep_hz: Some(f),
         }]
     } else {
         Vec::new()

@@ -88,6 +88,10 @@ impl Duct {
             Section::Slit { gap, width } => {
                 (air.c / (2.0 * width), validity::stinson_bound(0.5 * gap))
             }
+            Section::Rect { a, b } => (
+                air.c / (2.0 * a.max(b)),
+                validity::stinson_bound(0.5 * a.min(b)),
+            ),
             Section::Equivalent { area, perimeter } => {
                 let r = 2.0 * area / perimeter;
                 (

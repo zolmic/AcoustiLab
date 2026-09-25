@@ -4,12 +4,16 @@
 //! Time convention e^{+jωt}. With k_v = sqrt(jωρ/μ) and k_t = k_v·sqrt(Pr):
 //!   ρ_eff = ρ / (1 − F(k_v s)),   K_eff = γP0 / (1 + (γ−1) F(k_t s)),
 //! where s is the half-gap h/2 for slits and the radius a for circles, and
-//! F is the shape function of `special`. A uniform duct of area S and
-//! length l has Γ = jω sqrt(ρ_eff/K_eff), Z_c = sqrt(ρ_eff K_eff)/S and the
-//! transfer matrix [[cosh Γl, Z_c sinh Γl], [sinh Γl / Z_c, cosh Γl]].
+//! F is the shape function of `special` (a function of k and both sides for
+//! rectangles). A uniform duct of area S and length l has
+//! Γ = jω sqrt(ρ_eff/K_eff), Z_c = sqrt(ρ_eff K_eff)/S and the transfer
+//! matrix [[cosh Γl, Z_c sinh Γl], [sinh Γl / Z_c, cosh Γl]].
+//!
+//! The model is checked against an independent mpmath implementation in
+//! `tests/thermoviscous.rs` (references from `tools/refgen/thermo_refs.py`).
 
 use crate::air::AirState;
-use crate::special::{shape_circle, shape_slit, Shape};
+use crate::special::{shape_circle, shape_rect, shape_slit, Shape};
 use crate::C64;
 
 /// Duct cross-section.
@@ -25,6 +29,11 @@ pub enum Section {
     /// thin-boundary-layer limit (loss proportional to perimeter/area); use
     /// only where the boundary layers are thin compared with the section.
     Equivalent { area: f64, perimeter: f64 },
+    /// Rectangular duct with sides `a` and `b` (full lengths, both finite),
+    /// using Stinson's (1991) double-series shape function; see
+    /// [`shape_rect`]. It tends to the slit of gap min(a, b) as the aspect
+    /// ratio grows.
+    Rect { a: f64, b: f64 },
 }
 
 impl Section {
@@ -33,28 +42,37 @@ impl Section {
             Section::Circle { radius } => std::f64::consts::PI * radius * radius,
             Section::Slit { gap, width } => gap * width,
             Section::Equivalent { area, .. } => area,
+            Section::Rect { a, b } => a * b,
         }
     }
 
     /// The transverse dimension that enters the shape function: radius for
-    /// circles, half-gap for slits, 2A/P for equivalent sections.
+    /// circles, half-gap for slits, 2A/P for equivalent sections. For
+    /// rectangles, where both sides enter, it is half the shorter side (the
+    /// half-gap of the limiting slit).
     pub fn shape_length(&self) -> f64 {
         match *self {
             Section::Circle { radius } => radius,
             Section::Slit { gap, .. } => 0.5 * gap,
             Section::Equivalent { area, perimeter } => 2.0 * area / perimeter,
+            Section::Rect { a, b } => 0.5 * a.min(b),
         }
     }
 
-    fn shape(&self, z: C64) -> Shape {
-        match self {
-            Section::Circle { .. } | Section::Equivalent { .. } => shape_circle(z),
-            Section::Slit { .. } => shape_slit(z),
+    /// Shape function for the complex wavenumber `k` (k_v or k_t).
+    pub fn shape(&self, k: C64) -> Shape {
+        match *self {
+            Section::Circle { .. } | Section::Equivalent { .. } => {
+                shape_circle(k * self.shape_length())
+            }
+            Section::Slit { .. } => shape_slit(k * self.shape_length()),
+            Section::Rect { a, b } => shape_rect(k, a, b),
         }
     }
 
     /// Shear wavenumber: transverse dimension over the viscous layer, using
-    /// the radius for circles and the half-gap for slits.
+    /// the radius for circles, the half-gap for slits and half the shorter
+    /// side for rectangles.
     pub fn shear_wavenumber(&self, air: &AirState, omega: f64) -> f64 {
         self.shape_length() * (omega * air.rho / air.mu).sqrt()
     }
@@ -71,9 +89,8 @@ pub fn medium(section: &Section, air: &AirState, omega: f64) -> DuctMedium {
     let j = C64::new(0.0, 1.0);
     let kv = (j * omega * air.rho / air.mu).sqrt();
     let kt = kv * air.prandtl.sqrt();
-    let s = section.shape_length();
-    let visc = section.shape(kv * s);
-    let therm = section.shape(kt * s);
+    let visc = section.shape(kv);
+    let therm = section.shape(kt);
     DuctMedium {
         rho_eff: air.rho / visc.one_minus,
         k_eff: air.bulk_modulus() / (1.0 + (air.gamma - 1.0) * therm.f),

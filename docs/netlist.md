@@ -90,3 +90,58 @@ sources are the exception: they report the flow they deliver, so an
 
 Results report every probe as complex RMS values, plus magnitude and phase.
 Acoustic pressures also report dB SPL re 20 µPa.
+
+## Radiation loads and duct cross-sections
+
+### `radiation`
+
+| `baffle` | model | low-ka limit | validity |
+|---|---|---|---|
+| `infinite` (default) | Rigid piston in an infinite baffle: Z = ρc/S·[1 − 2J1(2ka)/(2ka) + j·2H1(2ka)/(2ka)], exact at all ka | R = (ka)²/2·ρc/S, end correction 8a/(3π) = 0.8488a | no limit |
+| `free` | Open end of an unflanged, thin-walled circular pipe: the Levine & Schwinger (1948) Wiener–Hopf solution for the plane mode, evaluated numerically. Z = ρc/S·tanh(A/2 + j·ka·L/a), where \|R\| = e^{−A} and L is the end correction | R = (ka)²/4·ρc/S, L = 0.6127a | exact below ka = j₁,₁ = 3.8317. Shading begins at 0.9·j₁,₁ and deepens at j₁,₁ |
+
+Notes on `free`:
+
+- Levine & Schwinger printed the low-frequency end correction as 0.6133a, but
+  their integral evaluates to 0.61270a (`tools/refgen/radiation_refs.py`,
+  mpmath). The value 0.6127 is also reported in AIP Conf. Proc. 2195, 020034
+  (2019). The tube's `outlet: "unflanged"` end correction still uses 0.6133a.
+- Above ka = 3.8 the element continues with the fitted formulae of Silva et al.,
+  J. Sound Vib. 322, 255–263 (2009), Eqs. (21)–(22), scaled to be continuous
+  at 3.8. They keep it passive and smooth; they are not a model of the pipe
+  there, since higher modes propagate.
+- Up to ka = 3 the numerical solution agrees with the Silva et al. fits to
+  within 0.9 % in |R| and 2.9 % in L. The paper claims under 2 %.
+
+Accuracy of the numerics, checked against mpmath (`tools/refgen/`,
+`crates/acoustilab/tests/special_functions.rs`):
+
+| quantity | agreement |
+|---|---|
+| R1, X1 of the baffled piston, 0 ≤ 2ka ≤ 500 | ≤ 5e-15 relative |
+| −ln\|R\| and L/a of the unflanged pipe, 0 ≤ ka ≤ 3.8 | ≤ 1e-14 relative |
+
+### Duct cross-sections (`thermoviscous::Section`)
+
+`tube` uses `Circle` and `slit` uses `Slit`. Two-node cavities use
+`Equivalent`. The engine API also offers `Rect { a, b }`, a rectangular duct
+with both sides finite (full side lengths). It uses Stinson's (1991)
+double-series shape function, summed in closed form over one index. For
+Re(k·min(a, b)) > 42 it uses its exact boundary-layer form
+F = P/(kA) − 16/(πk²A), whose remainder is of order e^{−k·min(a,b)}. `Rect`
+has no netlist element type yet.
+
+| section | shape length (shear wavenumber) | Poiseuille limit (L0 oracle) |
+|---|---|---|
+| `Circle { radius }` | radius a | R = 8μl/(πa⁴), M = (4/3)·ρl/S |
+| `Slit { gap, width }` | gap/2 | R = 12μl/(w h³), M = (6/5)·ρl/S |
+| `Rect { a, b }` | min(a, b)/2 | R = 12μl/(w h³)/[1 − (192h/(π⁵w))·Σ_{n odd} tanh(nπw/2h)/n⁵] (h ≤ w). A square gives R = 28.45μl/a⁴ and M = 1.378·ρl/S |
+| `Equivalent { area, perimeter }` | 2A/P | circle at radius 2A/P; correct only when the boundary layer is thin |
+
+For a `Rect`, the first transverse mode is set by the longer side, as for a
+slit's width. The Stinson bound uses half the shorter side.
+
+The duct model is checked against an independent mpmath implementation for
+circles, slits and rectangles. The shear wavenumbers are 0.1 to 1000.
+ρ_eff, K_eff, Γ, Z_c and the ABCD matrix agree to better than 1e-13
+(`tests/thermoviscous.rs`).
