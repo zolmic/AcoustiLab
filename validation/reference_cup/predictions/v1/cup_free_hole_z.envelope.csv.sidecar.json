@@ -1,0 +1,23 @@
+{
+  "schema": "acoustilab-curve-sidecar/0.1",
+  "quantity": "impedance",
+  "fixture": "free air",
+  "smoothing": "none",
+  "drive": {
+    "power_mW": 0.01,
+    "rated_ohm": 32.0
+  },
+  "source_impedance_ohm": 0.0,
+  "compensation": "none",
+  "reference_point": "terminals",
+  "temperature_C": 23.0,
+  "date": "2026-09-25",
+  "device": "open reference cup, design (examples/reference_cup.json)",
+  "provenance": {
+    "origin": "simulated",
+    "source": "frozen blind prediction v1 of 'cup_free_hole_z' (configuration 'cup_free_hole'), Monte Carlo envelope of 200 Latin-hypercube runs (seed 20260925) over the tolerances of: driver_Re_ohm, driver_Mms_g, driver_Sd_cm2, driver_compliance_factor, driver_Bl_factor, driver_Rms_factor, driver_rear_boss_diameter_mm, diaphragm_setback_mm, lip_inner_diameter_mm, lip_thickness_mm, driver_gasket_mm, cup_inner_diameter_mm, pad_ring_width_mm, pad_ring_height_mm, gasket_compressed_mm, rear_depth_mm, back_plate_mm, rear_hole_diameter_mm, front_hole_diameter_mm, mesh_rayl; protocol 'Open reference cup: measurement session (spec Section 17)'",
+    "licence": "CC-BY-4.0",
+    "tool": "acoustilab 0.1.0"
+  },
+  "notes": "Columns: frequency_Hz; nominal, median, p5, p10, p90, p95, min, max in ohm; nominal, median, p5, p95, min, max of the phase in degrees; runs (successful Monte Carlo runs); shading (validity of the nominal solve: 0 none, 1 light, 2 dark; docs/netlist.md). Percentiles: linear interpolation between order statistics (numpy default). Cup in free air, rear plug hole, front plugs mesh. Overrides: {\"drive_mW\":0.01,\"fidelity\":1,\"front_plug\":\"mesh\",\"load\":\"cup_free_air\",\"rear_plug\":\"hole\",\"source_impedance_ohm\":0}."
+}
