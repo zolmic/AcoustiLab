@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/acoustilab", "crates/acoustilab-cli"]
+members = ["crates/acoustilab", "crates/acoustilab-cli", "crates/acoustilab-wasm"]
 
 [workspace.package]
 version = "0.1.0"

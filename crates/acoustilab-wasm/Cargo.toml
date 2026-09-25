@@ -1,0 +1,17 @@
+[package]
+name = "acoustilab-wasm"
+description = "WebAssembly (wasm-bindgen) bindings of the AcoustiLab engine for the web UI"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+# cdylib for wasm-bindgen; rlib so the JSON API is testable natively.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+acoustilab = { path = "../acoustilab" }
+serde_json.workspace = true
+# Keep in step with the wasm-bindgen CLI: web/scripts/build-wasm.sh reads the
+# locked version from Cargo.lock and refuses to run a mismatched CLI.
+wasm-bindgen = "0.2.128"

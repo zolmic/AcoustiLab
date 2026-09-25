@@ -2,3 +2,9 @@
 /private
 *.swp
 /.claude/worktrees/
+
+/crates/acoustilab-wasm/pkg
+/web/node_modules
+/web/dist
+/web/test-results
+/web/playwright-report
