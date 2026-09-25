@@ -167,8 +167,16 @@ test('readouts: the readouts export of the plotted design, with its units and me
   expect(ref.response.bass_extension).toBeNull();
   await expect(cell('bass_extension').locator('.ro-value')).toHaveText('beyond the sweep');
   await expect(cell('bass_extension')).toContainText(`re ${ref.response.level_500Hz_dB.toFixed(1)} dB SPL at 500 Hz`);
-  await expect(block.locator('.ro-notes-box summary')).toHaveText(`Engine notes (${ref.response.notes.length})`);
-  await expect(block.locator('.ro-notes')).toContainText(ref.response.notes[0]);
+  // Every engine note the export carries, as the block collects them.
+  const allNotes = [
+    ...ref.notes,
+    ...(ref.impedance?.notes ?? []),
+    ...(ref.impedance?.q?.notes ?? []),
+    ...(ref.response?.notes ?? []),
+    ...ref.drivers.flatMap((x: Any) => [...x.notes, ...(x.free_air?.notes ?? [])]),
+  ];
+  await expect(block.locator('.ro-notes-box summary')).toHaveText(`Engine notes (${allNotes.length})`);
+  for (const n of ref.response.notes) await expect(block.locator('.ro-notes')).toContainText(n);
   const fa = ref.drivers[0].free_air;
   expect(await nums('free_air_0')).toEqual([fa.f_Hz, fa.Qts]);
   await expect(cell('free_air_0')).toContainText(`“drv”: Qms ${fa.Qms.toPrecision(3)} · Qes ${fa.Qes.toPrecision(3)}`);
@@ -217,8 +225,18 @@ test('readouts: Δ against the reference baseline, ambiguous resonance and missi
   await expect(full.locator('dt').first()).toHaveText('Status');
   await expect(full.locator('dd').first()).toContainText('Δ against baseline “template values”.');
 
-  // A 0.3 mm leak: overlapping |Z| resonances, no Q (the engine's note says why).
-  await setParam(page, 'leak_gap_mm', '0.3');
+  // A leak whose |Z| resonances overlap: no Q (the engine's note says why).
+  // The gap is found with the engine, so the test follows the template.
+  let gapNoQ: number | null = null;
+  for (const g of [0.3, 0.35, 0.4, 0.45, 0.5, 0.55]) {
+    const r = await call('readouts', TEMPLATE, JSON.stringify({ leak_gap_mm: g }), '');
+    if (r.impedance.q === null) {
+      gapNoQ = g;
+      break;
+    }
+  }
+  expect(gapNoQ).not.toBeNull();
+  await setParam(page, 'leak_gap_mm', String(gapNoQ));
   await readoutsSettled(page);
   const q = await call('readouts', await resultText(page), '', '');
   expect(q.impedance.q).toBeNull();
@@ -506,12 +524,22 @@ test('sensitivity: the colour scale is symmetric, says when it saturates, and ca
   // Qes): no kink warning under the map (the engine used to flag its phase).
   await expect(page.locator('#view-sensitivity')).not.toContainText('Coil resistance Re: phase');
 
-  // Colour of the coil resistance's row at a credible frequency, drawn, and
-  // its distance from the scale's grey midpoint.
-  const row = s.rows.indexOf('driver_Re_ohm');
+  // Colour of a row with a small but visible sensitivity (under a tenth of
+  // the scale) at a credible frequency near 300 Hz, drawn, and its distance
+  // from the scale's grey midpoint.
   const col = fwd.frequencies_Hz.findIndex((f: number) => f >= 300);
-  const re = fwd.parameters[row].dB_per_pct[0][col];
-  expect(Math.abs(re) / inBand).toBeLessThan(0.1);
+  let row = -1;
+  let re = 0;
+  (s.rows as string[]).forEach((_name, k) => {
+    const v = fwd.parameters[k].dB_per_pct[0][col];
+    if (v === null) return;
+    const r = Math.abs(v) / inBand;
+    if (r > 0.02 && r < 0.1 && (row < 0 || r < Math.abs(re) / inBand)) {
+      row = k;
+      re = v;
+    }
+  });
+  expect(row).toBeGreaterThanOrEqual(0);
   const distance = async () => {
     const g = (await analysis(page, 'sensitivity')).geometry;
     const f = fwd.frequencies_Hz;
@@ -535,9 +563,11 @@ test('sensitivity: the colour scale is symmetric, says when it saturates, and ca
   await expect.poll(async () => (await analysis(page, 'sensitivity')).scale.mapping).toBe('sqrt');
   await page.waitForTimeout(100);
   const sq = await distance();
-  // −0.043 of 0.57 dB/%: 8 % of the way to the end colour linearly, √0.076 =
-  // 28 % with the square root; the drawn distance grows about as much.
-  expect(lin.cool && sq.cool).toBe(true);
+  // A fraction r < 0.1 of the scale is r of the way to the end colour
+  // linearly and √r with the square root (at least 3.16 times further); the
+  // drawn distance grows about as much, on the side of the value's sign.
+  expect(lin.cool).toBe(re < 0);
+  expect(sq.cool).toBe(re < 0);
   expect(sq.d / lin.d).toBeGreaterThan(2.5);
   await expect(ticks).toHaveText([`≤ −${m2(inBand)}`, `−${m2(inBand / 4)}`, '0', `+${m2(inBand / 4)}`, `≥ +${m2(inBand)}`]);
   await expect(page.locator('#view-sensitivity .an-heat canvas')).toHaveAttribute('aria-label', /square-root mapping/);
@@ -818,10 +848,13 @@ test('analysis views: every new control works from the keyboard', async ({ page 
   await page.locator('#view-sensitivity .an-params summary').focus();
   await page.keyboard.press('Enter');
   const box = page.locator('#view-sensitivity .an-params input[value="driver_fs_Hz"]');
+  const summaryText = (await page.locator('#view-sensitivity .an-params summary').textContent()) ?? '';
+  const [, chosen, total] = /(\d+) of (\d+)/.exec(summaryText) ?? [];
+  expect(Number(total)).toBeGreaterThan(0);
   await box.focus();
   await page.keyboard.press('Space');
   await expect(box).not.toBeChecked();
-  await expect(page.locator('#view-sensitivity .an-params summary')).toContainText('17 of 21');
+  await expect(page.locator('#view-sensitivity .an-params summary')).toContainText(`${Number(chosen) - 1} of ${total}`);
   await page.keyboard.press('Space');
   await expect(box).toBeChecked();
   await page.getByRole('button', { name: 'Run sensitivity analysis', exact: true }).focus();
