@@ -188,9 +188,18 @@
 .mv .data-table caption {
   white-space: normal;
 }
+/* Text cells wrap, so most tables fit a phone; the region scrolls otherwise. */
 .mv .data-table td,
 .mv .data-table th {
-  white-space: nowrap;
+  white-space: normal;
+  vertical-align: top;
+}
+.mv .data-table th[scope='row'],
+.mv .data-table thead th:first-child {
+  text-align: left;
+}
+.mv .data-table td:first-of-type {
+  text-align: right;
 }
 tr.mv-resonant th,
 tr.mv-resonant td {
@@ -286,13 +295,6 @@ button.mv-mark[aria-pressed='true'] {
 }
 .mv-drop p {
   margin: 0;
-}
-.mv-file {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  overflow: hidden;
 }
 
 .mv-curves {

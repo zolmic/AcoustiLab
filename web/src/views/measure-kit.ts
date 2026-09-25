@@ -80,7 +80,7 @@ export function select(options: [string, string][], value?: string): HTMLSelectE
 export function checkbox(label: string, checked = false): { wrap: HTMLLabelElement; input: HTMLInputElement } {
   const input = el('input', { attrs: { type: 'checkbox' } });
   input.checked = checked;
-  return { wrap: el('label', { class: 'check' }, input, ` ${label}`), input };
+  return { wrap: el('label', { class: 'check' }, input, el('span', { text: label })), input };
 }
 
 /** A term/description list from pairs (null descriptions are left out). */

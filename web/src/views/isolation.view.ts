@@ -400,7 +400,7 @@ class IsolationView implements ResultView {
     const t = table(
       `Insertion loss in the base-ten 1/3-octave bands of IEC 61260-1 (∫|p|² df over each band; bands entirely inside the sweep). ` +
         `Bars from 0 dB on a scale of ${bottom} to ${top} dB; the dashed mark is the fixture’s self-insertion-loss bound, and a hatched bar exceeds it.`,
-      ['Band (Hz)', 'Centre (Hz)', 'IL (dB)', 'Bar', 'Fixture bound (dB)'],
+      ['Band (Hz)', 'Centre (Hz)', 'IL (dB)', `Bar (${bottom} to ${top} dB)`, 'Fixture bound (dB)'],
       rows,
       { rowHead: true, cls: 'mv-bands' },
     );
