@@ -62,8 +62,37 @@ export interface PlotGroup {
   series: Series[];
   /** Baseline curves drawn under the live ones. */
   overlays: OverlaySeries[];
+  /** Filled ranges drawn under every curve (envelopes, tolerance bands). */
+  bands?: BandSeries[];
+  /**
+   * Fit the value axis to the unshaded frequencies in view, when there are
+   * any: values in the validity shading may then run off the plot (it says
+   * so). For spreads that a lightly damped resonance in the shaded band
+   * would otherwise flatten.
+   */
+  fitUnshaded?: boolean;
   /** Relative height of the plot. */
   height: 'main' | 'small';
+}
+
+/**
+ * A filled range between two curves on the plot's grid (a Monte Carlo
+ * envelope, a preference band), in a translucent tone of a series colour,
+ * with thin edge lines at full colour so the range stays readable where
+ * the fill is faint. Hidden with its `id` like a curve.
+ */
+export interface BandSeries {
+  /** Style slot whose colour the band takes (as `Series.probe`). */
+  probe: number;
+  id: string;
+  /** Name in the plot's description, e.g. "5–95 % of runs". */
+  label: string;
+  lower: Num[];
+  upper: Num[];
+  /** Fill opacity, 0 to 1. */
+  alpha: number;
+  /** Dash pattern of the edge lines ([] solid), or null for no edges. */
+  edge: number[] | null;
 }
 
 /**

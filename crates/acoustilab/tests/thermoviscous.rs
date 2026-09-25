@@ -437,3 +437,58 @@ fn rect_duct_limits_are_reported() {
         assert!((deep("Stinson") / stinson_bound(1e-3) - 1.0).abs() < 1e-12);
     }
 }
+
+/// Input impedance of a line of propagation Γl and characteristic impedance
+/// Z_c terminated by Z_L, in the form that stays finite for any Re Γl:
+/// Z_c·(Z_L + Z_c·tanh Γl)/(Z_c + Z_L·tanh Γl).
+fn line_input_impedance(gl: C64, zc: C64, zl: C64) -> C64 {
+    let t = gl.tanh();
+    zc * (zl + zc * t) / (zc + zl * t)
+}
+
+/// Very lossy long ducts (narrow leak gaps) at L1: the transfer matrix grows
+/// like e^{|Γl|}, and the transmission-form stamp lost the port-1 relation
+/// near |Γl| ≈ 39 (singular solves for a 4 µm slit at 12 kHz), and cosh
+/// overflows beyond Re Γl ≈ 710. The input impedance must follow the closed
+/// form through the stamp's switch to admittance form and beyond.
+#[test]
+fn very_lossy_slits_solve_and_match_the_line_input_impedance() {
+    let air = AirState::standard_23c();
+    let (width, length, v_far) = (20e-3, 15e-3, 5e-6);
+    for gap_um in [10.0, 4.0, 1.0, 0.3, 0.1] {
+        // 12 points per octave from 20 Hz to 40 kHz, dense enough to straddle
+        // the |A| = 1e3 switch for every gap.
+        let doc = json!({
+            "sweep": {"f_min_Hz": 20, "f_max_Hz": 40000, "points_per_octave": 12},
+            "nodes": [{"id": "a", "domain": "acoustic"}, {"id": "b", "domain": "acoustic"}],
+            "elements": [
+                {"id": "q", "type": "flow_source", "node": "a"},
+                {"id": "s", "type": "slit", "nodes": ["a", "b"], "gap_mm": gap_um * 1e-3,
+                 "width_mm": width * 1e3, "length_mm": length * 1e3},
+                {"id": "far", "type": "acoustic_compliance", "node": "b",
+                 "C_m3_per_Pa": v_far / air.bulk_modulus()}
+            ],
+            "probes": [{"id": "z", "quantity": "impedance", "element": "s"}]
+        });
+        let r = Circuit::from_json(&doc.to_string())
+            .unwrap()
+            .solve()
+            .unwrap_or_else(|e| panic!("gap {gap_um} µm: {e}"));
+        let sec = Section::Slit {
+            gap: gap_um * 1e-6,
+            width,
+        };
+        let mut worst: f64 = 0.0;
+        for (f, z) in r.freqs_hz.iter().zip(&r.probe("z").unwrap().values) {
+            let omega = 2.0 * PI * f;
+            let (gamma, zc) = propagation(&sec, &air, omega);
+            let zl = (C64::new(0.0, omega) * v_far / air.bulk_modulus()).inv();
+            let want = line_input_impedance(gamma * length, zc, zl);
+            worst = worst.max(rel(*z, want));
+        }
+        assert!(
+            worst < 1e-9,
+            "gap {gap_um} µm: worst relative error {worst:e}"
+        );
+    }
+}

@@ -311,7 +311,11 @@ point, so 5 ms for the 72-point case study and 26 ms at 430 points). At
 most 1000 `starts`, and at most 10^6 distinct frequencies per condition
 (the engine's sweep limit). A caller that wants progress or cancellation
 (a web worker) runs a few iterations per call and passes the report's
-`fitted` values as the next call's `start` values.
+`fitted` values as the next call's `start` values, with each parameter's
+`scale` from the first report: the default scale follows the start, so a
+parameter that started at 0 (linear) would be fitted on a log scale once
+resumed from a positive value, with another interval and status. Each call
+restarts the damping and the level offsets.
 
 ### The report (`acoustilab-fit-report/0.1`)
 
@@ -421,15 +425,22 @@ refusal and records it. Fitting load parameters (a leak, a volume) to
 pressure curves is allowed.
 
 A worked case of a direction the rule does not cover: the over-ear template
-in its cup. The air springs of the front and rear cavities are about 100
-times stiffer than the suspension, so the free-air fs, Qms and Qes cannot be
-told apart from impedance and drum pressure measured on the fixture: the
+in the cup of its first revision (no damping cloth, a 25 mm radius, the
+fit starting from a 15 mm depth). The air springs of the front and rear
+cavities are about 100 times stiffer than the suspension, so the free-air
+fs, Qms and Qes cannot be told apart from impedance and drum pressure measured on the fixture: the
 report names the direction "driver_fs_Hz, driver_Qms and driver_Qes move
 together (ratio about 1 : 1 : 1)", which changes only Cms; Qes/fs and
 Qms/fs (Bl and Rms, given Mms) are determined: over five seeds about
 ±1.5 % and ±10 % (95 %, from the sds and the correlation), each covering
 the truth, while fs itself ended anywhere from 34 to 123 Hz (truth 90 Hz)
-and is reported as undetermined.
+and is reported as undetermined. The template's default cup differs in
+two ways that matter here. Its damping cloth adds 3 N·s/m at the diaphragm,
+50 times the suspension's own loss, so Qms barely changes either curve and
+the fit stops at its iteration limit. Without the cloth but in the default
+27.5 mm × 20 mm cup, a single start from the 20 mm default ends in a local
+minimum (true depth 17.5 mm: fitted 18.8 mm, fs 156 Hz, reduced χ² 20);
+eight starts find the optimum (reduced χ² 1.0).
 
 ## Virtual rig (`fit::rig`)
 
@@ -531,6 +542,7 @@ Without `mass.zma` the same fit marks Bl, Mms, Cms and Rms scale-ambiguous.
 | `fit(netlist, spec_json)` | the fit report |
 | `probe_curve(netlist, overrides_json, probe)` | a curve document of the solved probe with a `simulated` sidecar |
 | `virtual_measure(netlist, spec_json)` | `{"curve", "format", "extension", "text", "sidecar"}`; the rig spec may add `"format"` |
+| `curve_uncertainty(curve_json)` | `{"frequencies_Hz", "seatings", "level_dB", "phase_deg"}`: the combined standard uncertainty at each frequency from the sidecar budget (null without such a term); used by the web UI's Fit view (docs/web.md) |
 
 `examples/driver_bench.json` is an identification bench: a driver in its
 physical set (Re, Bl, Mms, Cms, Rms, Sd, creep, Le and an external LR-2
@@ -556,7 +568,7 @@ module, `crates/acoustilab-wasm/tests/fit.rs` and
 | Jacobian of network solves (d level and d phase by d ln fs of a driver) | closed-form derivative of the D0 impedance | 1e-6 relative (measured: 1.6e-7 next to the resonance, ≤ 1e-8 elsewhere) |
 | model-form error (creep and Le in the data, not the model) | runs z < −3, ρ > 0.5, inflation > 3, intervals ≥ 5× the right model's | — |
 | complex averaging | exp(−(2πfσ_τ)²/2) with 4000 seatings | 0.04 |
-| case study (over-ear template, impedance + drum, 5 seatings, calibration and coupler errors) | leak gap, front depth, Re within 99 %; the fs–Qms–Qes direction named; Qes/fs and Qms/fs within 2.576 of their sds from the correlation matrix, sds below 1.5 % and 10 % | — |
+| case study (over-ear template without the damping cloth, 25 mm cup radius, impedance + drum, 5 seatings, calibration and coupler errors) | leak gap, front depth, Re within 99 %; the fs–Qms–Qes direction named; Qes/fs and Qms/fs within 2.576 of their sds from the correlation matrix, sds below 1.5 % and 10 % | — |
 | sensor calibration (laser curve with 0.5 dB calibration in its budget), 12 seeds | Bl's sd at least the calibration's 0.058 in ln; covered in at least 10 of 12 | measured: 12 of 12 (29 of 30 over 30 seeds; 6 of 30 before the offset) |
 | a start 24× from the optimum along a flat direction (pad leak) | converges to the truth | — |
 | a signed linear parameter at 0 | determined, interval containing 0 | — |

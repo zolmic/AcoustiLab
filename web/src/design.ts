@@ -143,6 +143,13 @@ interface Row {
   show(v: Scalar | null, force: boolean): void;
   /** Marks the row as changed from the reference, with the value to reset to. */
   setChanged(ref: Scalar | undefined): void;
+  /**
+   * Marks the parameter as not reaching the resolved netlist (`active:
+   * false`): dimmed with a short reason, still operable, and the reason
+   * added to its controls' accessible descriptions. True or null (unknown)
+   * clears the mark.
+   */
+  setActive(active: boolean | null | undefined): void;
   focus(): void;
 }
 
@@ -239,12 +246,18 @@ export class DesignPanel {
    */
   update(doc: ParamsDoc, fresh: boolean): void {
     this.doc = doc;
-    const sig = JSON.stringify(doc.parameters.map(({ value: _v, default: _d, ...rest }) => rest));
+    // Whether a parameter is used changes with the design (a vent size with
+    // an open back): it is updated in place, never by rebuilding the rows.
+    const sig = JSON.stringify(doc.parameters.map(({ value: _v, default: _d, active: _a, ...rest }) => rest));
     if (sig !== this.sig) {
       this.sig = sig;
       this.build(doc);
     }
-    for (const p of doc.parameters) this.rows.get(p.name)?.show(p.value, fresh || p.name !== this.active);
+    for (const p of doc.parameters) {
+      const r = this.rows.get(p.name);
+      r?.show(p.value, fresh || p.name !== this.active);
+      r?.setActive(p.active);
+    }
     this.refreshChanged();
   }
 
@@ -374,7 +387,13 @@ export class DesignPanel {
     const label = el(labelIsFor ? 'label' : 'span', 'plabel', d.label);
     label.id = `${id}-label`;
     if (label instanceof HTMLLabelElement) label.htmlFor = id;
-    head.append(label);
+    // Shown while the parameter does not reach the resolved netlist, beside
+    // the label (not in it: the accessible name stays the label); the
+    // controls reference it as a description while it applies.
+    const inactive = el('span', 'pinactive', 'not used by this design');
+    inactive.id = `${id}-inactive`;
+    inactive.hidden = true;
+    head.append(label, inactive);
 
     // Help text and details (detailed view: name, tolerance, expression).
     const described: string[] = [];
@@ -444,10 +463,28 @@ export class DesignPanel {
       v === null ? 'n/a' : typeof v === 'number' ? `${formatParam(v, 6)}${unit ? ` ${unit}` : ''}` : d.kind === 'choice' ? choiceLabel(v) : v ? 'on' : 'off';
 
     let current: Scalar | null = d.value;
+    /** Controls whose description gains the inactive reason, with their own description ids. */
+    let describedBy: [HTMLElement, string][] | null = null;
     const r: Row = {
       desc: d,
       el: root,
       show: () => {},
+      setActive: (active) => {
+        // Derived values are not controls: the Parameter table view says
+        // which of them the netlist reads.
+        const off = active === false && d.kind !== 'derived';
+        if (off === root.classList.contains('inactive')) return;
+        root.classList.toggle('inactive', off);
+        inactive.hidden = !off;
+        describedBy ??= [...root.querySelectorAll<HTMLElement>('input.pnum, input.pslider, [role="switch"], [role="radiogroup"], select')].map(
+          (c) => [c, c.getAttribute('aria-describedby') ?? ''],
+        );
+        for (const [c, ids] of describedBy) {
+          const all = [ids, off ? inactive.id : ''].filter(Boolean).join(' ');
+          if (all) c.setAttribute('aria-describedby', all);
+          else c.removeAttribute('aria-describedby');
+        }
+      },
       setChanged: (ref) => {
         resetTo = ref;
         reset.hidden = ref === undefined;

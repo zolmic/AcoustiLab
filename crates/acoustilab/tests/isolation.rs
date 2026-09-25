@@ -8,6 +8,7 @@
 //! of spec Appendix C9. Where the network is the closed form the tolerance
 //! is 1e-9 relative (observed 3e-15 for the slit-leak cup).
 
+use acoustilab::expr::PValue;
 use acoustilab::isolation::{
     bleed, find_ear, insertion_loss, occluded_circuit, outside_document, third_octave_bands,
     IsolationOptions,
@@ -442,19 +443,34 @@ fn incoherent_insertion_loss() {
         let n = iso.paths.len() as f64;
         assert!(iso.insertion_loss_db[i] >= inc[i] - 10.0 * n.log10() - 1e-9);
     }
-    // In the template the leak and vent contributions cancel near 1.16 kHz
-    // when driven in phase: 40.5 dB coherent against 28.3 dB in power.
-    let k = iso
-        .freqs_hz
-        .iter()
-        .position(|f| (*f / 1156.0 - 1.0).abs() < 0.01)
+    // Without the template's damping cloth the leak and vent contributions
+    // are equally strong near 1.12 kHz and cancel there when driven in
+    // phase: 45.7 dB coherent against 33.6 dB in power. (With the cloth the
+    // vent path is 12 dB weaker below 2 kHz and nothing cancels there.)
+    let bare: Overrides = [("damping_rayl".to_string(), PValue::Num(0.0))]
+        .into_iter()
+        .collect();
+    let iso = insertion_loss(&p, &bare, &IsolationOptions::default()).unwrap();
+    let inc = iso.insertion_loss_incoherent_db.as_ref().unwrap();
+    let k = (0..iso.freqs_hz.len())
+        .filter(|&k| iso.freqs_hz[k] < 2000.0)
+        .max_by(|&a, &b| {
+            (iso.insertion_loss_db[a] - inc[a]).total_cmp(&(iso.insertion_loss_db[b] - inc[b]))
+        })
         .unwrap();
+    assert!(
+        (1000.0..1300.0).contains(&iso.freqs_hz[k]),
+        "{}",
+        iso.freqs_hz[k]
+    );
     assert!(
         iso.insertion_loss_db[k] > inc[k] + 10.0,
         "{} vs {}",
         iso.insertion_loss_db[k],
         inc[k]
     );
+    let db = |i: usize| 20.0 * iso.paths[i].p[k].norm().log10();
+    assert!((db(0) - db(1)).abs() < 1.0, "{} vs {}", db(0), db(1));
 }
 
 /// Ear identification: a `canal` + `eardrum` ear on user nodes is entered

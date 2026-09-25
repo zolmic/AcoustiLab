@@ -121,6 +121,18 @@ impl Mna {
     /// [V1; I1] = [[A, B], [C, D]] · [V2; I2], with I1 entering port 1 at
     /// `p1` and I2 leaving port 2 at `p2`. Branch unknowns `br1` (I1) and
     /// `br2` (I2) make the stamp valid even where B or C vanish.
+    ///
+    /// A long, lossy line has |A|, |B|, |C|, |D| ≈ e^{|Γl|}/2, and the
+    /// transmission rows then lose the port-1 relation to rounding (for a
+    /// thermoviscous slit this happens near |Γl| ≈ 39, e.g. a 4 µm gap,
+    /// 15 mm deep, at 12 kHz). There the rows are written in admittance
+    /// form instead, I1 = (D/B)·V1 − (1/B)·V2 and I2 = (1/B)·V1 − (A/B)·V2,
+    /// whose coefficients stay of order 1/Z_c. That form needs B far from
+    /// zero, which |A| or |D| > 1e3 together with |B·C| > |A·D|/2
+    /// guarantees, and a reciprocal two-port (AD − BC = 1, true of every
+    /// transfer-matrix element of the library; the determinant cannot be
+    /// computed from entries this large). The half-wave case, where B
+    /// vanishes, keeps the transmission rows (erratum E14).
     pub fn two_port_abcd(
         &mut self,
         (p1, n1): (Unknown, Unknown),
@@ -134,6 +146,27 @@ impl Mna {
         self.add(n1, i1, -ONE);
         self.add(p2, i2, -ONE);
         self.add(n2, i2, ONE);
+        // Ratios, not products: the entries themselves may approach 1e300.
+        let long_lossy =
+            a.norm().max(d.norm()) > 1e3 && (b.norm() / a.norm()) * (c.norm() / d.norm()) > 0.5;
+        if long_lossy {
+            // `fdiv` scales before dividing: |B|² alone may overflow.
+            let (y11, b_inv, y22) = (d.fdiv(b), ONE.fdiv(b), -a.fdiv(b));
+            let (y12, y21) = (-b_inv, b_inv);
+            // I1 − Y11·V1 − Y12·V2 = 0
+            self.add(i1, i1, ONE);
+            self.add(i1, p1, -y11);
+            self.add(i1, n1, y11);
+            self.add(i1, p2, -y12);
+            self.add(i1, n2, y12);
+            // I2 − Y21·V1 − Y22·V2 = 0
+            self.add(i2, i2, ONE);
+            self.add(i2, p1, -y21);
+            self.add(i2, n1, y21);
+            self.add(i2, p2, -y22);
+            self.add(i2, n2, y22);
+            return;
+        }
         // V1 − A·V2 − B·I2 = 0
         self.add(i1, p1, ONE);
         self.add(i1, n1, -ONE);

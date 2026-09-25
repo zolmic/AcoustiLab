@@ -397,7 +397,7 @@ fn parameters_are_described_and_overridable() {
         .unwrap()["value"]
         .as_f64()
         .unwrap();
-    assert!((fv - PI * 400.0 * 15.0 / 1000.0).abs() < 1e-9);
+    assert!((fv - PI * 400.0 * 20.0 / 1000.0).abs() < 1e-9);
 
     let base = api::solve_with_value(&text, "");
     let open = api::solve_with_value(&text, r#"{"rear": "open", "vent_count": 0}"#);

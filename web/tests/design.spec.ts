@@ -10,11 +10,17 @@
 
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const repo = fileURLToPath(new URL('../../', import.meta.url));
 const TEMPLATE = readFileSync(`${repo}/examples/design_over_ear.json`, 'utf8');
+/** The template's cup: front radius and depth (mm), and pad width. */
+const R = 27.5;
+const D = 20;
+const PAD = 15;
+/** Front volume in cm³ at depth `d`, as the panel shows it (4 significant figures). */
+const volume = (d: number) => `${Number(((Math.PI * R * R * d) / 1000).toPrecision(4))} cm³`;
 
 interface Result {
   frequencies_Hz: number[];
@@ -76,13 +82,27 @@ test('the template opens in Design mode with its groups, sketch and primary prob
   await expect(page.locator('#panel-netlist')).toBeHidden();
   expect(await text(page)).toBe(TEMPLATE);
 
-  // Picker: design templates (examples with parameters) first.
+  // Picker: design templates (examples whose `ui` block names a `template`)
+  // first, every other example after them, parametric or not.
   const optgroups = await page.locator('#example-select optgroup').evaluateAll((gs) =>
     gs.map((g) => [(g as HTMLOptGroupElement).label, [...g.querySelectorAll('option')].map((o) => o.value)]),
   );
-  expect(optgroups[0]).toEqual(['Design templates', ['design_over_ear']]);
+  // Oracle: the examples directory, read here.
+  const examples = readdirSync(`${repo}/examples`)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => [f.replace(/\.json$/, ''), JSON.parse(readFileSync(`${repo}/examples/${f}`, 'utf8'))] as const);
+  const isTemplate = (d: { ui?: { template?: unknown } }) => typeof d.ui?.template === 'string' && d.ui.template !== '';
+  const templates = examples.filter(([, d]) => isTemplate(d)).map(([n]) => n);
+  const others = examples.filter(([, d]) => !isTemplate(d)).map(([n]) => n);
+  expect(optgroups[0][0]).toBe('Design templates');
+  expect([...(optgroups[0][1] as string[])].sort()).toEqual(templates.sort());
+  expect(optgroups[0][1]).toContain('design_over_ear');
+  for (const t of ['design_in_ear', 'design_on_ear', 'design_over_ear']) expect(optgroups[0][1]).toContain(t);
   expect(optgroups[1][0]).toBe('Example netlists');
+  expect([...(optgroups[1][1] as string[])].sort()).toEqual(others.sort());
   expect(optgroups[1][1]).toContain('sealed_cup');
+  // A parametric example that is not a template lists with the others.
+  expect(others.some((n) => 'parameters' in examples.find(([m]) => m === n)![1])).toBe(true);
 
   // The template's description (its provenance), as written in the netlist.
   await page.locator('#design-about summary').click();
@@ -99,23 +119,24 @@ test('the template opens in Design mode with its groups, sketch and primary prob
   // A text entry announces neither its bounds nor its arrow keys by itself.
   await expect(page.locator('#p-front_depth_mm')).toHaveAccessibleName('Driver-to-ear depth, mm');
   await expect(page.locator('#p-front_depth_mm')).toHaveAccessibleDescription(
-    '3 to 40 mm; arrow keys step the value. Tolerance ±0.3 mm (normal, 2σ), estimate (pad compression)',
+    `3 to 40 mm; arrow keys step the value. ${JSON.parse(TEMPLATE).parameters.front_depth_mm.description} Tolerance ±0.3 mm (normal, 2σ), estimate (pad compression)`,
   );
   await expect(page.locator('#p-vent_count')).toHaveAccessibleDescription('0 to 12; arrow keys step the value.');
   await expect(row(page, 'vent_count').getByRole('button', { name: 'Increase Number of rear vents' })).toBeVisible();
   await expect(page.getByRole('radiogroup', { name: 'Back of the driver' }).getByRole('radio')).toHaveCount(2);
   await expect(page.getByRole('radio', { name: 'Closed cup with vents' })).toBeChecked();
-  // Derived: pi * 25^2 * 15 / 1000 = 29.452 cm³, shown to 4 significant figures.
-  await expect(row(page, 'front_volume_cm3').locator('output')).toHaveText('29.45 cm³');
+  // Derived: pi * 27.5^2 * 20 / 1000 = 47.517 cm³, shown to 4 significant figures.
+  await expect(row(page, 'front_volume_cm3').locator('output')).toHaveText('47.52 cm³');
   await expect(row(page, 'driver_diameter_mm').locator('output')).toHaveText(`${(2 * Math.sqrt(1000 / Math.PI)).toPrecision(4)} mm`);
 
   // The cross-section is drawn and described.
   await expect(page.locator('#sketch')).toBeVisible();
   const sk = await hook(page, (h) => h.sketch());
-  for (const p of ['ear', 'front', 'rear', 'pad', 'leak', 'shell', 'vents', 'driver']) expect(sk.parts, p).toContain(p);
+  for (const p of ['ear', 'front', 'rear', 'pad', 'leak', 'shell', 'vents', 'driver', 'damping']) expect(sk.parts, p).toContain(p);
   expect(sk.parts).not.toContain('grille');
   const desc = await page.locator('#sketch-desc').textContent();
-  expect(desc).toContain('radius 25 mm, depth 15 mm, volume 29.5 cm³');
+  expect(desc).toContain('radius 27.5 mm, depth 20 mm, volume 47.5 cm³');
+  expect(desc).toContain('Damping cloth of 600 rayl behind the diaphragm');
   expect(desc).toContain('leak gap 0.08 mm');
   expect(desc).toContain('Ear load: IEC 60318-4 ear simulator');
   await expect(page.getByRole('img', { name: /Cross-section/ })).toBeVisible();
@@ -157,18 +178,18 @@ test('a stepper and a slider rewrite exactly the value token and re-solve', asyn
   await slider.focus();
   await page.keyboard.press('ArrowRight');
   await solved(page);
-  expect(await text(page)).toBe(withValue(t1, 'front_depth_mm', '15', '15.5'));
-  await expect(page.locator('#p-front_depth_mm')).toHaveValue('15.5');
-  await expect(slider).toHaveAttribute('aria-valuetext', '15.5 mm');
-  // Derived value: pi * 25^2 * 15.5 / 1000 = 30.43 cm³.
-  await expect(row(page, 'front_volume_cm3').locator('output')).toHaveText('30.43 cm³');
+  expect(await text(page)).toBe(withValue(t1, 'front_depth_mm', '20', '20.5'));
+  await expect(page.locator('#p-front_depth_mm')).toHaveValue('20.5');
+  await expect(slider).toHaveAttribute('aria-valuetext', '20.5 mm');
+  // Derived value: pi * 27.5^2 * 20.5 / 1000 = 48.70 cm³.
+  await expect(row(page, 'front_volume_cm3').locator('output')).toHaveText(volume(20.5));
   await page.keyboard.press('PageUp');
   await solved(page);
-  expect(await text(page)).toBe(withValue(t1, 'front_depth_mm', '15', '20.5'));
+  expect(await text(page)).toBe(withValue(t1, 'front_depth_mm', '20', '25.5'));
   const r2 = (await hook(page, (h) => h.result()))!;
-  expect(r2.meta.parameters.front_depth_mm).toBe(20.5);
-  expect(r2.meta.parameters.front_volume_cm3 as number).toBeCloseTo((Math.PI * 625 * 20.5) / 1000, 10);
-  await expect(row(page, 'front_volume_cm3').locator('output')).toHaveText('40.25 cm³');
+  expect(r2.meta.parameters.front_depth_mm).toBe(25.5);
+  expect(r2.meta.parameters.front_volume_cm3 as number).toBeCloseTo((Math.PI * R * R * 25.5) / 1000, 10);
+  await expect(row(page, 'front_volume_cm3').locator('output')).toHaveText(volume(25.5));
 
   // Slider, pointer: a click at the far right is the maximum (40 mm).
   const box = (await slider.boundingBox())!;
@@ -177,7 +198,7 @@ test('a stepper and a slider rewrite exactly the value token and re-solve', asyn
   expect((await hook(page, (h) => h.result()))!.meta.parameters.front_depth_mm).toBe(40);
 
   // Every other character of the text is still the template's.
-  expect(await text(page)).toBe(withValue(t1, 'front_depth_mm', '15', '40'));
+  expect(await text(page)).toBe(withValue(t1, 'front_depth_mm', '20', '40'));
 
   // Reset all restores the template text byte for byte.
   await expect(page.getByRole('button', { name: 'Reset all (2)' })).toBeEnabled();
@@ -242,13 +263,13 @@ test('typed entries: out-of-range and non-numbers are rejected inline, never sen
 
   // Escape restores the value; a valid entry (with its unit typed) is sent.
   await entry.press('Escape');
-  await expect(entry).toHaveValue('25');
+  await expect(entry).toHaveValue('27.5');
   await expect(msg).toHaveText('');
   await expect(entry).not.toHaveAttribute('aria-invalid', 'true');
   await entry.fill('30.25 mm');
   await entry.press('Enter');
   await solved(page);
-  expect(await text(page)).toBe(withValue(TEMPLATE, 'front_radius_mm', '25', '30.25'));
+  expect(await text(page)).toBe(withValue(TEMPLATE, 'front_radius_mm', '27.5', '30.25'));
   await expect(entry).toHaveValue('30.25');
   // The derived leak perimeter follows: 2 pi r.
   await expect(row(page, 'leak_perimeter_mm').locator('output')).toHaveText(`${(2 * Math.PI * 30.25).toPrecision(4)} mm`);
@@ -272,7 +293,7 @@ test('rapid input events are coalesced: one solve in flight, only the latest que
   expect(n, 'worker solves for 41 input events').toBeGreaterThanOrEqual(1);
   expect(n, 'worker solves for 41 input events').toBeLessThanOrEqual(2);
   expect((await hook(page, (h) => h.result()))!.meta.parameters.front_depth_mm).toBe(33);
-  expect(await text(page)).toBe(withValue(TEMPLATE, 'front_depth_mm', '15', '33'));
+  expect(await text(page)).toBe(withValue(TEMPLATE, 'front_depth_mm', '20', '33'));
   await expect(page.locator('#p-front_depth_mm')).toHaveValue('33');
 });
 
@@ -321,19 +342,20 @@ test('raising the drive raises operating-limit warnings; clicking one highlights
   await expect(page.locator('#warn-jump')).toBeHidden();
   expect(await page.evaluate(`window.acoustilab.countColor('spl', '--hl-edge', 30)`)).toBeLessThan(20);
 
+  // At 1 W the coil is overdriven and the vent's air exceeds 1 m/s in the bass.
   const drive = page.locator('#p-drive_mW');
-  await drive.fill('300');
+  await drive.fill('1000');
   await drive.press('Enter');
   await solved(page);
-  expect(await text(page)).toBe(withValue(TEMPLATE, 'drive_mW', '1', '300'));
+  expect(await text(page)).toBe(withValue(TEMPLATE, 'drive_mW', '1', '1000'));
   const r = (await hook(page, (h) => h.result()))!;
-  await expect(page.locator('#strip-drive')).toContainText('300 mW into 32 ohm rated');
+  await expect(page.locator('#strip-drive')).toContainText('1000 mW into 32 ohm rated');
   const ops = r.warnings.filter((w) => w.f_min_Hz !== null);
-  expect(ops.map((w) => `${w.element}:${w.code}`).sort()).toEqual(['drv:coil_power', 'leak:particle_velocity', 'vent:particle_velocity']);
-  await expect(page.locator('.warning-item')).toHaveCount(3);
-  await expect(page.locator('#warn-jump')).toContainText('3 operating limits exceeded');
+  expect(ops.map((w) => `${w.element}:${w.code}`).sort()).toEqual(['drv:coil_power', 'vent:particle_velocity']);
+  await expect(page.locator('.warning-item')).toHaveCount(2);
+  await expect(page.locator('#warn-jump')).toContainText('2 operating limits exceeded');
   // Announced with the solve (a status region), not only shown.
-  await expect(page.locator('#run-status')).toContainText('3 operating limits exceeded at the stated drive.');
+  await expect(page.locator('#run-status')).toContainText('2 operating limits exceeded at the stated drive.');
 
   const vent = ops.find((w) => w.element === 'vent')!;
   const item = page.locator('.warning-item', { hasText: 'vent · particle velocity' });
@@ -349,11 +371,14 @@ test('raising the drive raises operating-limit warnings; clicking one highlights
   const cursor = (await hook(page, (h) => h.cursor()))!;
   expect(Math.abs(Math.log(r.frequencies_Hz[cursor] / vent.at_Hz!))).toBeLessThan(1e-9);
   // Inside the band the tint is present, outside it is not (SPL curves
-  // hidden; 650 and 250 Hz sit between gridlines).
+  // hidden; 150 and 800 Hz sit between gridlines and outside the
+  // validity shading, which starts at 100 Hz below and near 1 kHz above).
+  expect(vent.f_max_Hz!).toBeGreaterThan(200);
+  expect(vent.f_max_Hz!).toBeLessThan(800);
   for (const id of ['p_drp', 'p_front', 'p_rear']) await page.locator(`.legend-item[data-probe="${id}"]`).click();
   const bg = await cssColor(page, '--plot-bg');
-  const inside = (await page.evaluate(`window.acoustilab.sample('spl', 650, 0.5, 2)`)) as number[][];
-  const outside = (await page.evaluate(`window.acoustilab.sample('spl', 250, 0.5, 2)`)) as number[][];
+  const inside = (await page.evaluate(`window.acoustilab.sample('spl', 150, 0.5, 2)`)) as number[][];
+  const outside = (await page.evaluate(`window.acoustilab.sample('spl', 800, 0.5, 2)`)) as number[][];
   expect(inside.filter((p) => close(p, bg)).length).toBe(0);
   // Most of the block (a horizontal gridline may cross it).
   expect(outside.filter((p) => close(p, bg)).length).toBeGreaterThan(12);
@@ -492,14 +517,14 @@ test('a hand edit in the Netlist tab updates the Design tab, and back', async ({
   await expect(page.getByRole('tab', { name: 'Netlist', exact: true })).toBeFocused();
   await expect(page.locator('#netlist')).toBeVisible();
 
-  await page.locator('#netlist').fill(withValue(TEMPLATE, 'front_depth_mm', '15', '20'));
+  await page.locator('#netlist').fill(withValue(TEMPLATE, 'front_depth_mm', '20', '25'));
   await page.getByRole('tab', { name: 'Design', exact: true }).click();
-  await expect(page.locator('#p-front_depth_mm')).toHaveValue('20');
-  await expect(row(page, 'front_volume_cm3').locator('output')).toHaveText(`${((Math.PI * 625 * 20) / 1000).toPrecision(4)} cm³`);
+  await expect(page.locator('#p-front_depth_mm')).toHaveValue('25');
+  await expect(row(page, 'front_volume_cm3').locator('output')).toHaveText(volume(25));
   // The Design view solves what it shows.
   await solved(page);
-  expect((await hook(page, (h) => h.result()))!.meta.parameters.front_depth_mm).toBe(20);
-  expect(await hook(page, (h) => h.params())).toMatchObject({ front_depth_mm: 20 });
+  expect((await hook(page, (h) => h.result()))!.meta.parameters.front_depth_mm).toBe(25);
+  expect(await hook(page, (h) => h.params())).toMatchObject({ front_depth_mm: 25 });
   await expect(row(page, 'front_depth_mm')).toHaveClass(/changed/);
 
   // A netlist that cannot be read: the Design tab says so and offers the editor.
@@ -513,7 +538,7 @@ test('a hand edit in the Netlist tab updates the Design tab, and back', async ({
   await page.locator('#netlist').fill(TEMPLATE);
   await page.getByRole('tab', { name: 'Design', exact: true }).click();
   await expect(page.locator('#design-groups')).toBeVisible();
-  await expect(page.locator('#p-front_depth_mm')).toHaveValue('15');
+  await expect(page.locator('#p-front_depth_mm')).toHaveValue(String(D));
 
   // Detailed view: tolerances, expressions, and "show in netlist".
   await page.getByRole('switch', { name: 'Show detailed parameters' }).click();
@@ -543,14 +568,14 @@ test('race: a Run still solving older text is followed by a solve of the text th
   await page.locator('#netlist').fill(slow);
   await page.getByRole('button', { name: 'Run' }).click();
   await expect(page.locator('body')).toHaveAttribute('data-state', 'solving');
-  const edited = withValue(TEMPLATE, 'front_depth_mm', '15', '20');
+  const edited = withValue(TEMPLATE, 'front_depth_mm', '20', '25');
   await page.locator('#netlist').fill(edited);
   await page.getByRole('tab', { name: 'Design', exact: true }).click();
   await expect
     .poll(async () => (await hook(page, (h) => ({ n: h.result()?.frequencies_Hz.length, d: h.result()?.meta.parameters.front_depth_mm }))), {
       timeout: 30_000,
     })
-    .toEqual({ n: 265, d: 20 });
+    .toEqual({ n: 265, d: 25 });
   await solved(page);
 });
 
@@ -560,7 +585,7 @@ test('race: a control clicked before a hand edit is described never overwrites t
   // dropped rather than overwriting the edit, and the panel then shows the
   // edited value.
   await open(page);
-  const edited = withValue(TEMPLATE, 'front_depth_mm', '15', '20');
+  const edited = withValue(TEMPLATE, 'front_depth_mm', '20', '25');
   await page.getByRole('tab', { name: 'Netlist', exact: true }).click();
   const five = withValue(edited, 'vent_count', '1', '5');
   await page.evaluate((t) => {
@@ -585,31 +610,31 @@ test('the sketch is drawn to scale and linked to the controls', async ({ page })
   // Front cavity rectangle: width / height = 2r / depth.
   const ratio = () =>
     page.locator('#sketch-svg [data-part="front"] rect.sk-air').evaluate((r: SVGRectElement) => r.width.baseVal.value / r.height.baseVal.value);
-  expect(await ratio()).toBeCloseTo(50 / 15, 9);
+  expect(await ratio()).toBeCloseTo((2 * R) / D, 6);
   const drv = await page.locator('#sketch-svg [data-part="driver"] path').evaluate((p: SVGPathElement) => {
     const b = p.getBBox();
     const f = document.querySelector<SVGRectElement>('#sketch-svg [data-part="front"] rect.sk-air')!;
     return b.width / f.width.baseVal.value;
   });
-  expect(drv).toBeCloseTo((2 * Math.sqrt(1000 / Math.PI)) / 50, 3);
-  // Every other drawn dimension, relative to the cup diameter (2r = 50 mm):
-  // the rear cavity's depth V/(pi r^2) = 12.73 mm, the pad width 15 mm, the
+  expect(drv).toBeCloseTo((2 * Math.sqrt(1000 / Math.PI)) / (2 * R), 3);
+  // Every other drawn dimension, relative to the cup diameter (2r = 55 mm):
+  // the rear cavity's depth V/(pi r^2) = 10.52 mm, the pad width 15 mm, the
   // vent diameter 3 mm (SVG lengths are single precision: 6 digits).
   const rel = (sel: string, dim: 'width' | 'height') =>
     page.locator(sel).first().evaluate((r: SVGRectElement, dm) => {
       const f = document.querySelector<SVGRectElement>('#sketch-svg [data-part="front"] rect.sk-air')!;
       return r[dm].baseVal.value / f.width.baseVal.value;
     }, dim);
-  expect(await rel('#sketch-svg [data-part="rear"] rect.sk-air', 'height')).toBeCloseTo((25000 / (Math.PI * 625)) / 50, 6);
-  expect(await rel('#sketch-svg [data-part="pad"] rect.sk-pad', 'width')).toBeCloseTo(15 / 50, 6);
-  expect(await rel('#sketch-svg [data-part="vents"] rect.sk-hole', 'width')).toBeCloseTo(3 / 50, 6);
+  expect(await rel('#sketch-svg [data-part="rear"] rect.sk-air', 'height')).toBeCloseTo(25000 / (Math.PI * R * R) / (2 * R), 6);
+  expect(await rel('#sketch-svg [data-part="pad"] rect.sk-pad', 'width')).toBeCloseTo(PAD / (2 * R), 6);
+  expect(await rel('#sketch-svg [data-part="vents"] rect.sk-hole', 'width')).toBeCloseTo(3 / (2 * R), 6);
   // The leak gap (0.08 mm, under a pixel) is drawn enlarged, and says so.
   await expect(page.locator('#sketch-svg')).toContainText('leak gap 0.08 mm (drawn enlarged)');
   await expect(page.locator('#sketch-desc')).toContainText('leak gap 0.08 mm (drawn enlarged).');
-  await page.locator('#p-front_depth_mm').fill('20');
+  await page.locator('#p-front_depth_mm').fill('25');
   await page.locator('#p-front_depth_mm').press('Enter');
   await solved(page);
-  await expect.poll(ratio).toBeCloseTo(50 / 20, 9);
+  await expect.poll(ratio).toBeCloseTo((2 * R) / 25, 6);
 
   // Pointing at a control glows the parts it drives, directly or through
   // derived parameters (the rear depth follows the radius at fixed volume).
@@ -814,7 +839,7 @@ for (const scheme of ['light', 'dark'] as const) {
         );
       });
     });
-    for (let k = 0; k < 260; k++) await page.keyboard.press('Tab');
+    for (let k = 0; k < 300; k++) await page.keyboard.press('Tab');
     const seen = new Set(await page.evaluate(() => (window as unknown as { focused: string[] }).focused));
     for (const id of [
       'example-select',
