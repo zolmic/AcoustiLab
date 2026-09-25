@@ -269,6 +269,41 @@ fn errors_name_what_failed() {
     assert_eq!(e["kind"], "netlist");
 }
 
+/// A probe on a port the element does not have compiles in the engine and
+/// only fails when the solve first evaluates it. `check` must reject it too,
+/// with the same error object, or the live check calls a netlist valid that
+/// every run rejects (and the UI would clear the run's error box).
+#[test]
+fn check_rejects_probe_on_missing_port() {
+    let mut net: Value = serde_json::from_str(&example("sealed_cup.json")).unwrap();
+    net["probes"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id": "z_bad", "quantity": "impedance", "element": "coil", "port": 3}));
+    let text = net.to_string();
+    // The engine itself compiles it and fails only in the solve.
+    assert!(Circuit::from_json(&text).is_ok());
+    let solved = api::solve_value(&text);
+    assert_eq!(solved["kind"], "probe", "{solved}");
+    assert_eq!(solved["probe"], "z_bad");
+    assert_eq!(api::check_value(&text), solved);
+
+    // Existing ports of every kind still pass the check: coupler ports 0
+    // and 1, a two-port's port 1, and node probes.
+    let mut ok = net.clone();
+    ok["probes"] = json!([
+        {"id": "a", "quantity": "current", "element": "motor", "port": 0},
+        {"id": "b", "quantity": "force", "element": "motor", "port": 1},
+        {"id": "c", "quantity": "volume_velocity", "element": "dia", "port": 1},
+        {"id": "d", "quantity": "impedance", "element": "rear_vent", "port": 1},
+        {"id": "e", "quantity": "pressure", "node": "a_front"}
+    ]);
+    assert_eq!(api::check_value(&ok.to_string())["ok"], true);
+    let mut bad = ok.clone();
+    bad["probes"][2]["port"] = json!(2);
+    assert_eq!(api::check_value(&bad.to_string())["probe"], "c");
+}
+
 /// A floating node (an electrical node fed by a current source and nothing
 /// else) makes the system singular; the error names the node.
 #[test]

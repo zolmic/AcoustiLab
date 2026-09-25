@@ -123,6 +123,39 @@ test('solves an example in the worker and draws curves with validity shading', a
   expect(clear[2], 'unshaded').toBeGreaterThan(30);
   expect(light[1] + light[2]).toBeLessThan(10);
   expect(dark[0] + dark[2]).toBeLessThan(10);
+
+  // The samples above go through the plot's own frequency-to-x mapping, so
+  // they would agree with a wrong mapping. Locate the band edges and the
+  // decade gridlines in a raw pixel row instead, and convert with a log axis
+  // over the plot box computed here: x = x0 + (x1 - x0)·ln(f/lo)/ln(hi/lo).
+  const [lo, hi] = await hook(page, (h) => h.view());
+  const row = (await page.evaluate(`window.acoustilab.row('spl', 0.65)`)) as {
+    dpr: number;
+    x0: number;
+    x1: number;
+    px: number[][];
+  };
+  const xOfF = (f: number) => row.x0 + ((row.x1 - row.x0) * Math.log(f / lo)) / Math.log(hi / lo);
+  const fOfX = (x: number) => lo * (hi / lo) ** ((x - row.x0) / (row.x1 - row.x0));
+  const firstX = (c: number[]) => {
+    for (let k = Math.ceil(row.x0 * row.dpr); k < row.x1 * row.dpr; k++) if (close(row.px[k], c, 3)) return k / row.dpr;
+    return NaN;
+  };
+  // Edges within 2.5 px (anti-aliased fill edge plus the 1 px edge line).
+  const pxPerLn = (row.x1 - row.x0) / Math.log(hi / lo);
+  for (const [x, f] of [
+    [firstX(shade1), begin_hz!],
+    [firstX(shade2), deep_hz!],
+  ] as const) {
+    expect(Math.abs(Math.log(fOfX(x) / f)) * pxPerLn, `band edge at ${f} Hz`).toBeLessThan(2.5);
+    expect(x).toBeGreaterThanOrEqual(xOfF(f) - 0.5);
+  }
+  const grid = await cssColor(page, '--grid');
+  for (const f of [100, 1000, 10000]) {
+    const k = Math.round(xOfF(f) * row.dpr - 0.5);
+    const hit = [k - 1, k, k + 1].some((j) => close(row.px[j], grid, 3));
+    expect(hit, `decade gridline at ${f} Hz`).toBe(true);
+  }
   await page.locator('.legend-item[data-probe="p_front"]').click();
   expect(await page.evaluate(`window.acoustilab.countColor('spl', '--series-1', 40)`)).toBeGreaterThan(100);
 
@@ -266,6 +299,44 @@ test('closed-form netlist: the UI reads the engine values with the right units',
   }
 });
 
+test('a linear magnitude axis starts at zero, not at a padded negative value', async ({ page }) => {
+  // Two current probes sharing the ampere plot: one source delivers exactly
+  // 0 A, the other 0.125 A. The values span less than a decade, so the axis
+  // is linear; a zero magnitude must sit on the bottom edge of the plot.
+  const net = {
+    sweep: { frequencies_Hz: [100, 1000] },
+    nodes: [
+      { id: 'e1', domain: 'electrical' },
+      { id: 'e2', domain: 'electrical' },
+    ],
+    elements: [
+      { id: 'i0', type: 'isource', node: 'e1', I_A: 0 },
+      { id: 'r0', type: 'resistor', node: 'e1', R_ohm: 8 },
+      { id: 'i1', type: 'isource', node: 'e2', I_A: 0.125 },
+      { id: 'r1', type: 'resistor', node: 'e2', R_ohm: 8 },
+    ],
+    probes: [
+      { id: 'zero', quantity: 'current', element: 'i0' },
+      { id: 'eighth', quantity: 'current', element: 'i1' },
+    ],
+  };
+  await page.goto('/');
+  await solved(page);
+  await setNetlist(page, JSON.stringify(net, null, 2));
+  await page.locator('#netlist').press('Control+Enter');
+  await expect(page.locator('#run-status')).toContainText('Solved 2 frequencies × 2 probes');
+  const groups = await hook(page, (h) => h.groups());
+  expect(groups.map((g) => [g.key, g.scale, g.series.join()])).toEqual([['mag:A', 'linear', 'zero,eighth']]);
+  await page.locator('figure.plot canvas').first().focus();
+  await page.keyboard.press('Home');
+  // row() redraws synchronously, so cursorY() then reflects this cursor.
+  const box = (await page.evaluate(`window.acoustilab.row('mag:A', 0.5)`)) as { y0: number; y1: number };
+  const y = (await hook(page, (h) => h.cursorY()))[0].y;
+  expect(y.zero).toBeCloseTo(box.y1, 6);
+  expect(y.eighth).toBeGreaterThan(box.y0);
+  expect(y.eighth).toBeLessThan(box.y1 - 0.5 * (box.y1 - box.y0));
+});
+
 test('malformed netlists: the error names the element and jumps to it', async ({ page }) => {
   await page.goto('/');
   await solved(page);
@@ -315,6 +386,49 @@ test('malformed netlists: the error names the element and jumps to it', async ({
   await solved(page);
   await expect(page.locator('#error-box')).toBeHidden();
   await expect(page.locator('#plots')).not.toHaveClass(/stale/);
+
+  // A probe on a port the element does not have: the engine only notices
+  // while solving. Run at once (Ctrl+Enter), before the debounced live check
+  // fires; the check that lands afterwards must agree with the run and must
+  // not clear its error box.
+  const badPort = JSON.parse(good);
+  badPort.probes.push({ id: 'z_bad', quantity: 'impedance', element: 'coil', port: 3 });
+  await setNetlist(page, JSON.stringify(badPort, null, 2));
+  await page.locator('#netlist').press('Control+Enter');
+  await expect(page.locator('body')).toHaveAttribute('data-state', 'error');
+  await expect(page.locator('#error-message')).toContainText("probe 'z_bad'");
+  await expect(page.locator('#check-status')).toContainText('Not valid');
+  await expect(page.locator('#check-status')).toContainText('probe "z_bad"');
+  await page.waitForTimeout(400);
+  await expect(page.locator('#error-box')).toBeVisible();
+  await expect(page.locator('#plots')).toHaveClass(/stale/);
+  await page.getByRole('button', { name: 'Show in editor' }).click();
+  expect(
+    await page.locator('#netlist').evaluate((t: HTMLTextAreaElement) => t.value.slice(t.selectionStart, t.selectionEnd)),
+  ).toContain('"id": "z_bad"');
+});
+
+test('a run error the live check cannot see stays until the text changes', async ({ page }) => {
+  await page.goto('/');
+  await solved(page);
+  // A current source into a floating node: well-formed (the check passes),
+  // but the system is singular, which only the solve can find.
+  const net = {
+    sweep: { frequencies_Hz: [100, 1000] },
+    nodes: [
+      { id: 'e1', domain: 'electrical' },
+      { id: 'e2', domain: 'electrical' },
+    ],
+    elements: [{ id: 'i1', type: 'isource', nodes: ['e1', 'e2'], I_A: 1 }],
+    probes: [{ id: 'v', quantity: 'voltage', node: 'e1' }],
+  };
+  await setNetlist(page, JSON.stringify(net, null, 2));
+  await page.locator('#netlist').press('Control+Enter');
+  await expect(page.locator('body')).toHaveAttribute('data-state', 'error');
+  await expect(page.locator('#error-message')).toContainText('singular');
+  await expect(page.locator('#check-status')).toContainText('Valid:');
+  await page.waitForTimeout(400);
+  await expect(page.locator('#error-box')).toBeVisible();
 });
 
 test('an engine panic is reported and the next run uses a fresh engine', async ({ page }) => {
@@ -344,6 +458,30 @@ test('an engine panic is reported and the next run uses a fresh engine', async (
   await setNetlist(page, good);
   await page.getByRole('button', { name: 'Run' }).click();
   await solved(page);
+});
+
+test('a worker script that cannot load is reported once, not respawned in a loop', async ({ page }) => {
+  await page.addInitScript(() => {
+    const W = window.Worker;
+    const w = window as unknown as { workersMade: number };
+    w.workersMade = 0;
+    window.Worker = class extends W {
+      constructor(url: string | URL, opts?: WorkerOptions) {
+        super(url, opts);
+        w.workersMade++;
+      }
+    };
+  });
+  await page.route('**/assets/worker-*.js', (route) => route.fulfill({ status: 404, body: '' }));
+  await page.goto('/');
+  await expect(page.locator('body')).toHaveAttribute('data-state', 'error');
+  await expect(page.locator('#error-box')).toBeVisible();
+  await page.waitForTimeout(1000);
+  // Solver and checker each start one worker per request (version, check,
+  // solve), and none after a failure until the next request.
+  const made = await page.evaluate(() => (window as unknown as { workersMade: number }).workersMade);
+  expect(made).toBeGreaterThanOrEqual(1);
+  expect(made).toBeLessThanOrEqual(4);
 });
 
 test('loading an example asks before replacing an edited netlist', async ({ page }) => {
@@ -386,6 +524,51 @@ test('a long solve runs in the worker: the page stays responsive and can cancel'
   await setNetlist(page, good);
   await page.getByRole('button', { name: 'Run' }).click();
   await solved(page);
+});
+
+test('a dense sweep with the data table open does not freeze the page', async ({ page }) => {
+  await page.goto('/');
+  await solved(page);
+  await page.getByRole('button', { name: 'Show data table' }).click();
+  const big = JSON.parse(await page.locator('#netlist').inputValue());
+  big.sweep = { f_min_Hz: 10, f_max_Hz: 40000, points_per_octave: 4000 }; // ~48k frequencies
+  await setNetlist(page, JSON.stringify(big));
+  // Longest gap between 10 ms timer ticks on the main thread. Building one
+  // table row per grid point took over 10 s here.
+  await page.evaluate(() => {
+    const w = window as unknown as { maxGap: number };
+    w.maxGap = 0;
+    let last = performance.now();
+    const tick = () => {
+      const t = performance.now();
+      w.maxGap = Math.max(w.maxGap, t - last);
+      last = t;
+      setTimeout(tick, 10);
+    };
+    tick();
+  });
+  await page.getByRole('button', { name: 'Run' }).click();
+  await solved(page);
+  await page.getByRole('button', { name: 'Zoom out' }).click();
+  await page.getByRole('button', { name: '20 Hz–20 kHz' }).click();
+  const gap = await page.evaluate(() => (window as unknown as { maxGap: number }).maxGap);
+  expect(gap, 'longest main-thread block (ms)').toBeLessThan(2000);
+
+  // The table lists at most 1000 rows plus the last point in view, says so,
+  // and starts and ends at the first and last grid points in the view.
+  // Only the grid is fetched: shipping the whole ~1M-number result out of
+  // the page would dominate the test's run time.
+  const f = await hook(page, (h) => h.result()!.frequencies_Hz);
+  const first = f.findIndex((x) => x >= 20 * (1 - 1e-9));
+  let last = f.length - 1;
+  while (f[last] > 20000 * (1 + 1e-9)) last--;
+  const rows = page.locator('#table-wrap tbody tr');
+  const n = await rows.count();
+  expect(n).toBeLessThanOrEqual(1001);
+  expect(n).toBeGreaterThan(900);
+  await expect(page.locator('#table-wrap caption')).toContainText(`(${last - first + 1} rows; ${n} shown`);
+  expect(Number(await rows.first().locator('th').textContent())).toBeCloseTo(f[first], 2);
+  expect(Number(await rows.last().locator('th').textContent())).toBeCloseTo(f[last], 1);
 });
 
 for (const scheme of ['light', 'dark'] as const) {

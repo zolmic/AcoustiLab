@@ -22,7 +22,7 @@
   --axis: #8a8983;
   --shade-1: #eeede7;
   --shade-2: #dcdbd3;
-  --shade-edge: #aaa9a1;
+  --shade-edge: #767570;
   --crosshair: #52514e;
   --selection: rgba(42, 120, 214, 0.14);
   --accent: #1c5cab;
@@ -61,7 +61,7 @@
     --axis: #6b6a65;
     --shade-1: #262624;
     --shade-2: #353531;
-    --shade-edge: #5a5954;
+    --shade-edge: #8a8983;
     --crosshair: #c3c2b7;
     --selection: rgba(57, 135, 229, 0.24);
     --accent: #86b6ef;

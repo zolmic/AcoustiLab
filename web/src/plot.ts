@@ -203,7 +203,8 @@ export class Plot {
       }
     } else {
       const pad = (vmax - vmin) * 0.05 || Math.abs(vmax) * 0.05 || 1;
-      vmin -= pad;
+      // Magnitudes are never negative: padding must not invent a negative tick.
+      vmin = vmin >= 0 ? Math.max(0, vmin - pad) : vmin - pad;
       vmax += pad;
     }
     const { step } = niceTicks(vmin, vmax, target, mults);
@@ -289,7 +290,11 @@ export class Plot {
       ctx.fillStyle = th.shade2;
       ctx.fillRect(xd, r.y0, r.x1 - xd, r.y1 - r.y0);
     }
+    // Band edges: at least 3:1 against both neighbouring fills (WCAG 1.4.11,
+    // spec Section 15; the fills themselves are kept faint so curves stay
+    // legible), dashed so they never read as the solid crosshair.
     ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
     for (const x of [xb, xd]) {
       if (x !== null && x > r.x0 && x < r.x1) {
         ctx.strokeStyle = th.shadeEdge;
@@ -299,6 +304,7 @@ export class Plot {
         ctx.stroke();
       }
     }
+    ctx.setLineDash([]);
 
     // Grid.
     const ft = freqTicks(lo, hi);

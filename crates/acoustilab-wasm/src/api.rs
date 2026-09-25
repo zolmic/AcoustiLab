@@ -35,8 +35,14 @@ pub fn solve_value(netlist_json: &str) -> Value {
 }
 
 /// Parses and compiles a netlist without solving it.
+///
+/// Also evaluates every probe once on an all-zero solution vector: the
+/// engine resolves a probe's element when it compiles the netlist, but only
+/// finds out that the element has no such `port` when it first evaluates the
+/// probe during the solve. Without this, `check` would call a netlist valid
+/// that `solve` then rejects, with the same message.
 pub fn check_value(netlist_json: &str) -> Value {
-    match Circuit::from_json(netlist_json) {
+    match Circuit::from_json(netlist_json).and_then(|c| check_probes(&c).map(|()| c)) {
         Ok(c) => {
             let f_min = c.freqs.iter().copied().fold(f64::INFINITY, f64::min);
             let f_max = c.freqs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
@@ -56,6 +62,20 @@ pub fn check_value(netlist_json: &str) -> Value {
         }
         Err(e) => error_value(&e),
     }
+}
+
+/// Evaluates every probe on a zero solution vector at the first grid
+/// frequency, returning the first error `Circuit::probe_value` reports (the
+/// error `solve` would report for that probe). Values are discarded.
+fn check_probes(c: &Circuit) -> acoustilab::Result<()> {
+    let Some(&f) = c.freqs.first() else {
+        return Ok(());
+    };
+    let x = vec![C64::new(0.0, 0.0); c.dim];
+    for p in &c.probes {
+        c.probe_value(p, f, &x)?;
+    }
+    Ok(())
 }
 
 /// Element type names the engine accepts, as a JSON array.

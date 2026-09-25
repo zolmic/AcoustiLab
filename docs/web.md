@@ -45,6 +45,11 @@ npm run screenshot     # build, then refresh docs/img/web-ui.png
 `web/dist` is a static site with relative asset URLs; any static file server
 works. The engine needs no server-side component.
 
+The dev server may read files outside `web/` only from `examples/` and
+`crates/acoustilab-wasm/pkg/` (`server.fs.allow` in `web/vite.config.ts`).
+The rest of the repository, including the untracked `private/` directory of
+licensed standards data, is not served, even with `npm run dev -- --host`.
+
 ### The wasm build
 
 `npm run build:wasm` (called by `dev`, `build` and `test`) runs
@@ -72,7 +77,7 @@ public API and does not change the engine crate.
 | Export | Returns |
 |---|---|
 | `solve(netlist_json)` | The engine's result document (`SolveResult::to_json`), annotated as below, or an error object |
-| `check(netlist_json)` | `{"ok": true, "nodes", "elements", "unknowns", "probes", "frequencies", "f_min_Hz", "f_max_Hz", "level", "air", "shading"}` or an error object |
+| `check(netlist_json)` | `{"ok": true, "nodes", "elements", "unknowns", "probes", "frequencies", "f_min_Hz", "f_max_Hz", "level", "air", "shading"}` or an error object. Also evaluates every probe once on a zero solution, so a probe on a port its element lacks (which the engine otherwise finds only while solving) fails here with the same error `solve` gives |
 | `element_types()` | JSON array of the element type names |
 | `engine_version()` | e.g. `"acoustilab 0.1.0"` |
 | `take_last_panic()` | Message of the last Rust panic, then clears it |
@@ -112,8 +117,10 @@ serialise as `null`; the plots leave a gap there.
 
 A Rust panic traps the wasm instance. A panic hook records the message first;
 the worker reads it with `take_last_panic()` and reports it, and the page then
-replaces the whole worker (wasm-bindgen's `init()` would otherwise return the
-trapped instance), so the next call runs on a fresh engine.
+discards the whole worker (wasm-bindgen's `init()` would otherwise return the
+trapped instance), so the next call runs on a fresh engine. Workers are
+started lazily, by the first call after one was discarded, so a worker script
+that cannot load at all fails each call once instead of respawning in a loop.
 
 ## How the UI works
 
@@ -123,11 +130,15 @@ trapped instance), so the next call runs on a fresh engine.
 - **Solving.** Run (or <kbd>Ctrl</kbd>+<kbd>Enter</kbd> in the editor) posts
   the text to a module Web Worker that hosts the engine, so the page never
   blocks. Cancel terminates the worker (the only way to stop a running wasm
-  call) and starts a new one. A second worker runs `check()` 300 ms after each
-  edit and reports whether the netlist is valid, naming the element at fault.
+  call); the next run starts a new one. A second worker runs `check()` 300 ms
+  after each edit and reports whether the netlist is valid, naming the element
+  at fault.
 - **Errors.** A failed run shows the engine message in an alert region with
   the element, probe, node or JSON line it names, and a "Show in editor"
   button that selects the matching line. The last good plots stay, dimmed.
+  A passing live check clears the error box only once the text differs from
+  the text that failed, and never for errors only a solve can find (a singular
+  system, an engine panic).
 - **Plots.** One plot per quantity and unit, so no plot has two y-scales:
   - acoustic pressures in dB SPL re 20 µPa (RMS phasors, so no √2 anywhere);
   - impedance probes as |Z| plus a smaller phase plot;
@@ -139,15 +150,19 @@ trapped instance), so the next call runs on a fresh engine.
 - **Validity shading** comes from `result.shading`: a light band from
   `begin_hz` (10 % lumped-model error, or where an element's criterion starts
   to bite) and a darker band from `deep_hz` (36 %, or a hard limit), labelled
-  "≥10 %" and "≥36 %" on the first plot. The engine takes the lowest limit over
-  all elements. "Validity limits per element" lists every element's limits.
+  "≥10 %" and "≥36 %" on the first plot. Band edges are dashed lines with at
+  least 3:1 contrast against both neighbouring fills. The engine takes the
+  lowest limit over all elements. "Validity limits per element" lists every
+  element's limits.
 - **Crosshair.** Pointer or keyboard; it snaps to the nearest computed
   frequency (no interpolation) and reads every visible curve, with the phase
   for impedances and the dB difference between pressure curves. It also says
   whether the frequency is inside a shaded band.
 - **Legend** buttons show or hide each probe's curve (`aria-pressed`).
 - **Data table** lists the plotted values inside the current view, with a
-  validity column.
+  validity column. It is rebuilt on the main thread at every zoom, pan and
+  legend toggle, so it lists at most 1000 grid points (one in k, plus the last
+  point in view) and says so in its caption; zoom in to list every point.
 - **Conventions strip** (sticky): air state of the result (temperature,
   static pressure, ρ, c), fidelity level, the independent sources with their
   parameters as written in the netlist, "RMS, e^{+jωt}", and the engine
@@ -195,25 +210,36 @@ against `vite preview`:
    the worker; five plots appear (SPL, |Z|, phase, displacement, volume
    velocity); each curve is drawn (its colour is counted in the canvas); the
    light and dark shading bands are where `result.shading` puts them (canvas
-   pixels sampled in each band and below it); the strip shows the air state,
-   level, drive and the theory-only notice.
+   pixels sampled in each band and below it, and the band edges and decade
+   gridlines located in a raw pixel row and converted to frequency with a log
+   axis computed in the test, not with the plot's own mapping); the strip
+   shows the air state, level, drive and the theory-only notice.
 2. Keyboard and pointer crosshair, readout values equal to the result,
    legend toggles (the curve's pixels disappear and return), keyboard zoom,
    view presets, and the data table's headers, values and validity column.
 3. A closed-form netlist: the readout and table show 20·log10(U/(ωC)/20 µPa)
    for a lossless 1 cm³ cavity and 8.000 Ω, phase 0.0° for a resistor, to the
-   displayed rounding.
+   displayed rounding. A linear magnitude axis puts an exact 0 A on the bottom
+   edge (padding never invents a negative tick).
 4. Malformed netlists: the live check and the error box name the element
    ("front", "coil"), "Show in editor" selects its line, a JSON syntax error
-   jumps to its line, and a fixed netlist clears the error.
+   jumps to its line, and a fixed netlist clears the error. A probe on a port
+   its element lacks is run before the debounced check fires: the check then
+   agrees with the run and the error box stays. A singular network (which the
+   check cannot see) keeps its error box after the check passes.
 5. An engine panic (today triggered by an absurd `points_per_octave`, which
    the engine does not bound yet) is reported with its message, and both the
    solve and the check workers recover.
-6. Loading an example asks before discarding edits.
-7. A ~480 000-point sweep: the main thread keeps answering in under 500 ms and
+6. A worker script that cannot load (served as 404) is reported, and no more
+   than one worker per request is started (the original client respawned
+   hundreds per second).
+7. Loading an example asks before discarding edits.
+8. A ~480 000-point sweep: the main thread keeps answering in under 500 ms and
    the legend still works while the worker solves; Cancel stops it and the next
-   run succeeds.
-8. axe-core in light and dark themes; Tab reaches the example picker, Run,
+   run succeeds. A ~48 000-point sweep with the data table open: the table
+   lists at most 1001 rows spanning the view, and the main thread never blocks
+   for 2 s (it blocked for over 10 s building one row per point).
+9. axe-core in light and dark themes; Tab reaches the example picker, Run,
    the editor, the legend and the plots.
 
 The Rust side (`cargo test -p acoustilab-wasm`) tests the JSON API natively.

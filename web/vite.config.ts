@@ -4,19 +4,22 @@ import { fileURLToPath } from 'node:url';
 // The engine is the wasm-bindgen output of crates/acoustilab-wasm (built by
 // scripts/build-wasm.sh); example netlists come from the repository's
 // examples/ directory. Both live outside web/, so the dev server may read
-// the repository root.
-const repoRoot = fileURLToPath(new URL('..', import.meta.url));
+// exactly those two directories besides web/ itself, and not the rest of the
+// repository (in particular not the untracked private/ directory of licensed
+// standards data, which `vite --host` would otherwise serve to the network).
+const dir = (rel: string) => fileURLToPath(new URL(rel, import.meta.url));
+const pkgDir = dir('../crates/acoustilab-wasm/pkg');
 
 export default defineConfig({
   // Relative asset URLs: dist/ can be served from any path.
   base: './',
   resolve: {
     alias: {
-      '@engine': fileURLToPath(new URL('../crates/acoustilab-wasm/pkg', import.meta.url)),
+      '@engine': pkgDir,
     },
   },
   server: {
-    fs: { allow: [repoRoot] },
+    fs: { allow: [dir('.'), dir('../examples'), pkgDir] },
   },
   worker: { format: 'es' },
   build: {

@@ -47,6 +47,8 @@ let result: SolveResult | null = null;
 let groups: PlotGroup[] = [];
 let solvedText: string | null = null;
 let lastError: EngineError | null = null;
+/** Netlist text of the run that produced `lastError`. */
+let lastErrorText: string | null = null;
 
 const solver = new EngineWorker();
 const checker = new EngineWorker();
@@ -272,6 +274,24 @@ function renderReadout(i: number | null, fromKeyboard: boolean): void {
   if (fromKeyboard) srReadout.textContent = `${formatHz(f)}: ${spoken.join('; ')}. ${validityNote(f)}.`;
 }
 
+/**
+ * Most rows the data table builds at once. It is rebuilt on the main thread
+ * at every zoom, pan and legend toggle; a dense sweep (tens of thousands of
+ * points in view) would otherwise freeze the page for seconds, which the
+ * worker solve exists to avoid.
+ */
+const MAX_TABLE_ROWS = 1000;
+
+/** Grid indices the table lists for the view [a, b]: all, or every k-th plus the last. */
+function tableRows(a: number, b: number): { rows: number[]; stride: number } {
+  const n = b - a + 1;
+  const stride = Math.max(1, Math.ceil(n / MAX_TABLE_ROWS));
+  const rows: number[] = [];
+  for (let i = a; i <= b; i += stride) rows.push(i);
+  if (rows[rows.length - 1] !== b) rows.push(b);
+  return { rows, stride };
+}
+
 function renderTable(): void {
   tableWrap.replaceChildren();
   if (!result) return;
@@ -280,9 +300,11 @@ function renderTable(): void {
   table.className = 'data-table';
   const caption = document.createElement('caption');
   const n = idx ? idx[1] - idx[0] + 1 : 0;
+  const { rows, stride } = idx ? tableRows(idx[0], idx[1]) : { rows: [], stride: 1 };
   caption.textContent =
-    `Plotted values from ${formatHz(panel.lo)} to ${formatHz(panel.hi)} (${n} rows). ` +
-    'Validity: "light" = lumped-model error ≥ 10 %, "dark" = ≥ 36 % or past a hard limit.';
+    `Plotted values from ${formatHz(panel.lo)} to ${formatHz(panel.hi)} (${n} rows` +
+    (stride > 1 ? `; ${rows.length} shown, one grid point in ${stride} and the last: zoom in to list them all` : '') +
+    '). Validity: "light" = lumped-model error ≥ 10 %, "dark" = ≥ 36 % or past a hard limit.';
   table.append(caption);
   const cols: { g: PlotGroup; s: PlotGroup['series'][number] }[] = [];
   for (const g of groups) for (const s of g.series) if (!panel.hidden.has(s.id)) cols.push({ g, s });
@@ -302,25 +324,23 @@ function renderTable(): void {
   thead.append(hr);
   const tbody = document.createElement('tbody');
   const sh = result.shading;
-  if (idx) {
-    for (let i = idx[0]; i <= idx[1]; i++) {
-      const f = result.frequencies_Hz[i];
-      const tr = document.createElement('tr');
-      const rh = document.createElement('th');
-      rh.scope = 'row';
-      rh.textContent = formatNumber(f, 6);
-      const vd = document.createElement('td');
-      vd.textContent =
-        sh.deep_hz !== null && f >= sh.deep_hz ? 'dark' : sh.begin_hz !== null && f >= sh.begin_hz ? 'light' : '';
-      tr.append(rh, vd);
-      for (const { g, s } of cols) {
-        const td = document.createElement('td');
-        const v = s.values[i];
-        td.textContent = g.kind === 'spl' ? (v === null ? '' : v.toFixed(2)) : g.kind === 'phase' ? (v === null ? '' : v.toFixed(2)) : formatNumber(v);
-        tr.append(td);
-      }
-      tbody.append(tr);
+  for (const i of rows) {
+    const f = result.frequencies_Hz[i];
+    const tr = document.createElement('tr');
+    const rh = document.createElement('th');
+    rh.scope = 'row';
+    rh.textContent = formatNumber(f, 6);
+    const vd = document.createElement('td');
+    vd.textContent =
+      sh.deep_hz !== null && f >= sh.deep_hz ? 'dark' : sh.begin_hz !== null && f >= sh.begin_hz ? 'light' : '';
+    tr.append(rh, vd);
+    for (const { g, s } of cols) {
+      const td = document.createElement('td');
+      const v = s.values[i];
+      td.textContent = g.kind === 'spl' ? (v === null ? '' : v.toFixed(2)) : g.kind === 'phase' ? (v === null ? '' : v.toFixed(2)) : formatNumber(v);
+      tr.append(td);
     }
+    tbody.append(tr);
   }
   table.append(thead, tbody);
   tableWrap.append(table);
@@ -400,8 +420,9 @@ function errorRange(e: EngineError, text: string): [number, number] | null {
   return null;
 }
 
-function showError(e: EngineError): void {
+function showError(e: EngineError, text: string): void {
   lastError = e;
+  lastErrorText = text;
   errorMessage.textContent = e.error;
   errorDetail.textContent = errorDetailText(e);
   errorGoto.hidden = errorRange(e, editor.value) === null;
@@ -411,6 +432,7 @@ function showError(e: EngineError): void {
 
 function clearError(): void {
   lastError = null;
+  lastErrorText = null;
   errorBox.hidden = true;
   plotsEl.classList.remove('stale');
 }
@@ -484,13 +506,13 @@ async function run(): Promise<void> {
   }
   setBusy(false);
   if (!reply.ok) {
-    showError({ error: reply.crash, kind: 'panic' });
+    showError({ error: reply.crash, kind: 'panic' }, text);
     runStatus.textContent = 'The engine failed; see the error below.';
     document.body.dataset.state = 'error';
     return;
   }
   if (isError(reply.value)) {
-    showError(reply.value);
+    showError(reply.value, text);
     runStatus.textContent = result ? 'Run failed; showing the last successful result (dimmed).' : 'Run failed.';
     document.body.dataset.state = 'error';
     return;
@@ -506,7 +528,8 @@ function scheduleCheck(): void {
     const seq = ++checkSeq;
     const text = editor.value;
     const reply = await checker.call('check', text);
-    if (seq !== checkSeq) return;
+    // Drop replies overtaken by a newer check or by further edits.
+    if (seq !== checkSeq || text !== editor.value) return;
     if (!reply.ok) {
       checkStatus.textContent = `Check failed: ${reply.crash}`;
       checkStatus.dataset.state = 'error';
@@ -523,7 +546,12 @@ function scheduleCheck(): void {
         `${v.probes} probes, ${v.frequencies} frequencies (${formatHz(v.f_min_Hz)} to ${formatHz(v.f_max_Hz)}), L${v.level}.` +
         (solvedText !== null && text !== solvedText ? ' Edited since the last run.' : '');
       checkStatus.dataset.state = 'ok';
-      if (lastError && lastError.kind !== 'singular' && lastError.kind !== 'panic') clearError();
+      // A passing check only vouches for errors it can detect, and only for
+      // edited text: a run's error on this very text (a singular system, a
+      // panic, anything found only while solving) must stay visible.
+      if (lastError && text !== lastErrorText && lastError.kind !== 'singular' && lastError.kind !== 'panic') {
+        clearError();
+      }
     }
   }, 300);
 }
@@ -624,6 +652,23 @@ Object.defineProperty(window, 'acoustilab', {
       const out: number[][] = [];
       for (let k = 0; k < d.length; k += 4) out.push([d[k], d[k + 1], d[k + 2]]);
       return out;
+    },
+    /**
+     * One full-width row of device pixels of a plot, fraction t down the plot
+     * area, with the plot-area box in CSS px. Lets a test locate what is drawn
+     * without going through the plot's own frequency-to-x mapping.
+     */
+    row: (key: string, t: number): { dpr: number; x0: number; x1: number; y0: number; y1: number; px: number[][] } | null => {
+      const p = panel.plots.find((q) => q.group.key === key);
+      if (!p) return null;
+      panel.renderNow();
+      const dpr = window.devicePixelRatio || 1;
+      const r = p.plotRect();
+      const y = Math.round((r.y0 + t * (r.y1 - r.y0)) * dpr);
+      const d = p.canvas.getContext('2d')!.getImageData(0, y, p.canvas.width, 1).data;
+      const px: number[][] = [];
+      for (let k = 0; k < d.length; k += 4) px.push([d[k], d[k + 1], d[k + 2]]);
+      return { dpr, ...r, px };
     },
     /** Number of pixels of a plot within `tol` (sum of |ΔRGB|) of a CSS colour variable. */
     countColor: (key: string, cssVar: string, tol = 30): number => {
