@@ -20,7 +20,9 @@
 //!   |Z| = Re·√r0, Qms = fres·√r0/(f2 − f1), Qes = Qms/(r0 − 1),
 //!   Qts = Qms/r0. Exact for a single lumped resonance with a real Re and
 //!   no inductance; in situ, the acoustic load's losses count as mechanical
-//!   ones. A note is added when √(f1·f2) is more than 1 % from fres;
+//!   ones. A note is added when √(f1·f2) is more than 1 % from fres. The
+//!   upper crossing must lie below the next peak: when |Z| stays above
+//!   Re·√r0 up to it, the resonances overlap and no Q is given;
 //! * nominal impedance |Z(1 kHz)| (exact solve);
 //! * minimum |Z| above the resonance (refined unless at the sweep's end);
 //! * the rated-impedance check: |Z| below 80 % of the rated impedance
@@ -49,9 +51,15 @@
 //!   total mechanical impedance the motor drives (suspension, moving mass
 //!   and acoustic loads); it does not depend on the drive convention, source
 //!   impedance or coil inductance, and for a lossless lumped cavity it is
-//!   exactly spec Appendix C2's f_c = (1/2π)·√((1/Cms + Sd²/Caf)/Mms). It is
-//!   `robust` when |v/i| at the peak exceeds its values one octave below and
-//!   above by at least [`RESONANCE_PROMINENCE_DB`].
+//!   exactly spec Appendix C2's f_c = (1/2π)·√((1/Cms + Sd²/Caf)/Mms). With
+//!   one resonance it agrees with the in-situ impedance peak and the
+//!   response peak (within 1 % on the template, closed or open back). A
+//!   vent or a large leak adds a second resonance: the highest maximum is
+//!   reported with the other one (`competing`), and when the two come
+//!   within [`RESONANCE_MARGIN_DB`] the value is `ambiguous` (it can jump
+//!   between them) and left out of the scalars. It is `robust` when |v/i|
+//!   at the peak exceeds its values one octave below and above by at least
+//!   [`RESONANCE_PROMINENCE_DB`] and it is not ambiguous.
 
 use super::search::{brent_max, illinois_root};
 use super::{Design, Point};
@@ -70,8 +78,19 @@ use std::f64::consts::PI;
 /// Minimum prominence of an impedance peak, dB.
 pub const PEAK_PROMINENCE_DB: f64 = 0.1;
 /// A coupled resonance is robust when |v/i| at the peak is this many dB
-/// above its values one octave either side.
+/// above its values one octave either side (and not ambiguous). A maximum
+/// of |v/i| with this much topographic prominence counts as another
+/// resonance.
 pub const RESONANCE_PROMINENCE_DB: f64 = 1.0;
+/// A coupled resonance is ambiguous when another resonance of |v/i| comes
+/// within this many dB of it. Two-resonance designs (open vents, large
+/// leaks) can have two peaks of nearly equal height, and then a few
+/// percent of a parameter swaps the highest one: on the template with a
+/// 1 mm leak (margin 1.2 dB), +5 % of Mms moves the maximum from 1185 to
+/// 516 Hz. 3 dB is a heuristic. A larger change can still hand the maximum
+/// to the other resonance: the open-back template with a 0.3 mm leak
+/// (margin 5.7 dB) has its maximum at 55 Hz once the leak is 0.45 mm.
+pub const RESONANCE_MARGIN_DB: f64 = 3.0;
 /// Bass extension reference: dB below the 500 Hz level.
 pub const BASS_EXTENSION_DB: f64 = 3.0;
 /// Reference frequency of the bass extension and the first sensitivity.
@@ -243,6 +262,16 @@ pub struct SensitivityReadout {
     pub conversion_db: Option<f64>,
 }
 
+/// Another maximum of |v/i|: a second coupled resonance.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct CompetingPeak {
+    #[serde(rename = "f_Hz")]
+    pub f_hz: f64,
+    /// How far it lies below the coupled resonance's peak, dB.
+    #[serde(rename = "margin_dB")]
+    pub margin_db: f64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CoupledResonance {
     #[serde(rename = "f_Hz")]
@@ -252,6 +281,17 @@ pub struct CoupledResonance {
     /// side.
     #[serde(rename = "prominence_dB")]
     pub prominence_db: f64,
+    /// The highest other maximum of |v/i| with at least
+    /// [`RESONANCE_PROMINENCE_DB`] of topographic prominence (a vent or
+    /// leak resonance, for example), if any.
+    pub competing: Option<CompetingPeak>,
+    /// Another peak lies within [`RESONANCE_MARGIN_DB`]: which of the two
+    /// is the highest can change with a small change of the design, so the
+    /// value is not a continuous function of the parameters and
+    /// [`Readouts::scalars`] leaves it out.
+    pub ambiguous: bool,
+    /// At least [`RESONANCE_PROMINENCE_DB`] of prominence and not
+    /// ambiguous.
     pub robust: bool,
     pub shading: u8,
 }
@@ -331,7 +371,10 @@ impl Readouts {
             set("bass_extension_Hz", r.bass_extension.map(|b| b.f_hz));
             set(
                 "coupled_resonance_Hz",
-                r.coupled_resonance.as_ref().map(|c| c.f_hz),
+                r.coupled_resonance
+                    .as_ref()
+                    .filter(|c| !c.ambiguous)
+                    .map(|c| c.f_hz),
             );
         }
         if let Some(z) = &self.impedance {
@@ -366,7 +409,7 @@ fn methods() -> BTreeMap<&'static str, &'static str> {
         ("peaks", "interior local maxima of |Z| with at least 0.1 dB topographic prominence, refined by Brent's method on exact solves"),
         ("resonance", "in-situ resonance: the first impedance peak; Zmax: the highest"),
         ("Re", "the Re_ohm option, else Re Z extrapolated to 0 Hz from the two lowest frequencies assuming Re Z - Re proportional to f^2"),
-        ("Q", "sqrt(r0) method (Small 1972): r0 = Z(fres)/Re, |Z(f1)| = |Z(f2)| = Re*sqrt(r0), Qms = fres*sqrt(r0)/(f2 - f1), Qes = Qms/(r0 - 1), Qts = Qms/r0; crossings refined on exact solves"),
+        ("Q", "sqrt(r0) method (Small 1972): r0 = Z(fres)/Re, |Z(f1)| = |Z(f2)| = Re*sqrt(r0), Qms = fres*sqrt(r0)/(f2 - f1), Qes = Qms/(r0 - 1), Qts = Qms/r0; crossings refined on exact solves; none when |Z| stays above Re*sqrt(r0) up to the next impedance peak (overlapping resonances)"),
         ("z_1kHz", "|Z| at 1 kHz, exact solve"),
         ("min_above_resonance", "smallest |Z| above the in-situ resonance, refined unless at the sweep's end"),
         ("rated_check", "|Z| below 80 % of the rated impedance anywhere in the sweep (spec Section 4)"),
@@ -374,7 +417,7 @@ fn methods() -> BTreeMap<&'static str, &'static str> {
         ("level", "dB SPL re 20 uPa (RMS) at the response probe under the stated drive, exact solves at 500 Hz and 1 kHz"),
         ("sensitivity", "dB SPL per volt of source EMF and per milliwatt into the rated impedance at 500 Hz and 1 kHz: dB/mW = dB/V - 10*log10(1000/Z_rated) (erratum E32)"),
         ("bass_extension", "frequency 3 dB below the 500 Hz level, walking the grid down from 500 Hz, crossing refined on exact solves"),
-        ("coupled_resonance", "maximum of diaphragm velocity per unit coil current |v/i| (minimum of the total mechanical impedance the motor drives), refined by Brent's method; robust when at least 1 dB above |v/i| one octave either side"),
+        ("coupled_resonance", "maximum of diaphragm velocity per unit coil current |v/i| (minimum of the total mechanical impedance the motor drives), refined by Brent's method; ambiguous (and left out of the scalars) when another maximum with 1 dB prominence comes within 3 dB; robust when at least 1 dB above |v/i| one octave either side and not ambiguous"),
     ])
 }
 
@@ -723,8 +766,6 @@ fn refine_max(
     })
 }
 
-/// The frequency between grid points `lo` and `lo + 1` where `g` crosses
-/// `level` (g(f[lo]) and g(f[lo+1]) on opposite sides).
 /// The frequency between two points, (f, |g|) on opposite sides of
 /// `level`, where `g` crosses it.
 fn crossing(
@@ -756,12 +797,12 @@ pub(crate) fn analyse_impedance(
     let mag: Vec<f64> = z.iter().map(|v| v.norm()).collect();
     let mut g = |f: f64| -> Result<f64> { Ok(eval(f)?.norm()) };
     let mut peaks = Vec::new();
-    let mut first_index = None;
-    for (i, prom) in prominent_maxima(&mag, PEAK_PROMINENCE_DB) {
+    let maxima = prominent_maxima(&mag, PEAK_PROMINENCE_DB);
+    let first_index = maxima.first().map(|&(i, _)| i);
+    // The next peak bounds the search for the resonance's upper crossing.
+    let next_peak = maxima.get(1).map(|&(i, _)| i);
+    for &(i, prom) in &maxima {
         let (f, v) = refine_max(freqs, i, mag[i], &mut g)?;
-        if first_index.is_none() {
-            first_index = Some(i);
-        }
         peaks.push(Peak {
             f_hz: f,
             z: v,
@@ -778,7 +819,8 @@ pub(crate) fn analyse_impedance(
     }
     let (mut q, mut min_above, mut min_at_end) = (None, None, false);
     if let (Some(res), Some(i)) = (resonance, first_index) {
-        q = q_estimate(freqs, &mag, i, res, re, &mut g, notes)?;
+        let next = next_peak.map(|j| (j, peaks[1].f_hz));
+        q = q_estimate(freqs, &mag, i, next, res, re, &mut g, notes)?;
         let n = freqs.len();
         if i + 1 < n {
             let k = (i + 1..n)
@@ -806,10 +848,16 @@ pub(crate) fn analyse_impedance(
     })
 }
 
+/// sqrt(r0) estimates around the resonance `res` (grid index `i`). The
+/// upper crossing is searched only below the next impedance peak (`next`:
+/// its grid index and refined frequency): when |Z| stays above Re·√r0 up
+/// to that peak, the two resonances overlap and the method does not apply.
+#[allow(clippy::too_many_arguments)]
 fn q_estimate(
     freqs: &[f64],
     mag: &[f64],
     i: usize,
+    next: Option<(usize, f64)>,
     res: Peak,
     re: f64,
     g: &mut dyn FnMut(f64) -> Result<f64>,
@@ -839,12 +887,19 @@ fn q_estimate(
     }
     let mut above = None;
     let mut inner = peak;
-    for k in (i..mag.len()).filter(|&k| freqs[k] > res.f_hz) {
+    let end = next.map_or(mag.len(), |(j, _)| j);
+    for k in (i..end).filter(|&k| freqs[k] > res.f_hz) {
         if mag[k] < level {
             above = Some((inner, (freqs[k], mag[k])));
             break;
         }
         inner = (freqs[k], mag[k]);
+    }
+    if let (None, Some((_, f_next))) = (above, next) {
+        notes.push(format!(
+            "|Z| stays above Re*sqrt(r0) = {level:.4} ohm from the resonance up to the next impedance peak at {f_next:.4} Hz: the resonances overlap and the sqrt(r0) method does not apply, so no Q estimates"
+        ));
+        return Ok(None);
     }
     let (Some((a1, b1)), Some((a2, b2))) = (below, above) else {
         notes.push("|Z| does not fall to Re*sqrt(r0) on both sides of the resonance within the sweep: no Q estimates".into());
@@ -1089,11 +1144,8 @@ pub(crate) fn coupled_resonance(
         .zip(&i.values)
         .map(|(v, i)| (v / i).norm())
         .collect();
-    let Some(k) = prominent_maxima(&ratio, 0.0)
-        .into_iter()
-        .map(|(k, _)| k)
-        .max_by(|&a, &b| ratio[a].total_cmp(&ratio[b]))
-    else {
+    let maxima = prominent_maxima(&ratio, 0.0);
+    let Some(top) = maxima.iter().map(|&(k, _)| ratio[k]).max_by(f64::total_cmp) else {
         notes.push(format!(
             "|v/i| of driver '{driver}' has no interior maximum in the sweep: no coupled resonance"
         ));
@@ -1104,14 +1156,42 @@ pub(crate) fn coupled_resonance(
         let x = c.solve_at(f)?;
         Ok((c.probe_value(vp, f, &x)? / c.probe_value(ip, f, &x)?).norm())
     };
-    let (f, peak) = refine_max(freqs, k, ratio[k], &mut g)?;
+    // Refine the highest grid maximum and every other resonance (maximum
+    // with RESONANCE_PROMINENCE_DB of prominence) within 10 dB of it: a
+    // sharp peak between grid points can be higher than its grid value.
+    let mut peaks: Vec<(f64, f64, bool)> = Vec::new();
+    for &(k, prom) in &maxima {
+        let resonance = prom >= RESONANCE_PROMINENCE_DB;
+        if ratio[k] == top || (resonance && ratio[k] >= top * 10f64.powf(-0.5)) {
+            let (f, peak) = refine_max(freqs, k, ratio[k], &mut g)?;
+            peaks.push((f, peak, resonance));
+        }
+    }
+    peaks.sort_by(|a, b| b.1.total_cmp(&a.1));
+    let (f, peak, _) = peaks[0];
+    let competing = peaks[1..]
+        .iter()
+        .find(|p| p.2)
+        .map(|&(fc, pc, _)| CompetingPeak {
+            f_hz: fc,
+            margin_db: 20.0 * (peak / pc).log10(),
+        });
     let side = g(f / 2.0)?.max(g(2.0 * f)?);
     let prominence_db = 20.0 * (peak / side).log10();
+    let ambiguous = competing.is_some_and(|p| p.margin_db < RESONANCE_MARGIN_DB);
+    if let (true, Some(p)) = (ambiguous, competing) {
+        notes.push(format!(
+            "|v/i| of driver '{driver}' has two resonances of nearly equal height, at {f:.4} Hz and {:.4} Hz ({:.2} dB lower): the coupled resonance is ambiguous and is not reported as a scalar",
+            p.f_hz, p.margin_db
+        ));
+    }
     Ok(Some(CoupledResonance {
         f_hz: f,
         driver: driver.to_string(),
         prominence_db,
-        robust: prominence_db >= RESONANCE_PROMINENCE_DB,
+        competing,
+        ambiguous,
+        robust: prominence_db >= RESONANCE_PROMINENCE_DB && !ambiguous,
         shading: result.shading.band(f),
     }))
 }

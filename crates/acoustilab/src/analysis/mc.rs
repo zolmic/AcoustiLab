@@ -62,8 +62,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
-/// Largest plan (runs).
-pub const MAX_RUNS: usize = 1_000_000;
+/// Largest plan (runs). A plan is returned whole (a wasm call returns it as
+/// one JSON text): 100 000 runs of the template's ten toleranced
+/// parameters make about 38 MB of JSON, planned in 0.2 s natively; the
+/// runs themselves take about 20 ms each.
+pub const MAX_RUNS: usize = 100_000;
 
 /// What to sample.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -204,6 +207,9 @@ pub fn plan(design: &Design, spec: &PlanSpec) -> Result<Plan> {
 }
 
 fn lhs_plan(design: &Design, n: usize, seed: u64, names: Option<&[String]>) -> Result<Plan> {
+    if let Some(list) = names {
+        super::check_unique(list)?;
+    }
     let defs = match names {
         Some(list) => list
             .iter()
@@ -225,6 +231,12 @@ fn lhs_plan(design: &Design, n: usize, seed: u64, names: Option<&[String]>) -> R
             .filter(|d| d.tolerance.is_some() && design.continuous_value(d).is_ok())
             .collect(),
     };
+    if defs.is_empty() {
+        return Err(options_error(
+            "plan",
+            "no continuous parameter with a tolerance to sample",
+        ));
+    }
     let mut dists: Vec<Distribution> = defs
         .iter()
         .map(|d| {
@@ -302,9 +314,12 @@ fn factor_levels(design: &Design, name: &str, v: &Value) -> Result<Vec<PValue>> 
             let k = o
                 .get("levels")
                 .and_then(Value::as_u64)
-                .filter(|k| *k >= 2)
-                .ok_or_else(|| perr("factor 'levels' must be an integer >= 2".into()))?
-                as usize;
+                .filter(|k| (2..=MAX_RUNS as u64).contains(k))
+                .ok_or_else(|| {
+                    perr(format!(
+                        "factor 'levels' must be an integer from 2 to {MAX_RUNS}"
+                    ))
+                })? as usize;
             let num = |key: &str| {
                 o.get(key)
                     .and_then(Value::as_f64)

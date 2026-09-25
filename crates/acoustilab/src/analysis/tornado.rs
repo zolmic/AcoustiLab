@@ -315,7 +315,9 @@ pub fn tornado(design: &Design, opts: &TornadoOptions) -> Result<Tornado> {
     if !base_value.is_finite() {
         return Err(options_error(
             "tornado",
-            format!("{description} is undefined for the base design; choose another metric"),
+            format!(
+                "{description} is undefined for the base design (the readouts' notes say why, e.g. an ambiguous coupled resonance); choose another metric"
+            ),
         ));
     }
     let meta = base.solve_at_freqs(&[1000.0])?;

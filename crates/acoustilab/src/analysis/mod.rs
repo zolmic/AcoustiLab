@@ -137,7 +137,9 @@ impl Design {
     }
 
     /// The declarations named in `names` (all non-derived ones when `None`),
-    /// in declaration order for `None` and in the given order otherwise.
+    /// in declaration order for `None` and in the given order otherwise. A
+    /// name given twice is an error (it would be solved twice and listed
+    /// twice).
     pub fn selected(&self, names: Option<&[String]>) -> Result<Vec<&ParamDef>> {
         match names {
             None => Ok(self
@@ -146,7 +148,10 @@ impl Design {
                 .iter()
                 .filter(|d| !d.is_derived())
                 .collect()),
-            Some(list) => list.iter().map(|n| self.def(n)).collect(),
+            Some(list) => {
+                check_unique(list)?;
+                list.iter().map(|n| self.def(n)).collect()
+            }
         }
     }
 }
@@ -320,13 +325,21 @@ pub fn probe_unit(c: &Circuit, p: &Probe) -> String {
     }
 }
 
-/// Indices of the probes named in `ids` (all when `None`).
+/// Indices of the probes named in `ids` (all when `None`); an id given
+/// twice is an error.
 pub fn select_probes(result: &SolveResult, ids: Option<&[String]>) -> Result<Vec<usize>> {
     match ids {
         None => Ok((0..result.probes.len()).collect()),
         Some(ids) => ids
             .iter()
-            .map(|id| {
+            .enumerate()
+            .map(|(k, id)| {
+                if ids[..k].contains(id) {
+                    return Err(Error::Probe {
+                        id: id.clone(),
+                        msg: "listed twice".into(),
+                    });
+                }
                 result
                     .probes
                     .iter()
@@ -424,6 +437,18 @@ pub fn structure_difference(a: &Value, b: &Value) -> Option<String> {
         .cloned()
         .unwrap_or_default();
     Some(format!("changes the structure of '{key}'"))
+}
+
+/// A `parameter` error for the first name that appears twice in a list.
+pub(crate) fn check_unique(names: &[String]) -> Result<()> {
+    let mut seen = std::collections::BTreeSet::new();
+    match names.iter().find(|n| !seen.insert(n.as_str())) {
+        Some(n) => Err(Error::Parameter {
+            name: n.clone(),
+            msg: "listed twice".into(),
+        }),
+        None => Ok(()),
+    }
 }
 
 fn quoted(v: &[&String]) -> String {

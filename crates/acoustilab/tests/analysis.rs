@@ -10,9 +10,9 @@
 //! against re-solves made here, independently of the explain code.
 //!
 //! Tolerances: finite-difference sensitivities 1e-7 relative plus 1e-10 dB
-//! (or degrees) per percent absolute, from the truncation bound
-//! (2Q·h)²/6 with h = 1e-4 and the rounding bound ε/h (see
-//! `analysis::sensitivity`); refined readouts 1e-7 relative (Brent's method
+//! (or degrees) per percent absolute, above the truncation bound
+//! (2Q·h)²/6 (below 1e-8 here with the default h = 1e-5) and the rounding
+//! bound ε/h (see `analysis::sensitivity`); refined readouts 1e-7 relative (Brent's method
 //! locates a maximum to about √ε in ln f); identities and exact re-solves
 //! 1e-9 to 1e-12.
 
@@ -637,6 +637,20 @@ fn topology_changes_and_non_continuous_parameters_are_excluded() {
         }
     )
     .is_err());
+    // A name listed twice is an error, not twice the work.
+    let twice = |p: &[&str], q: &[&str]| SensitivityOptions {
+        parameters: Some(p.iter().map(|s| s.to_string()).collect()),
+        probes: Some(q.iter().map(|s| s.to_string()).collect()),
+        ..Default::default()
+    };
+    let e = sensitivity::jacobian(&design(&doc), &twice(&["R_ohm", "R_ohm"], &["vc"]))
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("listed twice"), "{e}");
+    let e = sensitivity::jacobian(&design(&doc), &twice(&["R_ohm"], &["vc", "zin", "vc"]))
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("listed twice"), "{e}");
 }
 
 // ----- Readouts -----------------------------------------------------------------
@@ -760,6 +774,7 @@ fn coupled_resonance_matches_appendix_c2() {
         .unwrap();
     assert!(close(c.f_hz, fc, 1e-7, 0.0), "{} vs {fc}", c.f_hz);
     assert!(c.robust && c.prominence_db > 10.0);
+    assert!(c.competing.is_none() && !c.ambiguous);
     let z = r.impedance.as_ref().unwrap();
     let res = z.resonance.unwrap();
     assert!(close(res.f_hz, fc, 1e-7, 0.0));
@@ -769,6 +784,170 @@ fn coupled_resonance_matches_appendix_c2() {
         r.response.as_ref().unwrap().probe_source,
         "first pressure probe"
     );
+}
+
+#[test]
+fn no_q_estimate_across_an_overlapping_resonance() {
+    // Re = 32 ohm in series with two parallel RLC tanks, Z = Re + Σ
+    // Rk/(1 + jQk(f/fk − fk/f)): (4 ohm, 100 Hz, Q 2) and (40 ohm, 300 Hz,
+    // Q 3). The first peak (r0 ≈ 1.15) is separated from the second by a
+    // valley that stays above Re·√r0, so |Z| first falls to that level
+    // beyond the second peak: a bandwidth there would span both
+    // resonances. The sqrt(r0) method does not apply and no Q is given.
+    let tank = |r: f64, f0: f64, q: f64| {
+        let w0 = 2.0 * PI * f0;
+        (r / (q * w0), q / (r * w0))
+    };
+    let ((l1, c1), (l2, c2)) = (tank(4.0, 100.0, 2.0), tank(40.0, 300.0, 3.0));
+    let doc = json!({
+        "sweep": {"f_min_Hz": 10, "f_max_Hz": 3000, "points_per_octave": 24},
+        "nodes": [{"id": "e", "domain": "electrical"}, {"id": "n1", "domain": "electrical"},
+                  {"id": "n2", "domain": "electrical"}],
+        "elements": [
+            {"id": "amp", "type": "vsource", "node": "e"},
+            {"id": "re", "type": "resistor", "nodes": ["e", "n1"], "R_ohm": 32},
+            {"id": "r1", "type": "resistor", "nodes": ["n1", "n2"], "R_ohm": 4},
+            {"id": "l1", "type": "inductor", "nodes": ["n1", "n2"], "L_H": l1},
+            {"id": "c1", "type": "capacitor", "nodes": ["n1", "n2"], "C_F": c1},
+            {"id": "r2", "type": "resistor", "node": "n2", "R_ohm": 40},
+            {"id": "l2", "type": "inductor", "node": "n2", "L_H": l2},
+            {"id": "c2", "type": "capacitor", "node": "n2", "C_F": c2}
+        ],
+        "probes": []
+    });
+    let z = |f: f64| {
+        let t = |r: f64, f0: f64, q: f64| r / C64::new(1.0, q * (f / f0 - f0 / f));
+        (32.0 + t(4.0, 100.0, 2.0) + t(40.0, 300.0, 3.0)).norm()
+    };
+    let r = readouts::readouts(
+        &design(&doc),
+        &ReadoutOptions {
+            re_ohm: Some(32.0),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let imp = r.impedance.unwrap();
+    assert_eq!(imp.peaks.len(), 2, "{:?}", imp.peaks);
+    let (p1, p2) = (imp.peaks[0], imp.peaks[1]);
+    assert!(close(p1.z, z(p1.f_hz), 1e-12, 0.0));
+    // The premise, from the closed form: the valley between the peaks
+    // stays above Re·√r0 of the first.
+    let level = (32.0 * p1.z).sqrt();
+    let valley = (0..=10_000)
+        .map(|k| z(p1.f_hz * (p2.f_hz / p1.f_hz).powf(k as f64 / 10_000.0)))
+        .fold(f64::INFINITY, f64::min);
+    assert!(valley > level * 1.02, "valley {valley}, level {level}");
+    assert!(imp.q.is_none(), "{:?}", imp.q);
+    assert!(
+        imp.notes.iter().any(|n| n.contains("resonances overlap")),
+        "{:?}",
+        imp.notes
+    );
+    assert!(r.drivers.is_empty());
+}
+
+/// A D0 driver loaded at the front by a vented box (compliance Cb in
+/// parallel with a port of inertance Mp and resistance Rp), rear at
+/// ambient: two coupled resonances, below and above the port resonance.
+fn vented_box(fb: f64, rp: f64) -> (Value, impl Fn(f64) -> f64) {
+    let cb = 30e-6 / RHO_C2;
+    let mp = 1.0 / ((2.0 * PI * fb).powi(2) * cb);
+    let doc = json!({
+        "sweep": {"f_min_Hz": 20, "f_max_Hz": 5000, "points_per_octave": 12},
+        "nodes": [{"id": "e", "domain": "electrical"}, {"id": "af", "domain": "acoustic"},
+                  {"id": "ap", "domain": "acoustic"}],
+        "elements": [
+            {"id": "amp", "type": "vsource", "node": "e", "V_V": 1},
+            {"id": "drv", "type": "driver", "nodes": ["e", "gnd", "af"], "model": "D0",
+             "Re_ohm": 32, "Bl_Tm": 2, "Mms_g": 0.3, "Kms_N_per_m": 1000,
+             "Rms_Ns_per_m": 0.05, "Sd_cm2": 10},
+            {"id": "box", "type": "acoustic_compliance", "node": "af", "C_m3_per_Pa": cb},
+            {"id": "port", "type": "acoustic_inertance", "nodes": ["af", "ap"], "M_kg_per_m4": mp},
+            {"id": "loss", "type": "acoustic_resistance", "node": "ap", "R_Pa_s_per_m3": rp}
+        ],
+        "probes": [{"id": "p", "quantity": "pressure", "node": "af"}]
+    });
+    // |v/i| = Bl/|Zm + Sd²·Za|, Za = Zc·Zp/(Zc + Zp).
+    let vi = move |f: f64| {
+        let jw = C64::new(0.0, 2.0 * PI * f);
+        let (zc, zp) = (1.0 / (jw * cb), jw * mp + rp);
+        let zm = jw * 3e-4 + 0.05 + 1000.0 / jw + 1e-6 * zc * zp / (zc + zp);
+        2.0 / zm.norm()
+    };
+    (doc, vi)
+}
+
+/// Maximum of `g` on [a, b] by golden-section search (independent of the
+/// engine's Brent search), to 1e-12 in ln f.
+fn golden_max(g: &dyn Fn(f64) -> f64, a: f64, b: f64) -> (f64, f64) {
+    let r = (5f64.sqrt() - 1.0) / 2.0;
+    let (mut a, mut b) = (a.ln(), b.ln());
+    while b - a > 1e-12 {
+        let (x1, x2) = (b - r * (b - a), a + r * (b - a));
+        if g(x1.exp()) > g(x2.exp()) {
+            b = x2;
+        } else {
+            a = x1;
+        }
+    }
+    let x = (0.5 * (a + b)).exp();
+    (x, g(x))
+}
+
+#[test]
+fn coupled_resonance_with_two_near_equal_peaks_is_ambiguous() {
+    // Port resonance 700 Hz, Rp = 3e5: |v/i| peaks near 211 and 965 Hz,
+    // 0.45 dB apart (closed form below). The maximum is reported with the
+    // other peak, flagged ambiguous, not robust, and left out of the
+    // scalars, so a tornado or Monte Carlo run never mixes the two.
+    let (doc, vi) = vented_box(700.0, 3e5);
+    let (fl, vl) = golden_max(&vi, 150.0, 400.0);
+    let (fh, vh) = golden_max(&vi, 700.0, 1500.0);
+    let margin = 20.0 * (vh / vl).log10();
+    assert!(margin > 0.0 && margin < 1.0, "{margin}");
+    let d = design(&doc);
+    let r = readouts::readouts(&d, &Default::default()).unwrap();
+    let resp = r.response.as_ref().unwrap();
+    let c = resp.coupled_resonance.as_ref().unwrap();
+    assert!(close(c.f_hz, fh, 1e-7, 0.0), "{} vs {fh}", c.f_hz);
+    let comp = c.competing.unwrap();
+    assert!(close(comp.f_hz, fl, 1e-7, 0.0), "{} vs {fl}", comp.f_hz);
+    assert!((comp.margin_db - margin).abs() < 1e-9, "{}", comp.margin_db);
+    assert!(c.ambiguous && !c.robust && c.prominence_db > readouts::RESONANCE_PROMINENCE_DB);
+    assert!(resp.notes.iter().any(|n| n.contains("ambiguous")));
+    assert_eq!(r.scalars()["coupled_resonance_Hz"], None);
+    let e = tornado::tornado(
+        &d,
+        &TornadoOptions {
+            metric: Some(Metric::Readout {
+                name: "coupled_resonance_Hz".into(),
+            }),
+            ..Default::default()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(e.contains("undefined for the base design"), "{e}");
+    // Port resonance 500 Hz, Rp = 1e5: the lower peak is 7 dB down, so the
+    // resonance is robust and reported, with its competitor.
+    let (doc, vi) = vented_box(500.0, 1e5);
+    let (fl, vl) = golden_max(&vi, 100.0, 300.0);
+    let (fh, vh) = golden_max(&vi, 600.0, 1500.0);
+    let r = readouts::readouts(&design(&doc), &Default::default()).unwrap();
+    let c = r
+        .response
+        .as_ref()
+        .unwrap()
+        .coupled_resonance
+        .clone()
+        .unwrap();
+    assert!(close(c.f_hz, fh, 1e-7, 0.0) && c.robust && !c.ambiguous);
+    let comp = c.competing.unwrap();
+    assert!(close(comp.f_hz, fl, 1e-7, 0.0));
+    assert!((comp.margin_db - 20.0 * (vh / vl).log10()).abs() < 1e-9);
+    assert!(comp.margin_db > 6.0);
+    assert_eq!(r.scalars()["coupled_resonance_Hz"], Some(c.f_hz));
 }
 
 #[test]
@@ -1019,11 +1198,18 @@ fn tornado_band_and_readout_metrics() {
     assert_eq!(tornado::readout_unit("z_min_ohm"), "ohm");
     assert_eq!(tornado::readout_unit("Qts"), "");
     // A readout that the base design does not have is an error, not an
-    // empty chart: the template's level stays within 3 dB of 500 Hz down to
-    // 10 Hz, so it has no bass extension.
-    let t = Design::parse(TEMPLATE, &Overrides::new()).unwrap();
+    // empty chart. Below the 1204 Hz coupled resonance this sealed chamber
+    // is stiffness-controlled: its level at 500 Hz is only about
+    // 20·log10(1/(1 − (500/1204)²)) = 1.6 dB above the flat bass, so it
+    // has no bass extension (−3 dB re 500 Hz).
+    let p = |f: f64| {
+        let c = chamber_form(f, 1e-4, 1000.0, 1e-3, 30e-6);
+        1.0 / (c.jw * c.ztot).norm()
+    };
+    let rise = 20.0 * (p(500.0) / p(freqs[0])).log10();
+    assert!(rise > 0.0 && rise < 2.0, "{rise}");
     let e = tornado::tornado(
-        &t,
+        &d,
         &TornadoOptions {
             metric: Some(Metric::Readout {
                 name: "bass_extension_Hz".into(),
@@ -1460,7 +1646,8 @@ fn sample_moments_match_the_declared_distributions() {
         (m - 0.08f64.ln()).abs() < 1e-3 && (s / sigma_ln - 1.0).abs() < 2e-3,
         "{m} {s}"
     );
-    // 2.5 % of the samples lie above μ(1 + rel) and below μ/(1 + rel).
+    // 2.3 % (the one-sided 2σ tail, 2.275 %) of the samples lie above
+    // μ(1 + rel), and as many below μ/(1 + rel).
     let above = col("c").iter().filter(|x| **x > 0.12).count() as f64 / n as f64;
     let below = col("c").iter().filter(|x| **x < 0.08 / 1.5).count() as f64 / n as f64;
     assert!(
@@ -1492,11 +1679,24 @@ fn monte_carlo_runs_are_deterministic_chunkable_and_hashed() {
         },
     )
     .unwrap();
-    assert_eq!(
-        plan.parameters.len(),
-        10,
-        "every toleranced continuous parameter"
-    );
+    // Every toleranced continuous parameter, in declaration order (counted
+    // from the declarations, so that editing the template does not break
+    // the test).
+    let toleranced: Vec<String> = d
+        .parametric
+        .defs
+        .iter()
+        .filter(|p| {
+            p.tolerance.is_some()
+                && matches!(
+                    p.kind,
+                    acoustilab::params::ParamKind::Number { integer: false, .. }
+                )
+        })
+        .map(|p| p.name.clone())
+        .collect();
+    assert!(toleranced.len() >= 2);
+    assert_eq!(plan.parameters, toleranced);
     let opts = RunOptions {
         probes: Some(vec!["p_drp".into(), "zin".into(), "x".into()]),
         ..Default::default()
@@ -1609,11 +1809,47 @@ fn netlist_hash_depends_on_what_the_engine_reads() {
     // A literal netlist equal to the expansion hashes the same.
     let literal: Value = serde_json::from_str(&base.to_string()).unwrap();
     assert_eq!(canonical::netlist_hash(&literal), h);
-    // Regression: the template's hash at its defaults. It changes only if
-    // the template, the expansion or the canonical form changes.
+}
+
+#[test]
+fn netlist_hash_of_a_fixed_parametric_netlist_is_pinned() {
+    // Regression pin of the expansion and the canonical form on a netlist
+    // written here, so that editing the template never breaks it. The
+    // expected text was written by hand from docs/analysis.md (sorted keys,
+    // 12 significant digits, `enabled` and presentation keys dropped) and
+    // its SHA-256 computed with Python's hashlib.
+    let doc = json!({
+        "schema": "acoustilab-netlist/0.2", "title": "hash pin", "ui": {"primary_probe": "p"},
+        "parameters": {
+            "r_mm": {"value": 1.5, "min": 0.1, "max": 5, "tolerance": {"rel": 0.05}},
+            "len_mm": {"expr": "r_mm * pi"},
+            "open": true
+        },
+        "air": {"preset": "spec_reference"}, "level": 1,
+        "sweep": {"f_min_Hz": 100, "f_max_Hz": 1000, "points_per_octave": 3},
+        "nodes": [{"id": "a", "domain": "acoustic"}],
+        "elements": [
+            {"id": "q", "type": "flow_source", "node": "a", "U_m3_per_s": 1e-6},
+            {"id": "v", "type": "cavity", "node": "a", "volume_cm3": 2},
+            {"id": "t", "type": "tube", "nodes": ["a", "ambient"], "radius_mm": "=r_mm",
+             "length_mm": "=len_mm", "enabled": "=open"}
+        ],
+        "probes": [{"id": "p", "quantity": "pressure", "node": "a"}]
+    });
+    let point = design(&doc).base_point().unwrap();
     assert_eq!(
-        h,
-        "13498ea038068907f32caa414b73fe3fa094c830aa0f41d8cfa96ec03596512e"
+        canonical::netlist_text(&point.doc),
+        concat!(
+            r#"{"air":{"preset":"spec_reference"},"elements":[{"U_m3_per_s":1e-6,"id":"q","node":"a","type":"flow_source"},"#,
+            r#"{"id":"v","node":"a","type":"cavity","volume_cm3":2e0},"#,
+            r#"{"id":"t","length_mm":4.71238898038e0,"nodes":["a","ambient"],"radius_mm":1.5e0,"type":"tube"}],"#,
+            r#""level":1e0,"nodes":[{"domain":"acoustic","id":"a"}],"probes":[{"id":"p","node":"a","quantity":"pressure"}],"#,
+            r#""sweep":{"f_max_Hz":1e3,"f_min_Hz":1e2,"points_per_octave":3e0}}"#
+        )
+    );
+    assert_eq!(
+        point.hash(),
+        "5cf4594e9a48f64a618f73f7529be5f23eedad737a81c2a628302b3791db3162"
     );
 }
 
@@ -1648,6 +1884,12 @@ fn factorial_and_explicit_runs() {
         json!({"method": "runs", "runs": [{"leak_gap_mm": 5}]}),
         json!({"method": "lhs", "n": 0}),
         json!({"method": "lhs", "n": 3, "parameters": ["driver_Sd_cm2"]}),
+        json!({"method": "lhs", "n": 3, "parameters": ["driver_fs_Hz", "driver_fs_Hz"]}),
+        json!({"method": "lhs", "n": mc::MAX_RUNS + 1}),
+        // Rejected before any level is made (it would need terabytes).
+        json!({"method": "factorial",
+               "factors": {"leak_gap_mm": {"levels": 1_000_000_000_000u64, "from": 0.02, "to": 0.2}}}),
+        json!({"method": "factorial", "factors": {"leak_gap_mm": {"levels": 1, "from": 0.02, "to": 0.2}}}),
     ] {
         let spec: Result<PlanSpec, _> = serde_json::from_value(bad.clone());
         let failed = match spec {
@@ -1658,6 +1900,26 @@ fn factorial_and_explicit_runs() {
     }
     assert!(
         serde_json::from_value::<PlanSpec>(json!({"method": "lhs", "n": 3, "extra": 1})).is_err()
+    );
+    // Nothing to sample is an error, not n copies of the base design.
+    let mut untoleranced = rc(&[100.0, 1000.0], (1.0, 1e6));
+    untoleranced["parameters"]["R_ohm"]
+        .as_object_mut()
+        .unwrap()
+        .remove("tolerance");
+    let e = mc::plan(
+        &design(&untoleranced),
+        &PlanSpec::Lhs {
+            n: 3,
+            seed: 1,
+            parameters: None,
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        e.contains("no continuous parameter with a tolerance"),
+        "{e}"
     );
     let spec: PlanSpec = serde_json::from_value(json!({
         "method": "runs", "runs": [{"rear": "open"}, {"rear": "closed", "vent_count": 2}]

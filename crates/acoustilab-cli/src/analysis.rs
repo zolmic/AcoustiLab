@@ -424,11 +424,19 @@ fn readouts_text(r: &Readouts) -> String {
         }
         if let Some(c) = &x.coupled_resonance {
             s += &format!(
-                "  coupled resonance {:.4} Hz (driver '{}', prominence {:.2} dB{})\n",
+                "  coupled resonance {:.4} Hz (driver '{}', prominence {:.2} dB{}{})\n",
                 c.f_hz,
                 c.driver,
                 c.prominence_db,
-                if c.robust { "" } else { ", not robust" }
+                c.competing.map_or(String::new(), |p| format!(
+                    ", another resonance at {:.4} Hz {:.2} dB lower",
+                    p.f_hz, p.margin_db
+                )),
+                match (c.ambiguous, c.robust) {
+                    (true, _) => ", ambiguous",
+                    (false, false) => ", not robust",
+                    _ => "",
+                }
             );
         }
         for n in &x.notes {

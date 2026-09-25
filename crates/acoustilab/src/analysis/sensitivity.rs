@@ -46,10 +46,11 @@
 //! the same stepped designs without solving them: at each frequency the base
 //! matrix is factored once, and each stepped solution is the first-order
 //! update x₀ + A₀⁻¹·(b − A·x₀), restamping only the elements whose records
-//! the step changes (see `forward_sensitivities`). On the template this is
-//! 3.7 to 4.4 times faster and agrees with complete solves to 1e-6 of each
-//! parameter's largest sensitivity in the credible band (4e-8 measured);
-//! both keep O(h²) accuracy. Complete solves stay the default: they are the
+//! the step changes (see `forward_sensitivities`). Its error, O(h²) in the
+//! stepped solution, is even in h, so the differences keep their O(h²)
+//! accuracy. On the template this is 3.7 to 4.4 times faster and agrees
+//! with complete solves to 1e-6 of each parameter's largest sensitivity in
+//! the credible band (4e-8 measured). Complete solves stay the default: they are the
 //! reference the faster path is tested against. The adjoint method of spec
 //! Section 3 would be cheaper still for few probes and many parameters.
 
@@ -526,14 +527,21 @@ fn refined_solve(lu: &Lu, a: &Matrix, r: &[C64]) -> Vec<C64> {
 }
 
 /// Forward sensitivities: at each frequency the base matrix A₀ is factored
-/// once, and each stepped design's solution is x₀ + A₀⁻¹·(b − A·x₀), with A
-/// and b stamped at the stepped parameter value (only the elements whose
-/// records change are restamped, see [`residual`]). That is x₀ + h·dx/d(ln p)
-/// with dx/dp = A₀⁻¹·(db/dp − (dA/dp)·x₀) and the derivatives of the stamps
-/// taken by the same finite step. The update errs by −h²·A₀⁻¹A'A₀⁻¹r at
-/// both ±h, with the same sign, so the central difference keeps its
-/// O(h²) accuracy (and the one-sided formula its second order, the errors
-/// growing as k²h² at k·h). The drive factor and the probes are evaluated on
+/// once, and each stepped design's solution is x̃ = x₀ + A₀⁻¹·r, r = b − A·x₀,
+/// with A and b stamped at the stepped parameter value (only the elements
+/// whose records change are restamped, see [`residual`]). That is
+/// x₀ + h·dx/d(ln p) with dx/dp = A₀⁻¹·(db/dp − (dA/dp)·x₀) and the
+/// derivatives of the stamps taken by the same finite step: one step of a
+/// chord (modified Newton) iteration. With A = A₀ + h·A₁ + O(h²) and
+/// r = h·r₁ + O(h²), the exact stepped solution is x₀ + A⁻¹·r, so
+/// x̃ − x = (A₀⁻¹ − A⁻¹)·r = h²·A₀⁻¹A₁A₀⁻¹r₁ + O(h³). The h² term is even in
+/// h and cancels in the central difference, and in the one-sided formula
+/// (errors h²E at h and 4h²E at 2h enter as 4·h²E − 4h²E); the O(h³)
+/// remainder leaves an O(h²) error, the
+/// same order as the difference's own truncation, so both schemes stay
+/// second order. Measured on a lightly damped pressure chamber for h from
+/// 1e-2 to 1e-5, the error of the forward path was 0.94 to 1.24 times that
+/// of complete solves. The drive factor and the probes are evaluated on
 /// each stepped circuit as [`Circuit::solve`] does.
 fn forward_sensitivities(
     base: &Point,

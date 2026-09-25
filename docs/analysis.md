@@ -61,9 +61,15 @@ The stepped designs can be evaluated in two ways (option `method`):
   stamp derivatives are taken over the same step. Only the elements whose
   expanded records the step changes are restamped (the assembly is a sum of
   element stamps; a change of `air` or `level` restamps everything). The
-  update errs by −h²·A₀⁻¹A'A₀⁻¹r with the same sign at +h and −h, so the
-  central difference keeps its O(h²) accuracy, and so does the one-sided
-  formula. The drive factor and the probes are evaluated on each stepped
+  update is one chord (modified Newton) step. With A = A₀ + h·A₁ + O(h²)
+  and r = b − A·x₀ = h·r₁ + O(h²), it differs from the exact stepped
+  solution x₀ + A⁻¹·r by (A₀⁻¹ − A⁻¹)·r = h²·A₀⁻¹A₁A₀⁻¹r₁ + O(h³). The h²
+  term is even in h, so it cancels in the central difference and in the
+  one-sided formula. The O(h³) remainder leaves an O(h²) error, the same
+  order as the difference's own truncation, so both schemes stay second
+  order. On a lightly damped pressure chamber, for h from 1e-2 to 1e-5,
+  the forward path's error was 0.94 to 1.24 times that of complete solves
+  against the closed form. The drive factor and the probes are evaluated on each stepped
   circuit, exactly as for a solve. On the template this method is 3.7 to
   4.4 times faster. It agrees with complete solves to 4e-8 of each
   parameter's largest sensitivity in the credible band, and to 3e-6 next to
@@ -115,7 +121,8 @@ The stepped designs can be evaluated in two ways (option `method`):
   disagree by more than half the probe's largest central derivative.
 
 Options (all optional): `{"parameters": [names], "probes": [ids], "step":
-1e-5, "method": "complete_solves" | "forward_sensitivity"}`. Result:
+1e-5, "method": "complete_solves" | "forward_sensitivity"}`. A name or id
+listed twice is an error, here and in the other analyses. Result:
 
 ```json
 {
@@ -248,7 +255,11 @@ cannot locate an extremum better than √ε in ln f.
   exact for a single lumped resonance with a real Re and no inductance. In
   situ, the acoustic load's losses count as mechanical ones. A note is added
   when √(f1·f2) is more than 1 % from fres, or when there is more than one
-  peak.
+  peak. The upper crossing is searched only below the next peak. When |Z|
+  stays above Re·√r0 up to that peak, the two resonances overlap, the
+  method does not apply, and `q` is `null` with a note. Before this check,
+  a 0.3 mm leak on the template gave Qms = 0.34 from a bandwidth that
+  spanned both peaks.
 * `z_1kHz_ohm` is the nominal impedance, and `min_above_resonance` (with
   `min_at_sweep_end`) the smallest |Z| above the resonance.
 * `rated_check`: |Z| below 80 % of the rated impedance anywhere in the sweep
@@ -283,8 +294,32 @@ which. All values are under the stated drive:
   impedance or the coil inductance. For a lossless lumped cavity it is
   exactly spec Appendix C2's f_c = (1/2π)·√((1/Cms + Sd²/Caf)/Mms). The
   response peak at the drum was not used, because ear-simulator and canal
-  resonances compete with it. The value is `robust` when |v/i| at the peak
-  exceeds its values one octave either side by at least 1 dB.
+  resonances compete with it.
+
+  With a single resonance, the three definitions agree. On the template,
+  closed or open back, with either ear, the |v/i| maximum, the in-situ
+  |Z| peak and the drum-pressure peak lie within 1 % of each other.
+
+  Open vents or a large leak add a second resonance, and then no single
+  frequency is *the* coupled resonance. Every maximum of |v/i| with at
+  least 1 dB of topographic prominence counts as a resonance. Those
+  within 10 dB of the highest are refined, and the highest is reported.
+  The next one is reported as `competing: {f_Hz, margin_dB}`.
+
+  When the margin is below 3 dB, the value is `ambiguous`. A few percent
+  of a parameter can then swap the two peaks. With a 1 mm leak on the
+  template (margin 1.2 dB), +5 % of Mms moves the maximum from 1185 to
+  516 Hz. An ambiguous resonance is left out of `scalars()`, so a tornado
+  or a Monte Carlo run never mixes the two.
+
+  The value is `robust` when |v/i| at the peak exceeds its values one
+  octave either side by at least 1 dB and it is not ambiguous. The
+  impedance `resonance` is the *first* |Z| peak. In a two-resonance
+  design it can name the other resonance: with a 0.3 mm leak, the first
+  |Z| peak is at 349 Hz and the coupled resonance at 996 Hz.
+
+  Result: `{f_Hz, driver, prominence_dB, competing, ambiguous, robust,
+  shading}`.
 
 Options: `{"probe", "impedance", "rated_ohm", "Re_ohm", "driver"}`. The
 result nests `impedance`, `drivers`, `response`, `notes`, `methods`,
@@ -330,8 +365,9 @@ read back; the hashes are unaffected.
 ```
 
 **Latin hypercube** (`lhs`). `parameters` defaults to every continuous
-parameter with a tolerance, in declaration order. The generator is seeded
-with `seed`, and for each parameter in turn:
+parameter with a tolerance, in declaration order (a name listed twice, or
+nothing to sample, is an error; n is 1 to 100 000). The generator is
+seeded with `seed`, and for each parameter in turn:
 
 1. Draw a permutation π of 0..n by Fisher–Yates: `below(i + 1)` for i from
    n − 1 down to 1, with Lemire's unbiased bounded integers.
@@ -351,13 +387,19 @@ arithmetic only. Φ⁻¹ is Wichura's AS 241 (PPND16, accurate to 1e-16).
 Φ⁻¹ and the lognormal exponential use a logarithm and an exponential built
 from IEEE basic operations (`analysis::detmath`). A seed therefore gives
 **bit-identical samples on every platform**. This was checked for a 200-run
-plan of the template on x86-64 and on wasm32 under Node. Seeds are unsigned
-64-bit integers; keep them below 2⁵³ when they pass through JavaScript.
+plan of the template on x86-64 and on wasm32 under Node. The solved runs
+are not bit-identical across platforms, since the engine uses the platform
+libm, but the hashes are. On the first 40 runs of that plan, the largest
+difference was 7e-7 relative, in the location of the flat impedance
+minimum (a refined extremum; see "Readouts"); everything else agreed to
+2e-13. Seeds are unsigned 64-bit integers; keep them below 2⁵³ when
+they pass through JavaScript.
 
 **Factorial**: the full factorial of the levels, with the first factor
 varying slowest. Levels are values of any kind (numbers, booleans, choices)
-or `{"levels": k, "from": a, "to": b, "log": false}`; integer parameters are
-rounded. **Runs**: explicit override objects. Both kinds are checked
+or `{"levels": k, "from": a, "to": b, "log": false}` (k from 2 to 100 000);
+integer parameters are rounded. The product of the level counts is at most
+100 000. **Runs**: explicit override objects. Both kinds are checked
 against the parameters' kinds and bounds when the plan is made.
 
 Plan result: `{method, seed, parameters, distributions: [{name, dist,
@@ -482,6 +524,10 @@ unit tests in each module.
   * Levels equal exact solves; dB/V − dB/mW = 10·log10(1000/Z_rated); a
     characteristic drive gives 94 dB at 500 Hz.
   * The rated-impedance check finds the analytic violating band.
+  * Two overlapping |Z| resonances (series RLC tanks, closed form): no Q.
+  * A vented box with two |v/i| peaks 0.45 dB apart: both located to 1e-7
+    and the margin to 1e-9 against the closed form, flagged ambiguous and
+    left out of the scalars; with a 7 dB margin, robust and reported.
 * **Tornado.** RC ends against |H| (1e-12), assumed ±10 %, uniform and
   lognormal ends, clipping, band means against the solve, and the coupled
   resonance against 1/√Mms.
@@ -497,7 +543,9 @@ unit tests in each module.
   * Φ⁻¹ against mpmath, to 1e-15 relative from p = 1e-300 to 1 − 2⁻⁵³;
   * a Latin hypercube plan: unit points bit-identical, values to 1e-14,
     clipping included;
-  * canonical texts and SHA-256, exactly;
+  * canonical texts and SHA-256, exactly (plus a pinned text and hash of a
+    small parametric netlist written in the test, not the template, so
+    that template edits do not break it);
   * percentiles against `numpy.percentile`, to 1e-12.
 * **Monte Carlo.**
   * Every stratum is hit once.
@@ -548,3 +596,11 @@ sensitivity map in the table include the base design's own solve.
 * Monte Carlo samples parameter tolerances only. The spec's fit variation
   (Section 8) and ear variation (Section 7) enter only through parameters
   that the netlist exposes, such as `leak_gap_mm`.
+* In a two-resonance design, the coupled resonance is the highest |v/i|
+  maximum. A large change can hand that maximum to the other resonance
+  even when the base design is not ambiguous. On the open-back template
+  with a 0.3 mm leak (margin 5.7 dB), the tornado's upper leak end
+  (0.45 mm) moves the maximum from 778 to 55 Hz. The `competing` peak
+  shows when this can happen. Nothing tracks one resonance across designs.
+* A plan holds at most 100 000 runs (`mc::MAX_RUNS`), since it is returned
+  whole. That is about 38 MB of JSON for the template.
