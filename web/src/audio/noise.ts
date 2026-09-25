@@ -27,7 +27,8 @@
 //   L_k = 2^(k+1), which ripples by about a decibel around −3 dB/octave
 //   ([`vossSpectrum`], tests/audio-dsp.spec.ts).
 // * Sweep: exponential sine sweep (Farina, AES 108th Convention, 2000,
-//   preprint 5093) from 20 Hz to 20 kHz over the loop, with 10 ms
+//   preprint 5093) from 20 Hz to 20 kHz (or 0.45·fs at rates below
+//   44.4 kHz, so it never folds over Nyquist) over the loop, with 10 ms
 //   raised-cosine fades at both ends.
 //
 // Noise loops are 2^⌈log2(10·fs)⌉ samples (10.9 s at 48 kHz) and
@@ -252,6 +253,11 @@ export function vossSpectrum(f: number, fs: number, rows: number): number {
   return p;
 }
 
+/** Top of the sweep at `fs`: 20 kHz, or 0.45·fs when that is lower. */
+export function sweepTop(fs: number): number {
+  return Math.min(SWEEP_RANGE_HZ[1], 0.45 * fs);
+}
+
 /** Exponential sine sweep over the whole loop, peak 1 before scaling. */
 export function sineSweep(n: number, fs: number, [f1, f2] = SWEEP_RANGE_HZ): Float64Array {
   const T = n / fs;
@@ -317,10 +323,12 @@ export function generate(kind: ProgrammeKind, seed: number, fs: number): Program
       x = whiteNoise(n, seed);
       label = 'White noise';
       break;
-    case 'sweep':
-      x = sineSweep(n, fs);
-      label = `Sine sweep ${SWEEP_RANGE_HZ[0]} Hz–${SWEEP_RANGE_HZ[1] / 1000} kHz, ${(n / fs).toFixed(1)} s`;
+    case 'sweep': {
+      const top = sweepTop(fs);
+      x = sineSweep(n, fs, [SWEEP_RANGE_HZ[0], top]);
+      label = `Sine sweep ${SWEEP_RANGE_HZ[0]} Hz–${+(top / 1000).toFixed(2)} kHz, ${(n / fs).toFixed(1)} s`;
       break;
+    }
   }
   if (kind === 'sweep') {
     const k = 10 ** (SWEEP_PEAK_DB / 20);

@@ -418,7 +418,10 @@ pub fn to_json(a: &Audition, taps: bool) -> Value {
                 "notch_limit_dB": inv.options.notch_limit_db,
                 "beta": inv.beta,
                 "reference_dB": inv.reference_db,
-                "method": "Kirkeby-Nelson: c = b/(b^2 + beta), b = baseline re its band mean after 1/6-octave power smoothing and the notch rule; beta = 1/(4*10^(cap/10)) inside the band; outside it the filter holds its band-edge level",
+                "method": format!(
+                    "Kirkeby-Nelson: c = b/(b^2 + beta), b = baseline re reference_dB (its mean over {} Hz to {} Hz, or over the band when the curve does not cover that) after 1/{}-octave power smoothing and the notch rule; beta = 1/(4*10^(cap/10)) inside the band; outside it the filter holds its band-edge level",
+                    inv.options.reference_hz.0, inv.options.reference_hz.1, inv.options.smoothing
+                ),
                 "notches": inv.notches,
                 "max_boost_dB": {"dB": boost, "at_Hz": boost_at},
                 "max_departure_from_exact_dB": {"dB": dep, "at_Hz": dep_at},

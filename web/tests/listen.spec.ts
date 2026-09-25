@@ -18,6 +18,7 @@ import type * as Engine from '../../crates/acoustilab-wasm/pkg/acoustilab_wasm.j
 import { circularConvolve, delayTaps, matchGainDb, measure } from '../src/audio/level';
 import { integratedLoudness } from '../src/audio/loudness';
 import { pinkKellet } from '../src/audio/noise';
+import { hardClipCurve } from '../src/audio/clip';
 
 const repo = fileURLToPath(new URL('../../', import.meta.url));
 const TEMPLATE = readFileSync(`${repo}/examples/design_over_ear.json`, 'utf8');
@@ -83,7 +84,7 @@ interface RenderSpec {
   length: number;
   /** Messages posted before rendering. */
   messages: unknown[];
-  /** Messages posted at render times (s, a multiple of 128/fs). */
+  /** Messages posted at render times (s, a multiple of 128/fs); several in order when `msg` is an array. */
   events?: { t: number; msg: unknown }[];
   volume?: number;
   /** Context rate (default 48 kHz). */
@@ -124,7 +125,7 @@ async function render(page: Page, spec: RenderSpec): Promise<number[][]> {
     await new Promise((r) => setTimeout(r, 300));
     for (const e of s.events ?? []) {
       void ctx.suspend(e.t).then(async () => {
-        node.port.postMessage(toArrays(e.msg));
+        for (const m of Array.isArray(e.msg) ? e.msg : [e.msg]) node.port.postMessage(toArrays(m));
         await new Promise((r) => setTimeout(r, 150));
         await ctx.resume();
       });
@@ -334,6 +335,127 @@ test.describe('audition chain (OfflineAudioContext)', () => {
     expect(Math.abs(loud[0] + 23)).toBeLessThan(0.1);
   });
 
+  test('a new programme never plays through the old gains: mute, load, unmute', async ({ page }) => {
+    // The player's programme change: mute; the new programme starting after
+    // the fade (switchDelay: 8 quanta here); its level match arriving later
+    // (in the page, 1.5 s later) as a new filter gain, 1/16 for a programme
+    // 16 times louder, followed by unmute. The worklet lets the input in
+    // only once the new gain is in place. Without the gate the loud
+    // programme plays through the old gain from `start` to `t2`.
+    const n = 1 << 15;
+    const q = 128;
+    const t1 = 64 * q;
+    const start = t1 + 8 * q;
+    const t2 = t1 + 24 * q;
+    const quiet = noise(n, 11).map((v) => 0.05 * v);
+    const loud = noise(n, 12).map((v) => 0.8 * v);
+    // The old programme until the new one starts.
+    const x = quiet.map((v, i) => (i < start ? v : loud[i]));
+    const out = await render(page, {
+      url: worklet(),
+      inputs: [x, x],
+      length: n,
+      messages: [
+        { type: 'limiter', enabled: false },
+        { type: 'load', slot: 0, left: [1], right: [1], gain: 1 },
+      ],
+      events: [
+        { t: t1 / FS, msg: { type: 'mute' } },
+        { t: t2 / FS, msg: [{ type: 'load', slot: 0, left: [1], right: [1], gain: 1 / 16 }, { type: 'unmute' }] },
+      ],
+    });
+    const y = (i: number) => out[0][i + LIMITER_LATENCY];
+    const end = n - LIMITER_LATENCY;
+    let before = 0;
+    let after = 0;
+    let muted = 0;
+    let worst = 0;
+    for (let i = 4 * q; i < end; i++) {
+      if (i < t1) before = Math.max(before, Math.abs(y(i) - quiet[i]));
+      else worst = Math.max(worst, Math.abs(y(i)));
+      if (i >= t1 + 2 * q && i < t2) muted = Math.max(muted, Math.abs(y(i)));
+      if (i >= t2 + 4 * q) after = Math.max(after, Math.abs(y(i) - loud[i] / 16));
+    }
+    // Before the mute: the old programme at the old gain, exactly.
+    expect(before).toBeLessThan(1e-6);
+    // From the mute on nothing exceeds the old programme's level: the loud
+    // programme through the old gain (0.8) never appears.
+    expect(worst).toBeLessThanOrEqual(0.05 * 1.000001);
+    // Muted after the fade, until the new gain is in place (FFT round-off only).
+    expect(muted).toBeLessThan(1e-12);
+    // Then the new programme at its own gain.
+    expect(after).toBeLessThan(1e-6);
+    const state = out[3];
+    expect(state[t1 + 4 * q] & 8).toBe(8);
+    expect(state[n - 1] & 8).toBe(0);
+  });
+
+  test('the worklet refuses non-finite filters and gains and silences non-finite input', async ({ page }) => {
+    const n = 1 << 13;
+    const x = noise(n, 13).map((v) => 0.1 * v);
+    const bad = x.map((v, i) => (i % 1000 === 500 ? NaN : i % 1000 === 700 ? Infinity : v));
+    const taps = [1, 0, 0];
+    const out = await render(page, {
+      url: worklet(),
+      inputs: [bad, bad],
+      length: n,
+      messages: [
+        { type: 'limiter', enabled: false },
+        { type: 'load', slot: 0, left: [NaN, 1], right: [1], gain: 1 },
+        { type: 'load', slot: 1, left: taps, right: taps, gain: 1e6 },
+        { type: 'load', slot: 1, left: taps, right: taps, gain: NaN },
+      ],
+    });
+    // Every load was refused: nothing loaded, silence.
+    expect(out[0].every((v) => v === 0)).toBe(true);
+    // With a valid filter, non-finite input samples come out as zeros.
+    const out2 = await render(page, {
+      url: worklet(),
+      inputs: [bad, bad],
+      length: n,
+      messages: [
+        { type: 'limiter', enabled: true },
+        { type: 'load', slot: 0, left: [1], right: [1], gain: 1 },
+      ],
+    });
+    expect(out2[0].every(Number.isFinite) && out2[1].every(Number.isFinite)).toBe(true);
+    let worst = 0;
+    for (let i = 4 * 128; i < n - LIMITER_LATENCY; i++) {
+      const want = Number.isFinite(bad[i]) ? bad[i] : 0;
+      worst = Math.max(worst, Math.abs(out2[0][i + LIMITER_LATENCY] - Math.fround(want)));
+    }
+    expect(worst).toBeLessThan(1e-6);
+  });
+
+  test('ConvolverNode fallback: the hard clip is exact below the ceiling and bounds the sample peak', async ({ page }) => {
+    const n = 1 << 14;
+    const x = Array.from({ length: n }, (_, i) => 3 * Math.sin((2 * Math.PI * 997 * i) / FS) * (i / n));
+    const curve = Array.from(hardClipCurve(-1));
+    const y = await page.evaluate(
+      async ({ x, curve }) => {
+        const ctx = new OfflineAudioContext(1, x.length, 48000);
+        const xb = new AudioBuffer({ length: x.length, numberOfChannels: 1, sampleRate: 48000 });
+        xb.copyToChannel(Float32Array.from(x), 0);
+        const src = new AudioBufferSourceNode(ctx, { buffer: xb });
+        const clip = new WaveShaperNode(ctx, { curve: Float32Array.from(curve), oversample: 'none' });
+        src.connect(clip).connect(ctx.destination);
+        src.start();
+        return Array.from((await ctx.startRendering()).getChannelData(0));
+      },
+      { x, curve },
+    );
+    const c = 10 ** (-1 / 20);
+    let below = 0;
+    let peak = 0;
+    for (let i = 0; i < n; i++) {
+      peak = Math.max(peak, Math.abs(y[i]));
+      if (Math.abs(x[i]) < c) below = Math.max(below, Math.abs(y[i] - Math.fround(x[i])));
+    }
+    expect(below).toBeLessThan(1e-6);
+    expect(peak).toBeLessThanOrEqual(Math.fround(c));
+    expect(peak).toBeGreaterThan(c * 0.999);
+  });
+
   test('ConvolverNode fallback: normalize = false before the buffer keeps the filter exact', async ({ page }) => {
     const f = engineFilter();
     const n = 1 << 15;
@@ -494,6 +616,57 @@ test('Listen view: play, meters, A/B, diagnostics, stop', async ({ page }) => {
   await expect(diag).toContainText('128 frames');
   await page.getByRole('button', { name: 'Stop', exact: true }).click();
   await expect(view.locator('.listen-playing')).toHaveText('Stopped.');
+});
+
+/** A mono WAV file: 16-bit PCM, or 32-bit float (format 3). */
+function wav(samples: number[], fs: number, float: boolean): Buffer {
+  const bytes = float ? 4 : 2;
+  const data = Buffer.alloc(samples.length * bytes);
+  samples.forEach((v, i) => (float ? data.writeFloatLE(v, i * 4) : data.writeInt16LE(Math.round(v * 32767), i * 2)));
+  const h = Buffer.alloc(44);
+  h.write('RIFF', 0);
+  h.writeUInt32LE(36 + data.length, 4);
+  h.write('WAVE', 8);
+  h.write('fmt ', 12);
+  h.writeUInt32LE(16, 16);
+  h.writeUInt16LE(float ? 3 : 1, 20);
+  h.writeUInt16LE(1, 22);
+  h.writeUInt32LE(fs, 24);
+  h.writeUInt32LE(fs * bytes, 28);
+  h.writeUInt16LE(bytes, 32);
+  h.writeUInt16LE(8 * bytes, 34);
+  h.write('data', 36);
+  h.writeUInt32LE(data.length, 40);
+  return Buffer.concat([h, data]);
+}
+
+test('Listen view: unsafe inputs are refused (silent file, non-finite samples, empty volume); absolute mode is marked', async ({ page }) => {
+  await openListen(page);
+  await designed(page);
+  const view = page.locator('#view-listen');
+  // Clearing the volume box does not jump to 0 dB, the loudest setting.
+  await page.locator('#listen-volume-num').fill('');
+  await page.locator('#listen-volume-num').press('Tab');
+  await expect(page.locator('#listen-volume')).toHaveValue('-20');
+  await expect(page.locator('#listen-volume-num')).toHaveValue('-20');
+  // A float WAV with NaN and infinite samples is refused when loaded.
+  await page.locator('#listen-programme').selectOption('file');
+  const odd = Array.from({ length: 48000 }, (_, i) => (i === 100 ? NaN : i === 200 ? Infinity : 0.1 * Math.sin(i / 5)));
+  await page.locator('#listen-file').setInputFiles({ name: 'odd.wav', mimeType: 'audio/wav', buffer: wav(odd, 48000, true) });
+  await expect(view.locator('.listen-programme-notes')).toContainText('not finite numbers');
+  // A silent file (below the −70 LKFS gate) has no loudness to match:
+  // nothing plays, and the Play button stays a Play button.
+  await page.locator('#listen-file').setInputFiles({ name: 'silence.wav', mimeType: 'audio/wav', buffer: wav(new Array(96000).fill(0), 48000, false) });
+  await expect(view.locator('.listen-programme-notes')).toContainText('silence.wav');
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect(view.locator('.listen-playing')).toContainText('The programme is silent', { timeout: 30_000 });
+  await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeEnabled();
+  // Absolute mode: a notice in the playback section, not only in the report.
+  await expect(view.locator('.listen-absolute')).toBeHidden();
+  await page.getByLabel('Absolute (diagnostic)').check();
+  await expect(view.locator('.listen-flags')).toContainText('Absolute mode', { timeout: 30_000 });
+  await expect(view.locator('.listen-absolute')).toBeVisible();
+  await expect(view.locator('.listen-absolute')).toContainText('not what the design sounds like');
 });
 
 for (const theme of ['light', 'dark'] as const) {

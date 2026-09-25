@@ -739,6 +739,53 @@ fn modes_and_flags() {
     assert_eq!(t.band_hz, (31.0, 10_000.0));
     assert!(t.check.as_ref().unwrap().met);
     assert_eq!(PhaseRequest::parse("mixed"), Some(PhaseRequest::Mixed));
+    // An inversion band that leaves no audition band is an error, not a
+    // panic (an index out of bounds before the review).
+    for o in [
+        json!({"fs_Hz": 16000, "inversion": {"band_Hz": [8000, 16000]}}),
+        json!({"band_Hz": [20, 5000], "inversion": {"band_Hz": [6000, 16000]}}),
+    ] {
+        let e = audition(&mut cand, Baseline::Magnitude(&m), &opts(o.clone())).unwrap_err();
+        assert!(e.to_string().contains("inversion band"), "{o}: {e}");
+    }
+}
+
+/// "The same reference point": a baseline read at the canal entrance of
+/// the same ear simulator is flagged, although the fixture is the same;
+/// the same point is not.
+#[test]
+fn reference_point_is_the_fixture_and_its_node() {
+    let text = example("design_over_ear.json");
+    let mut doc: Value = serde_json::from_str(&text).unwrap();
+    doc["probes"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id": "p_eep", "quantity": "pressure", "node": "ear.eep"}));
+    let eep = doc.to_string();
+    let mut cand = design(&text, json!({"vent_count": 3}));
+    let ov = Overrides::new();
+    let mut at_eep = Design::new(&eep, &ov, json!({}), Some("p_eep")).unwrap();
+    assert_eq!(at_eep.fixture, cand.fixture);
+    assert_ne!(at_eep.reference_key, cand.reference_key);
+    let a = run(
+        &mut cand,
+        Baseline::Design(&mut at_eep),
+        json!({"verify": false}),
+    );
+    let f = a
+        .flags
+        .iter()
+        .find(|f| f.code == "reference_point_mismatch")
+        .expect("DRP against EEP is flagged");
+    assert!(f.message.contains("p_eep"), "{}", f.message);
+    let mut at_drp = Design::new(&eep, &ov, json!({}), None).unwrap();
+    assert_eq!(at_drp.reference_key, cand.reference_key);
+    let b = run(
+        &mut cand,
+        Baseline::Design(&mut at_drp),
+        json!({"verify": false}),
+    );
+    assert!(b.flags.iter().all(|f| f.code != "reference_point_mismatch"));
 }
 
 /// Options are checked: unknown keys, bad values and ranges are refused
@@ -755,6 +802,9 @@ fn options_are_checked() {
         (json!({"colour": 1}), "unknown key 'colour'"),
         (json!({"inversion": {"boost_cap_dB": 60}}), "boost cap"),
         (json!({"inversion": {"smoothing": 5}}), "1/N octave"),
+        // The anchor band must lie inside the audition band (these panicked).
+        (json!({"band_Hz": [3000, 10000]}), "anchor band"),
+        (json!({"band_Hz": [20, 400]}), "anchor band"),
     ] {
         let e = parse_options(&o).unwrap_err();
         assert!(e.message.contains(msg), "{o}: {}", e.message);

@@ -22,7 +22,7 @@ import type { PlotGroup } from '../series';
 import type { Shading } from '../types';
 import { delayTaps, matchGainDb, TARGET_LUFS, TARGET_RMS_DB, type MatchMethod, type Measurement } from '../audio/level';
 import { generate, type Programme, type ProgrammeKind } from '../audio/noise';
-import { AuditionPlayer, CEILING_DBTP, START_VOLUME_DB, VOLUME_RANGE_DB, type Diagnostics, type Meters } from '../audio/player';
+import { AuditionPlayer, CEILING_DBTP, MAX_GAIN_DB, START_VOLUME_DB, VOLUME_RANGE_DB, type Diagnostics, type Meters } from '../audio/player';
 import type { ResultView, ViewHost } from './types';
 
 /** The parts of the engine's filter report this view reads. */
@@ -237,6 +237,10 @@ class ListenView implements ResultView {
   private levels: { method: MatchMethod; programme: Measurement; a: Measurement; b: Measurement; gainA: number; gainB: number; ms: number } | null = null;
   private pollTimer = 0;
   private lastText: string | null = null;
+  /** Incremented by Stop and by leaving the view: a Play still preparing gives up. */
+  private playToken = 0;
+  private limitText!: HTMLElement;
+  private absoluteNote!: HTMLElement;
 
   mount(el: HTMLElement, host: ViewHost): void {
     this.host = host;
@@ -267,8 +271,13 @@ class ListenView implements ResultView {
 
   hide(): void {
     // Leaving the view stops the sound: its Stop button and meters would be
-    // out of sight.
+    // out of sight. A Play still preparing (designing, matching) gives up.
+    this.playToken++;
     if (this.player.running) this.stop();
+    else if (this.playBtn) {
+      this.playBtn.disabled = false;
+      this.player.mute();
+    }
   }
 
   // ----- UI construction ---------------------------------------------------
@@ -335,9 +344,14 @@ class ListenView implements ResultView {
 
   private buildPlaybackSection(): HTMLElement {
     const sec = h('section', { className: 'listen-section', 'aria-labelledby': 'listen-play-h' }, h('h3', { id: 'listen-play-h' }, 'Playback'));
+    this.limitText = h('span', {}, this.limitSentence());
     const warn = h('div', { className: 'listen-warning', role: 'note' },
       h('strong', {}, 'Level: '),
-      `start with your headphone volume low. The output is limited to ${CEILING_DBTP} dBTP, but what reaches your ears depends on your headphones and their volume setting; a filter can boost some frequencies by more than 10 dB.`);
+      'start with your headphone volume low. ', this.limitText,
+      ' What reaches your ears depends on your headphones and their volume setting; a filter can boost some frequencies by more than 10 dB.');
+    this.absoluteNote = h('p', { className: 'listen-absolute', role: 'note', hidden: true },
+      h('strong', {}, 'Absolute diagnostic: '),
+      'A is the candidate’s own response, uncompensated, not a difference between designs. Your headphones multiply it, so it is not what the design sounds like.');
     this.programmeSel = h('select', { id: 'listen-programme' });
     for (const [v, label] of PROGRAMMES) this.programmeSel.append(h('option', { value: v, textContent: label }));
     this.programmeSel.addEventListener('change', () => {
@@ -361,6 +375,12 @@ class ListenView implements ResultView {
     this.volume = h('input', { type: 'range', id: 'listen-volume', min: String(VOLUME_RANGE_DB[0]), max: String(VOLUME_RANGE_DB[1]), step: '1', value: String(START_VOLUME_DB), 'aria-valuetext': `${START_VOLUME_DB} dB` });
     this.volumeNum = h('input', { type: 'number', id: 'listen-volume-num', min: String(VOLUME_RANGE_DB[0]), max: String(VOLUME_RANGE_DB[1]), step: '1', value: String(START_VOLUME_DB), className: 'listen-num', 'aria-label': 'Volume, dB' });
     const setVol = (v: number) => {
+      // An empty or invalid entry (which Number() reads as 0 dB, the
+      // loudest setting) leaves the volume where it was.
+      if (!Number.isFinite(v)) {
+        this.volumeNum.value = this.volume.value;
+        return;
+      }
       const c = Math.min(VOLUME_RANGE_DB[1], Math.max(VOLUME_RANGE_DB[0], Math.round(v)));
       this.volume.value = String(c);
       this.volumeNum.value = String(c);
@@ -368,7 +388,7 @@ class ListenView implements ResultView {
       this.player.setVolumeDb(c);
     };
     this.volume.addEventListener('input', () => setVol(Number(this.volume.value)));
-    this.volumeNum.addEventListener('change', () => setVol(Number(this.volumeNum.value)));
+    this.volumeNum.addEventListener('change', () => setVol(this.volumeNum.value.trim() === '' ? NaN : Number(this.volumeNum.value)));
     const meter = (key: 'momentary' | 'shortTerm' | 'truePeak' | 'gainReduction', label: string, min: number, max: number) => {
       const m = h('meter', { min, max, value: min, 'aria-label': label });
       const t = h('span', { className: 'listen-meter-value', textContent: '—' });
@@ -385,6 +405,7 @@ class ListenView implements ResultView {
     this.levelEl = h('div', { className: 'listen-levels' });
     sec.append(
       warn,
+      this.absoluteNote,
       h('div', { className: 'listen-row' },
         h('label', { for: 'listen-programme' }, 'Programme'), this.programmeSel,
         h('label', { for: 'listen-seed' }, 'Seed'), this.seedInput, this.fileInput),
@@ -414,7 +435,10 @@ class ListenView implements ResultView {
     const fallback = h('input', { type: 'checkbox', id: 'listen-fallback' });
     fallback.addEventListener('change', () => {
       this.player.forceFallback = fallback.checked;
+      if (this.player.running) this.stop();
+      this.playToken++;
       if (this.player.ctx) void this.player.close().then(() => this.renderDiagnostics());
+      else this.renderDiagnostics();
     });
     return h('section', { className: 'listen-section' },
       h('details', { className: 'listen-details' },
@@ -628,6 +652,7 @@ class ListenView implements ResultView {
     const notes = h('ul', { className: 'listen-notes' });
     for (const n of r.notes) notes.append(h('li', {}, n));
     this.reportEl.replaceChildren(dl, ...(r.flags.length ? [flags] : []), ...(r.notes.length ? [notes] : []));
+    this.absoluteNote.hidden = r.mode !== 'absolute';
     this.renderPlot();
     this.renderState();
   }
@@ -748,6 +773,8 @@ class ListenView implements ResultView {
       const buf = await decoder.decodeAudioData(bytes.slice(0));
       const cap = Math.min(buf.length, Math.round(FILE_CAP_S * fs));
       const ch = [0, 1].map((c) => buf.getChannelData(Math.min(c, buf.numberOfChannels - 1)).slice(0, cap));
+      // A float file can hold NaN or infinite samples; they would reach the output.
+      if (!ch.every((x) => x.every(Number.isFinite))) throw new Error('it holds samples that are not finite numbers');
       this.fileProgramme = {
         kind: 'file',
         label: f.name,
@@ -761,7 +788,8 @@ class ListenView implements ResultView {
       this.programmeNotes.textContent = this.fileProgramme.notes.join(' ');
       if (this.programmeSel.value === 'file') await this.onProgrammeChange();
     } catch (e) {
-      this.programmeNotes.textContent = `The browser could not decode ${f.name}: ${String(e)}`;
+      this.fileProgramme = null;
+      this.programmeNotes.textContent = `The browser could not decode ${f.name}, or it cannot be played: ${String(e)}`;
     }
   }
 
@@ -772,8 +800,13 @@ class ListenView implements ResultView {
     this.programmeNotes.textContent = p.notes.join(' ');
     this.renderMatchActive();
     if (this.player.running) {
+      // The new programme is silenced until its own level match is in
+      // place: through the previous programme's gains it could be far
+      // louder (a quiet file boosted by tens of dB, then white noise).
+      const token = this.playToken;
+      this.player.mute();
       this.player.setProgramme(p);
-      await this.applyFilters();
+      if ((await this.applyFilters()) && token === this.playToken) this.player.unmute();
     }
     this.renderState();
   }
@@ -784,6 +817,8 @@ class ListenView implements ResultView {
   }
 
   private async play(): Promise<void> {
+    const token = ++this.playToken;
+    const cancelled = () => token !== this.playToken;
     this.playBtn.disabled = true;
     try {
       await this.player.open();
@@ -792,13 +827,18 @@ class ListenView implements ResultView {
       this.playBtn.disabled = false;
       return;
     }
+    if (cancelled()) return this.abandonPlay();
+    // Nothing is let through until the filters and gains below are in place.
+    this.player.mute();
     const fs = this.player.sampleRate;
     // Filters are designed for the context's actual rate.
     if (!this.report || this.report.fs_Hz !== fs) {
       this.requestDesign();
       await this.waitForDesign();
+      if (cancelled()) return this.abandonPlay();
     }
     const p = await this.currentProgramme(fs);
+    if (cancelled()) return this.abandonPlay();
     if (!p || !this.report) {
       this.playingEl.textContent = p ? 'No filter to play.' : 'Choose an audio file first.';
       this.playBtn.disabled = false;
@@ -808,6 +848,7 @@ class ListenView implements ResultView {
     this.programmeNotes.textContent = p.notes.join(' ');
     this.player.setProgramme(p);
     const ok = await this.applyFilters();
+    if (cancelled()) return this.abandonPlay();
     if (!ok) {
       this.playBtn.disabled = false;
       return;
@@ -818,8 +859,15 @@ class ListenView implements ResultView {
     this.playBtn.classList.remove('primary');
     this.playBtn.disabled = false;
     this.pollTimer = window.setInterval(() => this.renderMeters(this.player.poll()), 100);
+    this.playingEl.textContent = `Playing ${p.label}.`;
     this.renderDiagnostics();
     this.renderState();
+  }
+
+  /** A Play given up (Stop, leaving the view, switching the audio path) leaves the input muted. */
+  private abandonPlay(): void {
+    this.player.mute();
+    this.playBtn.disabled = false;
   }
 
   private waitForDesign(): Promise<void> {
@@ -830,6 +878,7 @@ class ListenView implements ResultView {
   }
 
   private stop(): void {
+    this.playToken++;
     this.player.stop();
     window.clearInterval(this.pollTimer);
     this.playBtn.textContent = 'Play';
@@ -839,13 +888,23 @@ class ListenView implements ResultView {
     this.renderDiagnostics();
   }
 
-  /** Level-matches A and B over the programme and loads both into the player. */
+  /**
+   * Level-matches A and B over the programme and loads both into the
+   * player. On a failure while playing, playback stops (with the reason
+   * shown) rather than go on with gains that do not belong to what plays.
+   */
   private async applyFilters(): Promise<boolean> {
     const r = this.report;
     const p = this.programme;
     if (!r || !p) return false;
     if (r.fs_Hz !== p.fs) return false;
+    const fail = (why: string) => {
+      if (this.player.running) this.stop();
+      this.playingEl.textContent = why;
+      return false;
+    };
     const a = Float32Array.from(r.taps);
+    if (!a.length || !a.every(Number.isFinite)) return fail('The filter holds values that are not finite numbers; nothing is played.');
     const b = delayTaps(r.latency_samples);
     const method = this.matchMethod();
     this.renderMatchActive();
@@ -857,14 +916,20 @@ class ListenView implements ResultView {
         { key: `delay:${r.latency_samples}`, taps: [b] },
       ]);
     } catch (e) {
-      this.playingEl.textContent = `Level match failed: ${String(e)}`;
-      return false;
+      return fail(`Level match failed: ${String(e)}`);
     }
     const gainA = matchGainDb(m.filters[0], method, m.programme);
     const gainB = matchGainDb(m.filters[1], method, m.programme);
+    if (!Number.isFinite(gainA) || !Number.isFinite(gainB)) {
+      return fail('The programme is silent: it has no level to match (BS.1770 gates out everything below −70 LKFS), so nothing is played.');
+    }
+    if (Math.max(gainA, gainB) > MAX_GAIN_DB) {
+      return fail(`The programme is too quiet to match: it would need ${signed(Math.max(gainA, gainB), 1)} dB of gain, more than the +${MAX_GAIN_DB} dB allowed. Nothing is played.`);
+    }
     this.levels = { method, programme: m.programme, a: m.filters[0], b: m.filters[1], gainA, gainB, ms: m.ms };
-    this.player.loadFilter(0, a, a, gainA);
-    this.player.loadFilter(1, b, b, gainB);
+    if (!this.player.loadFilter(0, a, a, gainA) || !this.player.loadFilter(1, b, b, gainB)) {
+      return fail('The filters could not be loaded.');
+    }
     this.renderLevels();
     this.playingEl.textContent = `Playing ${p.label}.`;
     this.renderState();
@@ -918,7 +983,17 @@ class ListenView implements ResultView {
 
   // ----- diagnostics and state --------------------------------------------------
 
+  /** What bounds the output on the path in use (or about to be used). */
+  private limitSentence(): string {
+    const d = this.player.diagnostics();
+    const fallback = d.path === 'convolver' || (d.path === null && (this.player.forceFallback || !d.audioWorklet));
+    return fallback
+      ? `On this path (the ConvolverNode fallback) the output is hard-clipped at ${CEILING_DBTP} dBFS (sample peak); there is no true-peak limiter.`
+      : `The output is limited to ${CEILING_DBTP} dBTP (true peak).`;
+  }
+
   private renderDiagnostics(): void {
+    if (this.limitText) this.limitText.textContent = this.limitSentence();
     const d: Diagnostics = this.player.diagnostics();
     const rows: [string, string][] = [
       ['Context sample rate', d.sampleRate === null ? `not started (${d.requestedRate} Hz will be requested)` : `${d.sampleRate} Hz${d.rateRefused ? ` (the device refused ${d.requestedRate} Hz; filters are designed for ${d.sampleRate} Hz)` : ''}`],
@@ -927,7 +1002,7 @@ class ListenView implements ResultView {
       ['Render quantum', `${d.renderQuantum} frames`],
       ['Cross-origin isolated', d.crossOriginIsolated ? 'yes' : 'no'],
       ['AudioWorklet', d.audioWorklet ? 'available' : 'not available'],
-      ['Audio path', d.path === null ? '—' : d.path === 'worklet' ? 'AudioWorklet: partitioned convolution (block 128, FFT 256) and true-peak limiter' : 'ConvolverNode fallback (normalize = false); a compressor stands in for the true-peak limiter'],
+      ['Audio path', d.path === null ? '—' : d.path === 'worklet' ? 'AudioWorklet: partitioned convolution (block 128, FFT 256) and true-peak limiter' : 'ConvolverNode fallback (normalize = false); a hard clip at the ceiling (sample peak) stands in for the true-peak limiter'],
       ['Convolution arithmetic', 'JavaScript, double precision (not WebAssembly SIMD)'],
       ['WebAssembly SIMD', d.wasmSimd ? 'supported by this browser' : 'not supported'],
       ['Filter synthesis', this.synthesisMs === null ? '—' : `${fmt(this.synthesisMs, 0)} ms in the engine worker`],

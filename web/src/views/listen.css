@@ -133,7 +133,8 @@
 .listen-notes li {
   color: var(--ink-2);
 }
-.listen-warning {
+.listen-warning,
+.listen-absolute {
   margin: 6px 0 10px;
   padding: 8px 10px;
   background: var(--badge-bg);

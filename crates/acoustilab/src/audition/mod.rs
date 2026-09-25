@@ -221,6 +221,14 @@ impl Options {
                 self.fs_hz
             ));
         }
+        // The filter is normalised over the anchor band, which must lie
+        // where the ratio is exact.
+        if lo > ANCHOR_HZ.0 || hi < ANCHOR_HZ.1 {
+            return Err(format!(
+                "band {lo} to {hi} Hz must contain the {} Hz to {} Hz anchor band",
+                ANCHOR_HZ.0, ANCHOR_HZ.1
+            ));
+        }
         if let Some(n) = self.n {
             let (a, b) = n_range(self.fs_hz);
             if !(n.is_power_of_two() && (a..=b).contains(&n)) {
@@ -251,6 +259,10 @@ pub struct Design {
     pub shading: Shading,
     /// Fixture the probe reads (`targets::fixture::for_probe`).
     pub fixture: Option<String>,
+    /// What "the same reference point" is checked on: the fixture and the
+    /// ear macro's node the probe reads (`drp`, `eep`, `ref`) when the
+    /// probe sits on an ear simulator, else the probe's id.
+    pub reference_key: String,
     pub netlist_sha256: String,
     /// The overrides as given (a JSON object).
     pub overrides: Value,
@@ -292,6 +304,15 @@ impl Design {
             })?;
         let (quantity, unit) = (pr.quantity.clone(), pr.unit.to_string());
         let (scale, drive) = circuit.drive_scale()?;
+        let fixture = fixture::for_probe(&circuit, &probe).map(|f| f.id.clone());
+        let reference_key = match (&fixture, &pr.kind) {
+            (Some(f), crate::circuit::ProbeKind::Node(i)) => {
+                let node = circuit.nodes.name(*i);
+                let point = node.rsplit_once('.').map_or(node, |(_, p)| p);
+                format!("{f}:{point}")
+            }
+            _ => format!("probe:{probe}"),
+        };
         let parameters = Value::Object(
             circuit
                 .parameters
@@ -301,7 +322,8 @@ impl Design {
         );
         Ok(Design {
             shading: circuit.shading(),
-            fixture: fixture::for_probe(&circuit, &probe).map(|f| f.id.clone()),
+            fixture,
+            reference_key,
             netlist_sha256: sha256::sha256_hex(text.as_bytes()),
             overrides: overrides_json,
             parameters,
@@ -787,6 +809,15 @@ pub fn audition(cand: &mut Design, base: Baseline, opts: &Options) -> Result<Aud
         ),
         None => opts.band_hz,
     };
+    if band.1 <= 1.5 * band.0 {
+        return Err(Error::Netlist(format!(
+            "audition: the inversion band ({:.0} Hz to {:.0} Hz, within the baseline's range) leaves less than half an octave of the audition band ({:.0} Hz to {:.0} Hz)",
+            inverse.as_ref().map_or(band.0, |i| i.band_hz.0),
+            inverse.as_ref().map_or(band.1, |i| i.band_hz.1),
+            opts.band_hz.0,
+            opts.band_hz.1
+        )));
+    }
     if let Some(inv) = &inverse {
         if inv.band_hz != opts.inversion.band_hz {
             notes.push(format!(
@@ -798,7 +829,7 @@ pub fn audition(cand: &mut Design, base: Baseline, opts: &Options) -> Result<Aud
             ));
         }
         notes.push(format!(
-            "Band limit: the baseline is inverted from {:.0} Hz to {:.0} Hz; outside that band the filter holds its band-edge level, so A and B differ only inside it (spec Section 16).",
+            "Band limit: the baseline is inverted from {:.0} Hz to {:.0} Hz; outside that band the filter holds its band-edge level, so it has no shape there, though A still differs from B by that level (spec Section 16).",
             band.0, band.1
         ));
     }
@@ -1130,6 +1161,12 @@ pub fn audition(cand: &mut Design, base: Baseline, opts: &Options) -> Result<Aud
         *v *= w;
     }
     let taps: Vec<f32> = h.iter().map(|&v| v as f32).collect();
+    // The page plays these taps: nothing non-finite may leave the engine.
+    if taps.iter().any(|v| !v.is_finite()) {
+        return Err(Error::Netlist(
+            "audition: the filter's impulse response is not finite".into(),
+        ));
+    }
     let latency = match used {
         PhaseRequest::Mixed => pre,
         PhaseRequest::Linear => half,
@@ -1303,7 +1340,7 @@ pub fn audition(cand: &mut Design, base: Baseline, opts: &Options) -> Result<Aud
     });
     let (base_summary, base_state) = match &base {
         Baseline::Design(b) => {
-            if b.fixture != cand.fixture {
+            if b.reference_key != cand.reference_key {
                 flags.push(flag(
                     "reference_point_mismatch",
                     format!(

@@ -17,6 +17,7 @@ import { FFT } from '../src/audio/fft';
 import { BLOCK, PartitionedConvolver } from '../src/audio/convolver';
 import { cascadeMagnitude, integratedLoudness, K48, kPrototype, kWeighting, StreamingLoudness } from '../src/audio/loudness';
 import { TruePeakLimiter } from '../src/audio/limiter';
+import { hardClipCurve } from '../src/audio/clip';
 import { phaseCoefficients, truePeak, PeakDetector, TAPS_PER_PHASE } from '../src/audio/oversample';
 import { circularConvolve, delayTaps, matchGainDb, measure } from '../src/audio/level';
 import {
@@ -352,6 +353,31 @@ test('limiter: transparent below the ceiling, holds the true-peak ceiling above 
   lim2.process(small, small, a, b, 4000);
   for (let i = lim2.latency; i < 4000; i++) expect(a[i]).toBe(Math.fround(small[i - lim2.latency]));
   expect(lim2.latency).toBe(TAPS_PER_PHASE / 2 + Math.round(0.002 * fs));
+  // A sample that is not finite comes out as silence (before the review a
+  // NaN passed the detector, NaN > T being false, and reached the output;
+  // an infinity came out as NaN).
+  const lim3 = new TruePeakLimiter(fs, { ceilingDb: -1 });
+  const odd = Float64Array.from(small);
+  odd[1000] = NaN;
+  odd[2000] = Infinity;
+  odd[3000] = -Infinity;
+  lim3.process(odd, odd, a, b, 4000);
+  expect(a.every(Number.isFinite)).toBe(true);
+  for (const i of [1000, 2000, 3000]) expect(a[i + lim3.latency]).toBe(0);
+  for (let i = lim3.latency; i < 4000; i++) expect(Math.abs(a[i])).toBeLessThanOrEqual(0.3);
+});
+
+test('fallback hard clip: identity below the ceiling, clamped above', () => {
+  const curve = hardClipCurve(-1);
+  const c = Math.fround(10 ** (-1 / 20));
+  expect(curve.length).toBe(8193);
+  expect(curve[0]).toBe(-c);
+  expect(curve[8192]).toBe(c);
+  // Identity points are exact; the largest is the last one below c.
+  for (let i = 0; i <= 8192; i++) {
+    const x = -1 + i / 4096;
+    expect(curve[i]).toBe(Math.abs(x) <= c ? Math.fround(x) : Math.sign(x) * c);
+  }
 });
 
 // ----- programme material ---------------------------------------------------------------

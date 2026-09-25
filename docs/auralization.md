@@ -35,11 +35,14 @@ baseline standing where the replicator headphone stood.
 | an imported measured curve (FRD, ZMA, REW text, CSV, curve JSON) | the same; its phase is not used |
 | none | **absolute** mode: the candidate's own response, uncompensated, flagged `absolute_diagnostic` |
 
-The report flags a candidate and a baseline on different fixtures
-(`reference_point_mismatch` for two netlists, `fixture_mismatch` for a
-target or curve: responses on different fixtures differ by several dB above
-2 kHz, and the filter then contains that difference too), different drives
-(`drive_differs`), and a probe that is not a pressure.
+The report flags a candidate and a baseline read at different reference
+points (`reference_point_mismatch` for two netlists: another fixture,
+another node of the same ear simulator, such as the canal entrance against
+the drum reference point, or, off an ear simulator, another probe;
+`fixture_mismatch` for a target or curve: responses on different fixtures
+differ by several dB above 2 kHz, and the filter then contains that
+difference too), different drives (`drive_differs`), and a probe that is
+not a pressure.
 
 ## The filter
 
@@ -147,11 +150,14 @@ a working grid of 96 points per octave over the curve's range:
 **Regularisation profile.** β(f) = β_in inside the inversion band
 (20 Hz–10 kHz, clipped to the curve's range; the bundled Ravizza target
 starts at 31 Hz); outside it the baseline is not inverted at all: the
-*audition filter* holds its band-edge level (step 2 of the pipeline). This
-is the limit β → ∞ of the Tikhonov problem regularised towards the
-band-edge filter rather than towards zero. Classic Kirkeby regularisation
-towards zero would low-pass the programme at 10 kHz; holding the edge
-keeps it full band, and A and B then differ only inside the band. The
+*audition filter* (candidate × inverse) holds its band-edge level (step 2
+of the pipeline), so the candidate's own response above 10 kHz is not
+heard either. This is the limit β → ∞ of the Tikhonov problem for the
+audition filter regularised towards its band-edge value rather than
+towards zero. Classic Kirkeby regularisation towards zero would low-pass
+the programme at 10 kHz; holding the edge keeps it full band. Outside the
+band the filter has no shape, but it is not unity: A differs from B there
+by the held edge level (within the hold's 6 dB transition). The
 report gives the notches, the largest boost of the inverse and its largest
 departure from the exact inverse (smoothing, notch rule and cap together).
 
@@ -230,8 +236,13 @@ true-peak limiter → output.
   `normalize = false` set before the buffer is assigned (the default
   normalisation rescales the filter and destroys the level match: by more
   than 1 dB for the template filter in the test), A/B by 5 ms gain ramps,
-  and a DynamicsCompressorNode standing in for the true-peak limiter,
-  which it is not. Erratum E35: WebKit and Gecko move late partitions of
+  the volume, and a hard clip at −1 dBFS (a WaveShaperNode: the identity
+  below the ceiling, exact in f32, so the level match is untouched; a
+  sample-peak bound, not a true-peak limiter) standing in for the
+  limiter. (The review replaced a DynamicsCompressorNode set to a
+  −2 dB threshold, ratio 20: measured in Chromium, it added its make-up
+  gain of +1.14 dB to everything and let a 997 Hz tone at +18 dBFS out at
+  +0.61 dBFS.) Erratum E35: WebKit and Gecko move late partitions of
   long ConvolverNode filters to a background thread; Chromium does not.
 
 ### Level matching and safety
@@ -295,8 +306,40 @@ true-peak limiter → output.
   delay (112 samples at 48 kHz, the same for A and B).
 - **Start-up**: nothing plays until Play is pressed; the volume starts at
   −20 dB below the matched level; a warning says to start with the
-  headphone volume low, and that a filter can boost some frequencies by
-  more than 10 dB (the report's `large_boost` flag gives the figure).
+  headphone volume low, states what bounds the output on the path in use
+  (−1 dBTP, or the fallback's −1 dBFS sample-peak clip), and that a filter
+  can boost some frequencies by more than 10 dB (the report's
+  `large_boost` flag gives the figure). An empty or invalid volume entry
+  leaves the volume unchanged (it read as 0 dB, the loudest setting,
+  before the review).
+- **Gains that belong to what plays.** The worklet's input is muted
+  (`mute`, a 256-sample fade) before a new programme starts, and let in
+  again (`unmute`) only once the filters and gains matched to that
+  programme are loaded and any crossfade is over; the new source starts
+  after the fade (`switchDelay`, 20.7 ms at 48 kHz). Play starts muted the
+  same way, so neither a first play nor a replay after Stop passes the
+  programme through gains from an earlier one. Before the review a
+  programme change played the new programme through the old gains for the
+  1.5 s of its level match: a quiet file matched with +40 dB followed by
+  white noise would have reached the −1 dBTP ceiling at any volume
+  setting. A level-match or load failure while playing stops playback and
+  says why.
+- **Refusals.** A programme with no measurable level (every block below
+  the −70 LKFS gate: a silent file) or needing more than +40 dB of gain is
+  not played; a decoded file holding NaN or infinite samples is refused;
+  the player and the worklet refuse taps that are not finite and gains
+  that are not finite or exceed +40 dB; the worklet replaces non-finite
+  input samples by zeros, and so does the limiter (a NaN passed its
+  detector, `NaN > T` being false, and reached the output). Leaving the
+  view, pressing Stop or switching the audio path abandons a Play still
+  being prepared (it went on to start playing with the view hidden).
+- **Content above 20 kHz.** BS.1770 weights the whole band up to
+  Nyquist, where the filter holds its band-edge level, so the match also
+  balances inaudible content. For pink noise at 48 kHz and the template's
+  variants (front depth 5 and 30 mm, open back, Type 4.3 ear, 300 µH
+  voice-coil inductance, cup radius 40 mm) the matched gain differs by
+  up to 0.21 dB from a match over 20 Hz–20 kHz only (review computation);
+  more at 96 kHz, where an octave of pink noise lies above 20 kHz.
 
 ### Programme material (`noise.ts`)
 
@@ -338,8 +381,9 @@ true-peak limiter → output.
   the derived spectrum in third-octave bands to 0.5 dB from 125 Hz and
   0.15 dB from 1 kHz.
 - **White noise**, and an **exponential sine sweep** (Farina, AES 108th
-  Convention, 2000) from 20 Hz to 20 kHz over the loop with 10 ms fades,
-  matched by RMS.
+  Convention, 2000) from 20 Hz to 20 kHz (0.45·fs at rates below
+  44.4 kHz, which would otherwise fold over Nyquist) over the loop with
+  10 ms fades, matched by RMS.
 - **Audio files** decoded by the browser at the context's rate, cut to
   their first 30 s, identified by the SHA-256 of the file.
 
@@ -404,7 +448,8 @@ Leaving the view stops the sound (its Stop button would be out of sight).
   `{"kind": "none"}` / `""` (absolute mode);
 - options: `mode` (`difference` | `absolute`), `phase` (`auto` | `minimum` |
   `mixed` | `linear`), `fs_Hz` (48000; 8–384 kHz), `n` (power of two, or
-  `"auto"`), `band_Hz`, `threshold_ms` (0.5), `pre_samples`,
+  `"auto"`), `band_Hz` (must contain the 500 Hz–2 kHz anchor band),
+  `threshold_ms` (0.5), `pre_samples`,
   `ir_length_check` (true), `verify` (true), `taps` (true), `inversion`
   {`band_Hz`, `smoothing`, `boost_cap_dB`, `notch_limit_dB`}. Unknown keys
   are rejected (kind `options`).
@@ -465,4 +510,9 @@ the taps as 32-bit float WAV (0 dB = the filter's 500 Hz–2 kHz mean).
   stimulus listening-test module are not implemented.
 - The meters are indicative (polled analysers), and cross-origin isolation
   (for a SharedArrayBuffer meter path) is reported, not used.
-- The ConvolverNode fallback has no true-peak limiter.
+- The ConvolverNode fallback has no true-peak limiter: a sample-peak hard
+  clip at −1 dBFS bounds it (inter-sample peaks up to about 0.7 dB above).
+- Filters reach the worklet through its message port: the taps are
+  structured-cloned and handled on the audio thread between render quanta
+  (outside `process()`, but on the real-time thread). A SharedArrayBuffer
+  path would avoid that; it needs cross-origin isolation.

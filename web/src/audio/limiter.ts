@@ -136,8 +136,10 @@ export class TruePeakLimiter {
     const L = this.lookahead;
     const len = this.delayLen;
     for (let t = 0; t < n; t++) {
-      const xl = inL[t];
-      const xr = inR[t];
+      // A sample that is not finite would pass the detector (NaN compares
+      // false) and reach the output: it is replaced by silence.
+      const xl = Number.isFinite(inL[t]) ? inL[t] : 0;
+      const xr = Number.isFinite(inR[t]) ? inR[t] : 0;
       this.dl[0][this.dlPos] = xl;
       this.dl[1][this.dlPos] = xr;
       // Interval peak ending at s = t − (detector delay).

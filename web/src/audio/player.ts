@@ -12,12 +12,18 @@
 // * Fallback without AudioWorklet (insecure contexts, old engines): two
 //   ConvolverNodes per slot, `normalize = false` set before the buffer is
 //   assigned (the default normalisation rescales the filter and destroys
-//   the level match), A/B by 5 ms gain ramps, and a DynamicsCompressorNode
-//   near the ceiling standing in for the true-peak limiter, which it is
-//   not (the diagnostics say so). WebKit and Gecko run late partitions of
-//   long ConvolverNode filters on a background thread, Chromium does not
+//   the level match), A/B by 5 ms gain ramps, the volume, and a hard clip
+//   at the ceiling (a WaveShaperNode: exact below it, sample peak only)
+//   standing in for the true-peak limiter, which it is not (the view and
+//   the diagnostics say so). WebKit and Gecko run late partitions of long
+//   ConvolverNode filters on a background thread, Chromium does not
 //   (erratum E35); either way the fallback stays exact in level.
+// * Changing programme: `mute()` silences the input at once, and
+//   `unmute()` (after the new filters and gains are posted) lets it in
+//   again only when they are in place, so a programme never plays through
+//   gains matched to another one. `play()` starts muted the same way.
 
+import { hardClipCurve } from './clip';
 import { StreamingLoudness } from './loudness';
 import { TAPS_PER_PHASE, truePeak } from './oversample';
 import type { Programme } from './noise';
@@ -30,6 +36,12 @@ export const RENDER_QUANTUM = 128;
 export const START_VOLUME_DB = -20;
 export const VOLUME_RANGE_DB: [number, number] = [-60, 0];
 export const CEILING_DBTP = -1;
+/** Delay before a replaced programme starts: twice the mute fade (2 quanta) plus 10 ms for the message, s. */
+export function switchDelay(fs: number): number {
+  return (4 * RENDER_QUANTUM) / fs + 0.01;
+}
+/** Largest filter gain a load may carry, dB (the level match refuses more). */
+export const MAX_GAIN_DB = 40;
 
 export interface Diagnostics {
   sampleRate: number | null;
@@ -107,12 +119,13 @@ export class AuditionPlayer {
   private rateRefused = false;
   private path: 'worklet' | 'convolver' | null = null;
   private volumeDb = START_VOLUME_DB;
-  // Fallback graph.
+  // Fallback graph: source → input gate → split → slots → merge → volume → clip → master.
+  private fbInput: GainNode | null = null;
   private fbSplit: ChannelSplitterNode | null = null;
   private fbMerge: ChannelMergerNode | null = null;
   private readonly fbSlots: (FallbackSlot | null)[] = [null, null];
   private fbSlot = 0;
-  private fbLimiter: DynamicsCompressorNode | null = null;
+  private fbVolume: GainNode | null = null;
   /** Force the ConvolverNode fallback (diagnostics switch). */
   forceFallback = false;
 
@@ -163,50 +176,97 @@ export class AuditionPlayer {
       node.connect(this.master, 0);
       node.connect(this.analysers[2], 1);
       node.connect(this.analysers[3], 2);
+      node.parameters.get('volume')?.setValueAtTime(10 ** (this.volumeDb / 20), ctx.currentTime);
       this.node = node;
       this.path = 'worklet';
-      this.setVolumeDb(this.volumeDb);
     } else {
+      this.fbInput = new GainNode(ctx, { gain: 0 });
       this.fbSplit = new ChannelSplitterNode(ctx, { numberOfOutputs: 2 });
       this.fbMerge = new ChannelMergerNode(ctx, { numberOfInputs: 2 });
-      this.fbLimiter = new DynamicsCompressorNode(ctx, { threshold: CEILING_DBTP - 1, knee: 0, ratio: 20, attack: 0.001, release: 0.05 });
-      this.fbMerge.connect(this.fbLimiter).connect(this.master);
+      this.fbVolume = new GainNode(ctx, { gain: 10 ** (this.volumeDb / 20) });
+      const clip = new WaveShaperNode(ctx, { curve: hardClipCurve(CEILING_DBTP), oversample: 'none' });
+      this.fbInput.connect(this.fbSplit);
+      this.fbMerge.connect(this.fbVolume).connect(clip).connect(this.master);
       this.path = 'convolver';
-      this.setVolumeDb(this.volumeDb);
     }
     if (ctx.state === 'suspended') await ctx.resume();
   }
 
-  /** Sets the looping programme (restarts the source). */
+  /**
+   * Sets the looping programme. A playing source is replaced after
+   * `switchDelay` (20.7 ms at 48 kHz), by which time a `mute()` posted before has faded the
+   * input out: no sample of the new programme passes the old gains.
+   */
   setProgramme(p: Programme): void {
     this.programme = p;
-    if (this.source) this.startSource();
+    if (this.source && this.ctx) this.startSource(switchDelay(this.ctx.sampleRate));
   }
 
-  private startSource(): void {
+  private startSource(delay = 0): void {
     const ctx = this.ctx;
     const p = this.programme;
     if (!ctx || !p) return;
-    this.source?.stop();
-    this.source?.disconnect();
+    const at = ctx.currentTime + delay;
+    const old = this.source;
+    if (old) {
+      old.stop(at);
+      old.onended = () => old.disconnect();
+    }
     const buf = new AudioBuffer({ length: p.channels[0].length, numberOfChannels: 2, sampleRate: ctx.sampleRate });
     buf.copyToChannel(p.channels[0] as Float32Array<ArrayBuffer>, 0);
     buf.copyToChannel(p.channels[1] as Float32Array<ArrayBuffer>, 1);
     const src = new AudioBufferSourceNode(ctx, { buffer: buf, loop: true });
     if (this.node) src.connect(this.node);
-    else if (this.fbSplit) src.connect(this.fbSplit);
-    src.start();
+    else if (this.fbInput) src.connect(this.fbInput);
+    src.start(at);
     this.source = src;
   }
 
-  /** Starts playback (the context must be open). */
+  /**
+   * Starts playback (the context must be open): the input history is
+   * cleared and the input let in once the filters posted before are in
+   * place (call `mute()` before posting them).
+   */
   play(): void {
     if (!this.ctx) return;
     this.startSource();
+    this.node?.port.postMessage({ type: 'reset' });
+    this.unmute();
     void this.ctx.resume();
   }
 
+  /** Silences the input now (a 5 ms fade), until `unmute()`. */
+  mute(): void {
+    if (this.node) {
+      this.node.port.postMessage({ type: 'mute' });
+    } else if (this.fbInput && this.ctx) {
+      const g = this.fbInput.gain;
+      const t = this.ctx.currentTime;
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(g.value, t);
+      g.linearRampToValueAtTime(0, t + 0.005);
+    }
+  }
+
+  /**
+   * Lets the input in again (a 5 ms fade) once every filter loaded before
+   * this call is in place (the worklet waits for its loads; the fallback's
+   * ConvolverNodes are set at once).
+   */
+  unmute(): void {
+    if (this.node) {
+      this.node.port.postMessage({ type: 'unmute' });
+    } else if (this.fbInput && this.ctx) {
+      const g = this.fbInput.gain;
+      const t = this.ctx.currentTime;
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(g.value, t);
+      g.linearRampToValueAtTime(1, t + 0.005);
+    }
+  }
+
   stop(): void {
+    this.mute();
     this.source?.stop();
     this.source?.disconnect();
     this.source = null;
@@ -221,17 +281,24 @@ export class AuditionPlayer {
     this.ctx = null;
     this.node = null;
     this.path = null;
+    this.fbInput = this.fbSplit = this.fbMerge = this.fbVolume = null;
+    this.fbSlots.fill(null);
   }
 
-  /** Loads a filter (per channel taps) and its gain into slot A (0) or B (1). */
-  loadFilter(slot: 0 | 1, left: Float32Array, right: Float32Array, gainDb: number): void {
+  /**
+   * Loads a filter (per channel taps) and its gain into slot A (0) or B
+   * (1). Refused (false) when a tap is not finite or the gain is not a
+   * finite number up to MAX_GAIN_DB (the worklet refuses them too).
+   */
+  loadFilter(slot: 0 | 1, left: Float32Array, right: Float32Array, gainDb: number): boolean {
+    if (!(Number.isFinite(gainDb) && gainDb <= MAX_GAIN_DB) || !left.every(Number.isFinite) || !right.every(Number.isFinite)) return false;
     const gain = 10 ** (gainDb / 20);
     if (this.node) {
       this.node.port.postMessage({ type: 'load', slot, left, right, gain });
-      return;
+      return true;
     }
     const ctx = this.ctx;
-    if (!ctx || !this.fbSplit || !this.fbMerge) return;
+    if (!ctx || !this.fbSplit || !this.fbMerge) return false;
     const s: FallbackSlot = {
       convL: exactConvolver(ctx, left),
       convR: exactConvolver(ctx, right),
@@ -259,6 +326,7 @@ export class AuditionPlayer {
       }, 50);
     }
     this.fbSlots[slot] = s;
+    return true;
   }
 
   /** Plays slot A (0) or B (1), crossfading. */
@@ -280,14 +348,16 @@ export class AuditionPlayer {
   }
 
   setVolumeDb(db: number): void {
+    if (!Number.isFinite(db)) return;
+    db = Math.min(VOLUME_RANGE_DB[1], Math.max(VOLUME_RANGE_DB[0], db));
     this.volumeDb = db;
     const v = 10 ** (db / 20);
     const ctx = this.ctx;
     if (!ctx) return;
     if (this.node) {
       this.node.parameters.get('volume')?.setTargetAtTime(v, ctx.currentTime, 0.02);
-    } else if (this.master) {
-      this.master.gain.setTargetAtTime(v, ctx.currentTime, 0.02);
+    } else if (this.fbVolume) {
+      this.fbVolume.gain.setTargetAtTime(v, ctx.currentTime, 0.02);
     }
   }
 

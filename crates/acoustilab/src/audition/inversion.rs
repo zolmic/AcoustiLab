@@ -40,8 +40,10 @@
 //! limit β → ∞ of the Tikhonov problem regularised towards the band-edge
 //! filter instead of towards zero. Classic Kirkeby regularisation towards
 //! zero would low-pass the programme at 10 kHz; holding the band edge
-//! leaves it full-band, and A and B then differ only inside the band. The
-//! hold is applied where the filter is built (`audition::design`).
+//! leaves it full-band. Outside the band A then differs from B by the
+//! held edge level (a constant, within the hold's 6 dB transition): the
+//! filter has no shape there, not unity gain. The hold is applied where
+//! the filter is built (`audition::audition`).
 //!
 //! Every constant is an option with the spec's value as default; the
 //! report lists the notches found, the largest boost, and the largest
