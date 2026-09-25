@@ -4,10 +4,15 @@
 //! acoustilab solve <netlist.json> [--csv] [--out FILE] [--set NAME=VALUE]...
 //! acoustilab check <netlist.json> [--set NAME=VALUE]...
 //! acoustilab params <netlist.json> [--set NAME=VALUE]...
+//! acoustilab fit <netlist.json> --curve PROBE=FILE[:SIDECAR] --param NAME ...
+//! acoustilab measure <netlist.json> --probe ID --out FILE [--noise-db X --seed S]
+//! acoustilab convert IN OUT
 //! acoustilab types
 //! acoustilab help | --help | -h
 //! acoustilab version | --version | -V
 //! ```
+
+mod fit_cmd;
 
 use acoustilab::expr::PValue;
 use acoustilab::params::{Overrides, Parametric};
@@ -86,9 +91,10 @@ fn run(args: &[String]) -> Result<(), String> {
     };
     match cmd.as_str() {
         "help" | "--help" | "-h" => {
-            println!("{USAGE}");
+            println!("{USAGE}\n{}", fit_cmd::USAGE);
             Ok(())
         }
+        "fit" | "measure" | "convert" => fit_cmd::run(args, &overrides),
         "version" | "--version" | "-V" => {
             println!("{}", acoustilab::solve::ENGINE);
             Ok(())

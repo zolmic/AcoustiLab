@@ -622,7 +622,7 @@ pub fn analyse(
                 code: "scale_resolved",
                 parameters: params,
                 message: format!(
-                    "driver '{id}': the scale of Bl, Mms and Cms is fixed by the data ({resolvers_text}); the numerical analysis below says how well"
+                    "driver '{id}': the scale of Bl, Mms and Cms is fixed by the data ({resolvers_text}); the intervals say how well"
                 ),
                 resolve_with: Vec::new(),
             });
