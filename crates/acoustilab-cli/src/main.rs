@@ -15,6 +15,7 @@
 //! acoustilab poles <netlist.json> [--probe ID] [--order 30] [--attribute] ...
 //! acoustilab isolation <netlist.json> [--probe ID] [--entrance NODE] [--csv] ...
 //! acoustilab validate <measurement dir> | --predict | --verify | --drift | --session | --simulate
+//! acoustilab audition <netlist.json> [--baseline-set NAME=VALUE] [--target NAME] [--wav FILE] ...
 //! acoustilab help | --help | -h
 //! acoustilab version | --version | -V
 //! ```
@@ -28,6 +29,7 @@ use acoustilab::Circuit;
 use std::io::Write;
 use std::process::ExitCode;
 
+mod audition;
 mod score;
 mod time;
 mod validate;
@@ -121,10 +123,11 @@ fn run(args: &[String]) -> Result<(), String> {
     match cmd.as_str() {
         "help" | "--help" | "-h" => {
             println!(
-                "{USAGE}\n{}\n{}\n{}",
+                "{USAGE}\n{}\n{}\n{}\n{}",
                 fit_cmd::USAGE,
                 time::USAGE,
-                validate::USAGE
+                validate::USAGE,
+                audition::USAGE
             );
             Ok(())
         }
@@ -139,6 +142,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 _ => time::isolation(path, rest, &overrides),
             }
         }
+        "audition" => audition::run(args.get(1).ok_or(USAGE)?, &args[2..], &overrides),
         "version" | "--version" | "-V" => {
             println!("{}", acoustilab::solve::ENGINE);
             Ok(())

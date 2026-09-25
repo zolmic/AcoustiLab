@@ -61,5 +61,7 @@ Impulse responses, pole/Q tables and passive isolation: `acoustilab ir | poles |
 
 The open reference headphone of spec Section 17 (printable CAD, model, measurement protocol and frozen blind predictions) is in `validation/reference_cup/`; `acoustilab validate` runs a measurement session against it (`docs/reference-cup.md`).
 
+Auralization (hear a design against a baseline, level matched, in the Listen view): `acoustilab audition` and `docs/auralization.md`.
+
 To run the browser UI:
 `cd web && npm ci && npm run dev` (details in `docs/web.md`).

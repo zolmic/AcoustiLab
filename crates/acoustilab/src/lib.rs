@@ -11,6 +11,7 @@
 
 pub mod air;
 pub mod analysis;
+pub mod audition;
 pub mod circuit;
 pub mod diag;
 pub mod drive;
