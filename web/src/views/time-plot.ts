@@ -8,7 +8,7 @@
 // dense view is drawn as the minimum and maximum of each pixel column,
 // which keeps every oscillation's envelope.
 
-import { niceTicks, prefixable, prefixFor, prettyUnit, superscript } from '../format';
+import { niceTicks, prefixable, prefixFor, prettyUnit, superscript, tickDecimals } from '../format';
 import { readTheme, type Theme } from '../plot';
 import { DASHES, LIVE_WIDTH, PRIMARY_WIDTH, styleSlot } from '../series';
 import { Figure, formatSeconds, type AxisPanel, type FigPlot, type FigureOptions } from './measure-kit';
@@ -31,6 +31,8 @@ interface YAxis {
   ticks: number[];
   labels: string[];
   unitText: string;
+  /** The labels are the ticks divided by this (an SI prefix or a power of ten). */
+  factor: number;
 }
 
 function finite(v: number | null | undefined): v is number {
@@ -45,6 +47,8 @@ class TimePlot {
   private readonly cssH: number;
   /** Last y of each visible series at the crosshair (for tests). */
   lastCursorY: Record<string, number> = {};
+  /** Tick labels last drawn: [time in ms, label] and [value, label] (for tests). */
+  lastTicks: { x: [number, string][]; y: [number, string][]; yFactor: number } = { x: [], y: [], yFactor: 1 };
 
   constructor(readonly plot: FigPlot) {
     this.figure = document.createElement('figure');
@@ -110,7 +114,8 @@ class TimePlot {
       const a = Math.floor(lo / step + 1e-9) * step;
       const b = Math.max(Math.ceil(hi / step - 1e-9) * step, a + step);
       const all = ticks.filter((t) => t >= a - 1e-9 && t <= b + 1e-9);
-      return { lo: a, hi: b, ticks: all, labels: all.map((t) => (t === 0 ? '0' : `${t < 0 ? '−' : ''}${Math.abs(t)}`)), unitText: this.plot.axisUnit };
+      const d = tickDecimals(step);
+      return { lo: a, hi: b, ticks: all, labels: all.map((t) => (t === 0 ? '0' : `${t < 0 ? '−' : ''}${Math.abs(t).toFixed(d)}`)), unitText: this.plot.axisUnit, factor: 1 };
     }
     // Amplitudes: zero always in view, 5 % padding.
     vmin = Math.min(vmin, 0);
@@ -137,9 +142,9 @@ class TimePlot {
         unitText = `× 10${superscript(e)} ${this.plot.axisUnit}`;
       }
     }
-    const decimals = Math.max(0, -Math.floor(Math.log10(step / factor) + 1e-9));
+    const decimals = tickDecimals(step / factor);
     const labels = ticks.map((t) => (t / factor).toFixed(decimals).replace(/^-(0\.?0*)$/, '$1').replace(/^-/, '−'));
-    return { lo: a, hi: b, ticks, labels, unitText };
+    return { lo: a, hi: b, ticks, labels, unitText, factor };
   }
 
   private yOf(v: number, ax: YAxis): number {
@@ -203,7 +208,8 @@ class TimePlot {
     ctx.fillStyle = th.ink2;
     ctx.textBaseline = 'top';
     ctx.textAlign = 'center';
-    const decimals = Math.max(0, -Math.floor(Math.log10(tstep) + 1e-9));
+    const decimals = tickDecimals(tstep);
+    const drawn: { x: [number, string][]; y: [number, string][] } = { x: [], y: [] };
     let lastRight = -Infinity;
     for (const t of tt) {
       const x = this.xOf(t / 1e3, lo, hi);
@@ -211,6 +217,7 @@ class TimePlot {
       const half = ctx.measureText(label).width / 2;
       if (x - half < lastRight + 6 || x + half > this.cssW - 2 || x - half < 24) continue;
       ctx.fillText(label, x, r.y1 + 5);
+      drawn.x.push([t, label]);
       lastRight = x + half;
     }
     ctx.textAlign = 'right';
@@ -220,8 +227,10 @@ class TimePlot {
       const y = this.yOf(ax.ticks[k], ax);
       if (lastY - y < 13) continue;
       ctx.fillText(ax.labels[k], r.x0 - 6, y);
+      drawn.y.push([ax.ticks[k], ax.labels[k]]);
       lastY = y;
     }
+    this.lastTicks = { ...drawn, yFactor: ax.factor };
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.fillText('ms', 4, r.y1 + 5);
@@ -607,7 +616,7 @@ export class TimeFigure extends Figure {
     return {
       view: [this.panel.lo, this.panel.hi],
       cursor: this.panel.cursor,
-      plots: this.panel.plots.map((p) => ({ key: p.plot.key, rect: p.plotRect(), cursorY: { ...p.lastCursorY } })),
+      plots: this.panel.plots.map((p) => ({ key: p.plot.key, rect: p.plotRect(), cursorY: { ...p.lastCursorY }, ticks: p.lastTicks })),
     };
   }
 }

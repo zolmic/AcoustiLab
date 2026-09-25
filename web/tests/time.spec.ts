@@ -6,6 +6,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { engine, example, noSideScroll, open, openView, runNetlist, viewHook, axe, cssColor, near } from './measure.helpers';
+import { tickDecimals } from '../src/format';
 
 // Acoustic RC high-pass: 1 Pa source, series compliance C, shunt resistance R.
 // H(s) = sRC/(1 + sRC), h(t) = δ(t) − (1/RC)·e^{−t/RC}, fc = 100 Hz.
@@ -219,6 +220,43 @@ test('time: attribution runs as a job with the engine’s numbers, and a cancel 
   // docs/time-domain.md: the 936 Hz coupled resonance goes to the diaphragm area first.
   expect(ref.poles[0].parameters[0].parameter).toBe('driver_Sd_cm2');
   await expect(panel.getByText(`Perturbed: ${ref.perturbed.join(', ')}.`, { exact: false })).toBeAttached();
+});
+
+test('tick labels write every multiple of the step exactly', () => {
+  // −floor(log10(step)) decimals alone would print 7.5 as "8".
+  const cases: [number, number][] = [
+    [5, 0],
+    [20, 0],
+    [2.5, 1],
+    [0.5, 1],
+    [0.2, 1],
+    [0.25, 2],
+    [25, 0],
+    [250, 0],
+    [1.5, 1],
+    [4.5e-3, 4],
+  ];
+  for (const [step, d] of cases) expect(tickDecimals(step), String(step)).toBe(d);
+  for (const step of [2.5, 0.25, 1.5, 0.02]) {
+    const d = tickDecimals(step);
+    for (let k = -4; k <= 12; k++) expect(Number((k * step).toFixed(d))).toBeCloseTo(k * step, 12);
+  }
+});
+
+test('time: the time and amplitude axes label their ticks with the tick values', async ({ page }) => {
+  await timeView(page);
+  // The default view of the template (the peak −2 to +20 ms) has ticks every
+  // 2.5 ms, and its step response ticks every 2.5 Pa.
+  const plots = (await viewHook(page, 'time', 'timeFigure')).plots as { key: string; ticks: { x: [number, string][]; y: [number, string][]; yFactor: number } }[];
+  const num = (s: string) => Number(s.replace('−', '-'));
+  let halves = 0;
+  for (const p of plots) {
+    expect(p.ticks.x.length, p.key).toBeGreaterThan(2);
+    for (const [t, label] of p.ticks.x) expect(num(label), `${p.key} x`).toBeCloseTo(t, 9);
+    for (const [v, label] of p.ticks.y) expect(num(label) * p.ticks.yFactor, `${p.key} y`).toBeCloseTo(v, 9);
+    halves += [...p.ticks.x, ...p.ticks.y].filter(([, l]) => /\.5$/.test(l)).length;
+  }
+  expect(halves).toBeGreaterThan(0);
 });
 
 test('time: keyboard, announcements, axe in both themes, and 390 px', async ({ page }) => {

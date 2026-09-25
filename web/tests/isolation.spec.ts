@@ -31,6 +31,14 @@ test('isolation: the closed-cup example shows the export’s numbers, and its cu
   // ETSI summary and every 1/3-octave band.
   const s = ref.summary;
   await expect(panel.locator('[data-field="max"]')).toHaveText(`${s.max_dB.toFixed(1)} dB in the ${(s.max_at_Hz / 1000).toPrecision(4)} kHz band`);
+  // The engine's range_6dB_Hz spans the lowest to the highest band with at
+  // least 6 dB; the bands between them below 6 dB are named with their loss.
+  const [lo6, hi6] = s.range_6dB_Hz;
+  const gaps = ref.third_octave_bands.filter((b: { nominal_Hz: number; insertion_loss_dB: number }) => b.nominal_Hz > lo6 && b.nominal_Hz < hi6 && b.insertion_loss_dB < 6);
+  expect(gaps.map((b: { nominal_Hz: number }) => b.nominal_Hz)).toEqual([100, 125]);
+  await expect(panel.locator('[data-field="range6"]')).toHaveText(
+    `${lo6.toPrecision(4)} Hz to ${(hi6 / 1000).toPrecision(4)} kHz bands, except ${gaps.map((b: { nominal_Hz: number; insertion_loss_dB: number }) => `${b.nominal_Hz.toPrecision(4)} Hz (${b.insertion_loss_dB.toFixed(1)} dB)`).join(', ')}`,
+  );
   const rows = panel.locator('table.mv-bands tbody tr');
   await expect(rows).toHaveCount(ref.third_octave_bands.length);
   for (const b of ref.third_octave_bands) {

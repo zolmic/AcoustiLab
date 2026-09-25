@@ -807,7 +807,9 @@ class TimeView implements ResultView {
     download(name, bytes as BlobPart, 'audio/wav');
     this.wavNote.textContent =
       `Wrote ${name}: ${mode}-phase impulse response of ${r.probe}, ${r.n} samples of 32-bit float at ${formatHz(r.fs_Hz)} ` +
-      `(${bytes.length - WAV_HEADER_BYTES} bytes of samples), first sample at t = ${formatSeconds(r.t0_s, 4).replace(/^-/, '−')}, ` +
+      `(${bytes.length - WAV_HEADER_BYTES} bytes of samples), first sample at t = ${formatSeconds(r.t0_s, 4).replace(/^-/, '−')}` +
+      (mode === 'mixed' && r.delay_removed_s ? ` with the pure-delay estimate of ${formatSeconds(r.delay_removed_s)} removed (the response is advanced by it)` : '') +
+      ', ' +
       (gain === 1 ? 'raw values.' : `normalised to a peak of 1 (gain ${gain.toExponential(4)}).`);
   }
 }

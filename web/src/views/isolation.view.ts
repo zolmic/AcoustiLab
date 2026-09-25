@@ -90,6 +90,9 @@ function ranges(freqs: number[], set: number[]): [number, number][] {
 
 const rangeText = ([a, b]: [number, number]) => (a === b ? formatHz(a) : `${formatHz(a)}–${formatHz(b)}`);
 
+/** A band's nominal label in hertz: "31.5", "1k", "6.3k". */
+const nominalText = (f: number) => (f >= 1000 ? `${Number((f / 1000).toPrecision(3))}k` : String(Number(f.toPrecision(3))));
+
 class IsolationView implements ResultView {
   readonly id = 'isolation';
   readonly label = 'Isolation';
@@ -261,6 +264,11 @@ class IsolationView implements ResultView {
   private renderSummary(r: IsolationReport): void {
     const s = r.summary;
     const ear = r.ear;
+    // The engine's range_6dB_Hz runs from the lowest to the highest band with
+    // at least 6 dB; bands between them can have less, and are named.
+    const gaps = s?.range_6dB_Hz
+      ? r.third_octave_bands.filter((b) => b.nominal_Hz > s.range_6dB_Hz![0] && b.nominal_Hz < s.range_6dB_Hz![1] && b.insertion_loss_dB !== null && b.insertion_loss_dB < 6)
+      : [];
     const summary = el(
       'section',
       { class: 'mv-card', attrs: { 'aria-labelledby': 'iso-summary-h' } },
@@ -268,7 +276,17 @@ class IsolationView implements ResultView {
       s
         ? defList([
             ['Largest loss', el('span', { text: `${formatDb(s.max_dB)} in the ${formatHz(s.max_at_Hz)} band`, attrs: { 'data-field': 'max' } })],
-            ['Loss ≥ 6 dB', s.range_6dB_Hz ? `${formatHz(s.range_6dB_Hz[0])} to ${formatHz(s.range_6dB_Hz[1])} bands` : 'in no band'],
+            [
+              'Loss ≥ 6 dB',
+              el(
+                'span',
+                { attrs: { 'data-field': 'range6' } },
+                s.range_6dB_Hz
+                  ? `${formatHz(s.range_6dB_Hz[0])} to ${formatHz(s.range_6dB_Hz[1])} bands` +
+                      (gaps.length ? `, except ${gaps.map((b) => `${formatHz(b.nominal_Hz)} (${formatDb(b.insertion_loss_dB)})`).join(', ')}` : '')
+                  : 'in no band',
+              ),
+            ],
             ['Mean over the bands', formatDb(s.mean_dB)],
             ['Bands inside the sweep', String(r.third_octave_bands.length)],
           ])
@@ -390,7 +408,7 @@ class IsolationView implements ResultView {
       }
       if (bound !== null) bar.append(el('span', { class: 'mv-bandlimit', attrs: { style: `left:${pos(bound).toFixed(2)}%` } }));
       return [
-        b.nominal_Hz >= 1000 ? `${Number((b.nominal_Hz / 1000).toPrecision(3))}k` : String(Number(b.nominal_Hz.toPrecision(3))),
+        nominalText(b.nominal_Hz),
         formatNumber(b.center_Hz, 5),
         v === null ? '∞' : v.toFixed(1),
         bar,
@@ -418,7 +436,7 @@ class IsolationView implements ResultView {
       return;
     }
     this.bleedFig.root.hidden = false;
-    this.bleedNote.textContent = `At the netlist’s drive (${b.drive.label}). Model (engine): ${b.model}. The dashed lines are the curves ±${b.band_dB} dB.`;
+    this.bleedNote.textContent = `At the netlist’s drive (${b.drive.label}). Model (engine): ${b.model}. The dashed and dotted lines in each distance’s colour are that curve ±${b.band_dB} dB.`;
     const series: FigSeries[] = [];
     b.distances_m.forEach((d, k) => {
       const values = b.spl_dB[k];
