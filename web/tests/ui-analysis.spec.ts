@@ -158,17 +158,20 @@ test('readouts: the readouts export of the plotted design, with its units and me
   expect(await nums('q')).toEqual([ref.impedance.q.Qms, ref.impedance.q.Qes, ref.impedance.q.Qts]);
   expect(await nums('z_1khz')).toEqual([ref.impedance.z_1kHz_ohm]);
   expect(await nums('z_min')).toEqual([ref.impedance.rated_check.z_min_ohm]);
-  await expect(cell('z_min')).toContainText('pass: above 25.6 Ω (80 % of 32 Ω rated)');
-  const s1k = ref.response.sensitivity.find((s: Any) => s.f_Hz === 1000);
-  expect(await nums('sensitivity_1000')).toEqual([s1k.dB_per_V, s1k.dB_per_mW]);
-  await expect(cell('sensitivity_1000').locator('.ro-value')).toHaveText(`${s1k.dB_per_V.toFixed(1)} dB/V · ${s1k.dB_per_mW.toFixed(1)} dB/mW`);
+  await expect(cell('z_min')).toContainText('rated 32 Ω: pass (limit 25.6 Ω)');
+  const [s500, s1k] = [500, 1000].map((f) => ref.response.sensitivity.find((s: Any) => s.f_Hz === f));
+  expect(await nums('sensitivity')).toEqual([s500.dB_per_mW, s1k.dB_per_mW]);
+  await expect(cell('sensitivity').locator('.ro-value')).toHaveText(`${s500.dB_per_mW.toFixed(1)} · ${s1k.dB_per_mW.toFixed(1)} dB/mW`);
+  await expect(cell('sensitivity').locator('.ro-extra')).toHaveText(`${s500.dB_per_V.toFixed(1)} · ${s1k.dB_per_V.toFixed(1)} dB/V`);
   // The template's sealed design: no bass extension in the sweep, said so.
   expect(ref.response.bass_extension).toBeNull();
   await expect(cell('bass_extension').locator('.ro-value')).toHaveText('beyond the sweep');
-  await expect(cell('bass_extension')).toContainText(`reference ${ref.response.level_500Hz_dB.toFixed(1)} dB SPL at 500 Hz`);
+  await expect(cell('bass_extension')).toContainText(`re ${ref.response.level_500Hz_dB.toFixed(1)} dB SPL at 500 Hz`);
+  await expect(block.locator('.ro-notes-box summary')).toHaveText(`Engine notes (${ref.response.notes.length})`);
   await expect(block.locator('.ro-notes')).toContainText(ref.response.notes[0]);
   const fa = ref.drivers[0].free_air;
-  expect(await nums('free_air_0')).toEqual([fa.f_Hz, fa.Qms, fa.Qes, fa.Qts]);
+  expect(await nums('free_air_0')).toEqual([fa.f_Hz, fa.Qts]);
+  await expect(cell('free_air_0')).toContainText(`“drv”: Qms ${fa.Qms.toPrecision(3)} · Qes ${fa.Qes.toPrecision(3)}`);
   // The engine's method texts, verbatim.
   await block.locator('.ro-methods summary').click();
   for (const t of Object.values(ref.methods)) await expect(block.locator('.ro-methods')).toContainText(t as string);
@@ -193,9 +196,8 @@ test('readouts: Δ against the reference baseline, ambiguous resonance and missi
   await expect(cell('coupled_resonance')).toContainText(`competing peak ${formatHz(cr.competing.f_Hz)}, ${cr.competing.margin_dB.toFixed(2)} dB lower`);
   await expect(cell('coupled_resonance').locator('.ro-delta')).toHaveText('Δ n/a');
   await expect(page.locator('#readouts .ro-status')).toContainText('Δ against baseline “template values”');
-  const a = cur.response.sensitivity.find((s: Any) => s.f_Hz === 1000);
-  const b = base.response.sensitivity.find((s: Any) => s.f_Hz === 1000);
-  await expect(cell('sensitivity_1000').locator('.ro-delta')).toHaveText(`Δ ${signed(a.dB_per_V - b.dB_per_V)} dB · ${signed(a.dB_per_mW - b.dB_per_mW)} dB`);
+  const mw = (r: Any, f: number) => r.response.sensitivity.find((s: Any) => s.f_Hz === f).dB_per_mW;
+  await expect(cell('sensitivity').locator('.ro-delta')).toHaveText(`Δ ${signed(mw(cur, 500) - mw(base, 500))} dB · ${signed(mw(cur, 1000) - mw(base, 1000))} dB`);
   // The bass extension exists now: its value and Δ n/a (none for the baseline).
   expect(cur.response.bass_extension).not.toBeNull();
   await expect(cell('bass_extension').locator('.ro-value')).toHaveText(formatHz(cur.response.bass_extension.f_Hz));
@@ -208,6 +210,29 @@ test('readouts: Δ against the reference baseline, ambiguous resonance and missi
   expect(q.impedance.q).toBeNull();
   await expect(cell('q').locator('.ro-value')).toHaveText('not estimated');
   for (const n of q.impedance.notes) await expect(page.locator('#readouts .ro-notes')).toContainText(n);
+});
+
+test('readouts: the block keeps its height whatever the design, so the plots below never move', async ({ page }) => {
+  await page.goto('/');
+  await solved(page);
+  const height = async () => {
+    await readoutsSettled(page);
+    return (await page.locator('#readouts').boundingBox())!.height;
+  };
+  const h0 = await height();
+  // Two resonances: a flag, a competing peak, more engine notes.
+  await setParam(page, 'leak_gap_mm', '1');
+  expect(await height()).toBeCloseTo(h0, 0);
+  // Open back.
+  await page.getByRole('radio', { name: /Open back/ }).check();
+  await solved(page);
+  expect(await height()).toBeCloseTo(h0, 0);
+  // A netlist without a driver or a rated impedance: dashes, same cells.
+  await page.selectOption('#example-select', 'sealed_cup');
+  await solved(page);
+  expect(await height()).toBeCloseTo(h0, 0);
+  await expect(page.locator('#readouts [data-readout="coupled_resonance"] .ro-value')).toHaveText('—');
+  await expect(page.locator('#readouts .ro-notes')).toContainText('no driver element: no coupled resonance');
 });
 
 test('readouts: a drag never queues readouts calls', async ({ page }) => {
@@ -394,6 +419,9 @@ test('sensitivity: map, tornado and explain equal the engine’s exports; links;
   await expect(banner).toBeVisible();
   await expect(banner).toContainText('Stale:');
   await expect(page.locator('#view-sensitivity .an-output')).toHaveClass(/is-stale/);
+  // The stale state fades graphics, never text below AA contrast.
+  const axe = await new AxeBuilder({ page }).include('#view-sensitivity').withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
+  expect(axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([]);
   await banner.getByRole('button', { name: 'Recompute' }).click();
   await expect(page.locator('#view-sensitivity .an-runbar .an-status')).toHaveText(/^Done:/, { timeout: 30_000 });
   await expect(banner).toBeHidden();

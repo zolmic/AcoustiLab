@@ -494,7 +494,9 @@ class SensitivityView implements ResultView {
     }
     // The engine's order: larger absolute change first, ties in parameter
     // order (a stable sort over the rows in request order, as in one call).
-    merged!.rows.sort((a, b) => b.effect - a.effect);
+    // A non-finite effect arrives as null and goes last.
+    const e = (x: number | null) => (x !== null && Number.isFinite(x) ? x : -Infinity);
+    merged!.rows.sort((a, b) => (e(b.effect) > e(a.effect) ? 1 : e(b.effect) < e(a.effect) ? -1 : 0));
     return merged!;
   }
 

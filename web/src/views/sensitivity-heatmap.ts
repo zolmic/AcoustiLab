@@ -6,8 +6,9 @@
 // cells (their colour stays readable, the hatch says "not trusted").
 //
 // A crosshair cell is moved with the pointer or the arrow keys and read out
-// in numbers; a highlighted frequency range (an explain band) is drawn as
-// on the plots.
+// in numbers; a highlighted frequency range (an explain band) gets solid
+// edges and a bar in the strip, but no tint over the cells, whose colours
+// carry the values.
 
 import { formatHz, formatHzTick, freqTicks } from '../format';
 import { readTheme, type Highlight, type Theme } from '../plot';
@@ -54,6 +55,10 @@ export class HeatMap {
   /** Largest |value| the colours span (set by `render`). */
   scaleMax = 0;
   private frame = 0;
+  /** Cell colours, recomputed only when the data, the scale or the theme change (not on crosshair moves). */
+  private colors: string[][] = [];
+  private colorKey = '';
+  private version = 0;
 
   constructor(
     caption: HTMLElement,
@@ -79,6 +84,7 @@ export class HeatMap {
 
   set(data: HeatData | null): void {
     this.data = data;
+    this.version++;
     if (this.cursor && (!data || this.cursor.row >= data.rows.length || this.cursor.col >= data.freqs.length)) this.cursor = null;
     this.readText();
     this.render();
@@ -268,13 +274,16 @@ export class HeatMap {
     this.onScale(max, this.range === 'credible' && max > 0 ? 'credible' : 'all');
 
     // Cells.
+    const key = `${this.version}|${max}|${this.div.hex.neg}|${this.div.hex.mid}|${this.div.hex.pos}|${th.bg}`;
+    if (key !== this.colorKey) {
+      this.colorKey = key;
+      this.colors = d.rows.map((row) => row.values.map((v) => (v === null || !Number.isFinite(v) ? th.bg : this.div.css(max > 0 ? v / max : 0))));
+    }
     for (let i = 0; i < n; i++) {
       const y = r.y0 + i * (ROW_H + GAP);
-      const vals = d.rows[i].values;
       for (let k = 0; k < d.freqs.length; k++) {
         const [a, b] = this.colEdges(k);
-        const v = vals[k];
-        ctx.fillStyle = v === null || !Number.isFinite(v) ? th.bg : this.div.css(max > 0 ? v / max : 0);
+        ctx.fillStyle = this.colors[i][k];
         // Overdraw by half a pixel so no seam shows between columns.
         ctx.fillRect(a, y, b - a + 0.5, ROW_H);
       }
@@ -356,8 +365,9 @@ export class HeatMap {
           xa = c - 2;
           xz = c + 2;
         }
-        ctx.fillStyle = th.hlFill;
-        ctx.fillRect(xa, 0, xz - xa, r.y1);
+        // Tinted in the strip only: a tint over the cells would shift their colours.
+        ctx.fillStyle = th.hlEdge;
+        ctx.fillRect(xa, STRIP_H - 6, xz - xa, 4);
         ctx.strokeStyle = th.hlEdge;
         ctx.lineWidth = 2;
         for (const x of [xa, xz]) {

@@ -118,7 +118,8 @@
   padding-left: 10px;
   border-left: 3px dashed var(--badge-border);
 }
-.an-output.is-stale :is(canvas, svg) {
+.an-output.is-stale canvas,
+.an-output.is-stale svg :is(rect, line) {
   opacity: 0.5;
 }
 .an-section {
@@ -201,6 +202,11 @@
 .an-view .data-table thead th:first-child {
   text-align: left;
   font-weight: 600;
+}
+/* Long row labels (parameter names) wrap rather than widen the table. */
+.an-view .data-table tbody th {
+  min-width: 9em;
+  white-space: normal;
 }
 
 /* ----- sensitivity: parameters, map, explain, tornado ----- */
@@ -483,26 +489,42 @@ rect.an-t-high,
 
 /* ----- readouts block (Response tab) ----- */
 
+/* The block arrives after the plots below it, so its height depends only on
+   the width (and on whether a baseline is the reference), never on what the
+   engine returns: one status line, fixed cells, extras clamped to two lines
+   (their whole text stays in the page and in a tooltip), notes folded. */
 .readouts {
   margin: 8px 0;
   padding: 6px 10px 8px;
   border: 1px solid var(--grid);
   border-radius: 6px;
   font-size: 13px;
+  line-height: 1.4;
 }
 .ro-head {
   display: flex;
-  flex-wrap: wrap;
   align-items: baseline;
   gap: 2px 12px;
 }
 .ro-head h3 {
+  flex: none;
   margin: 0;
   font-size: 13.5px;
 }
 .ro-status {
+  flex: 1 1 0;
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
   color: var(--ink-2);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ro-toggle {
+  flex: none;
+  min-height: 26px;
+  padding: 1px 10px;
   font-size: 12px;
 }
 .ro-grid {
@@ -520,9 +542,7 @@ rect.an-t-high,
 }
 .ro-cell dd {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 6px;
+  flex-direction: column;
   margin: 0;
   font-variant-numeric: tabular-nums;
 }
@@ -541,9 +561,21 @@ rect.an-t-high,
   color: var(--badge-ink);
   font-size: 11px;
   font-weight: 600;
+  white-space: nowrap;
+}
+.ro-delta {
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .ro-extra {
-  flex-basis: 100%;
+  display: -webkit-box;
+  min-height: calc(2 * 1.4em);
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   color: var(--ink-2);
   font-size: 11.5px;
 }
@@ -554,25 +586,20 @@ rect.an-t-high,
 .ro-method::before {
   content: '· ' / 'method: ';
 }
-.ro-delta {
-  flex-basis: 100%;
-  font-size: 12px;
-}
-.ro-notes {
-  margin: 6px 0 0;
-  padding-left: 18px;
-  color: var(--ink-2);
-  font-size: 12px;
-}
-.ro-notes:empty {
-  display: none;
-}
-.ro-methods {
+.ro-more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 18px;
   margin-top: 4px;
   font-size: 12px;
 }
-.ro-methods summary {
+.ro-more summary {
   cursor: pointer;
+  color: var(--ink-2);
+}
+.ro-notes {
+  margin: 4px 0 0;
+  padding-left: 18px;
   color: var(--ink-2);
 }
 .ro-methods dl {
