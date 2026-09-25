@@ -167,10 +167,10 @@ thirty parameters can drift from the first. The option replaces the rear
 cavity and vents by a 30 rayl grille over the diaphragm area radiating into
 a baffle, behind the same damping cloth. With the template's impermeable pad
 on a sealed fixture, opening the back raises the bass by 7.4 dB at 100 Hz
-(no rear air spring) and moves the impedance maximum down to 563 Hz. Real
-open-back headphones mostly use porous pads, which the template does not
-model (above), so the option shows an open back on a sealed pad, not a
-typical open-back headphone on a head.
+(no rear air spring) and moves the impedance maximum down to 563 Hz.
+Open-back headphones often have porous (velour or fabric) pads, which the
+template does not model (above), so the option shows an open back on a
+sealed pad, not an open-back headphone as usually built, on a head.
 
 ## On-ear
 
@@ -277,7 +277,8 @@ its mesh the vent relieves the rear volume up to a few hundred hertz and
 the bass rises 9 dB.
 
 The predicted level, 118 dB SPL at 1 mW, is above the 100–110 dB/mW that
-product sheets of 16 Ω dynamic in-ear headphones commonly state. The
+product sheets of 16 Ω dynamic in-ear headphones commonly state (not
+surveyed here). The
 pressure-chamber level is Bl·i/(Sd·(1 + V_front/V_rear)); the example
 driver's Bl/Sd (0.46 T·m over 0.8 cm²) is the likely reason. It is left as the source
 gives it rather than adjusted to a level. Not modelled: the tip's own
