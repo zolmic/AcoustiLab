@@ -93,8 +93,8 @@
     "custom_breadth_mm": {"value": 30, "min": 8, "max": 150, "step": 1,
       "label": "Custom slit breadth", "group": "Pad and leak",
       "description": "Used when the fit is Custom: the length of pad edge that leaks."},
-    "leak_gap_mm": {"expr": "if(fit == 'low', 0.26, if(fit == 'high', 0.5, custom_gap_mm))",
-      "label": "Leak slit height", "group": "Pad and leak"},
+    "leak_gap_mm": {"expr": "if(fit == 'sealed', 0, if(fit == 'low', 0.26, if(fit == 'high', 0.5, custom_gap_mm)))",
+      "label": "Leak slit height (0 = sealed)", "group": "Pad and leak"},
     "leak_depth_mm": {"expr": "if(fit == 'low', 2.8, if(fit == 'high', 1.9, pad_width_mm))",
       "label": "Leak slit depth", "group": "Pad and leak", "advanced": true},
     "leak_breadth_mm": {"expr": "if(fit == 'low', 84 * pi / 180 * (12.5 + 2.8 / 2), if(fit == 'high', 240 * pi / 180 * (12.5 + 1.9 / 2), custom_breadth_mm))",
@@ -143,9 +143,10 @@
       "description": "Specific flow resistance of the grille and its fabric over the diaphragm area, MKS rayl (used when the back is open)."},
 
     "ear": {"value": "type33", "choices": [
-      {"value": "type33", "label": "IEC 60318-4 with the P.57 10 mm canal extension"},
-      {"value": "type43", "label": "ITU-T P.57 Type 4.3 ear from its entrance point"}],
-      "label": "Ear load", "group": "Ear"},
+      {"value": "type33", "label": "IEC 60318-4 with a 10 mm canal extension"},
+      {"value": "type43", "label": "ITU-T P.57 Type 4.3 ear from its entrance"}],
+      "label": "Ear load", "group": "Ear",
+      "description": "The first is the IEC 60318-4 simulator behind the 10 mm, 7.5 mm bore canal extension of the ITU-T P.57 Type 3 ears (element type33; its pinna simulator is not modelled). The second is the P.57 Type 4.3 ear driven at its ear-canal entrance point (EEP), which includes the lowest part of the concha."},
 
     "source_impedance_ohm": {"value": 0, "min": 0, "max": 300, "step": 0.5,
       "label": "Amplifier output impedance", "group": "Source",

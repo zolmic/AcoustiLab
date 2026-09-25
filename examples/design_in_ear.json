@@ -22,6 +22,8 @@
         "vent_diameter_mm": "vent_diameter_mm",
         "vent_length_mm": "vent_length_mm",
         "vent_mesh_rayl": "vent_mesh_rayl",
+        "back_depth_mm": "back_depth_mm",
+        "damping_rayl": "damping_rayl",
         "fit": "fit",
         "leak_diameter_mm": "leak_diameter_mm",
         "leak_length_mm": "leak_length_mm"
@@ -29,7 +31,8 @@
       "parts": {
         "driver": ["driver_fs_Hz", "driver_Qms", "driver_Bl_Tm", "driver_Re_ohm", "driver_Mms_mg",
                    "driver_Le_uH", "driver_Xmax_mm", "driver_rated_power_mW"],
-        "leak": ["custom_leak_diameter_mm"]
+        "leak": ["custom_leak_diameter_mm"],
+        "damping": ["damping_area_cm2", "driver_back_volume_cm3"]
       }
     }
   },
@@ -105,8 +108,8 @@
     "custom_leak_diameter_mm": {"value": 0.3, "min": 0.05, "max": 2, "step": 0.01,
       "label": "Custom leak tube diameter", "group": "Ear tip and fit",
       "description": "Used when the fit is Custom."},
-    "leak_diameter_mm": {"expr": "if(fit == 'typical', 0.508, if(fit == 'loose', 1.016, custom_leak_diameter_mm))",
-      "label": "Leak tube diameter", "group": "Ear tip and fit"},
+    "leak_diameter_mm": {"expr": "if(fit == 'sealed', 0, if(fit == 'typical', 0.508, if(fit == 'loose', 1.016, custom_leak_diameter_mm)))",
+      "label": "Leak tube diameter (0 = sealed)", "group": "Ear tip and fit"},
     "leak_length_mm": {"value": 13, "min": 2, "max": 30, "step": 0.5,
       "label": "Leak tube length", "group": "Ear tip and fit", "advanced": true,
       "description": "13 mm: the length of the tubes in Groon et al. (2015)."},
