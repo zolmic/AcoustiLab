@@ -23,7 +23,8 @@ const USAGE: &str = "usage:
   acoustilab check <netlist.json>                        parse and validate only
   acoustilab params <netlist.json>                       list the parameters and their values
     solve, check and params take --set NAME=VALUE (repeatable) to override a parameter
-  acoustilab sens <netlist.json> [--probe ID]... [--param NAME]... [--step H] [--json | --csv]
+  acoustilab sens <netlist.json> [--probe ID]... [--param NAME]... [--step H]
+                   [--method complete_solves | forward_sensitivity] [--json | --csv]
                                                          sensitivities in dB per percent
   acoustilab tornado <netlist.json> [--probe ID] [--f HZ | --band LO HI | --readout NAME]
                      [--param NAME]... [--json]          metric at each parameter's tolerance ends

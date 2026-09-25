@@ -42,19 +42,30 @@
 //! these is flagged when the two one-sided differences disagree by more
 //! than half the largest central derivative of that probe.
 //!
-//! Faster alternatives that reuse the factorisation (forward sensitivities
-//! A·dx/dp = db/dp − (dA/dp)·x, or the adjoint method of spec Section 3)
-//! would give the same numbers; see docs/analysis.md for why they are not
-//! used yet.
+//! **Forward sensitivities** (option `method: forward_sensitivity`) evaluate
+//! the same stepped designs without solving them: at each frequency the base
+//! matrix is factored once, and each stepped solution is the first-order
+//! update x₀ + A₀⁻¹·(b − A·x₀), restamping only the elements whose records
+//! the step changes (see `forward_sensitivities`). On the template this is
+//! 3.3 to 3.8 times faster and agrees with complete solves to 1e-6 of each
+//! parameter's largest sensitivity in the credible band (4e-8 measured);
+//! both keep O(h²) accuracy. Complete solves stay the default: they are the
+//! reference the faster path is tested against. The adjoint method of spec
+//! Section 3 would be cheaper still for few probes and many parameters.
 
 use super::{db_ratio, nan_mat, options_error, select_probes, Design, Excluded, Point};
-use crate::drive::DriveInfo;
+use crate::circuit::Circuit;
+use crate::drive::{self, DriveInfo, DriveSpec};
 use crate::error::{Error, Result};
 use crate::expr::PValue;
+use crate::linalg::{Lu, Matrix};
+use crate::mna::Mna;
 use crate::params::{Overrides, ParamDef};
 use crate::solve::SolveResult;
 use crate::validity::Shading;
+use crate::C64;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// Default step in ln p.
 pub const DEFAULT_STEP: f64 = 1e-5;
@@ -70,6 +81,29 @@ pub struct SensitivityOptions {
     pub probes: Option<Vec<String>>,
     /// Step in ln p (default 1e-5; at most 0.05).
     pub step: Option<f64>,
+    /// How the stepped designs are evaluated (default `complete_solves`).
+    pub method: Option<Method>,
+}
+
+/// How the stepped designs are evaluated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Method {
+    /// Complete solves of each stepped design: the reference.
+    #[default]
+    CompleteSolves,
+    /// One update per stepped design from the base factorisation
+    /// (forward sensitivities; see `forward_sensitivities`).
+    ForwardSensitivity,
+}
+
+impl Method {
+    pub fn description(self) -> &'static str {
+        match self {
+            Method::CompleteSolves => METHOD,
+            Method::ForwardSensitivity => METHOD_FORWARD,
+        }
+    }
 }
 
 impl SensitivityOptions {
@@ -134,6 +168,7 @@ pub struct Jacobian {
 }
 
 pub const METHOD: &str = "central differences of complete solves in ln(p); second-order one-sided differences at a bound";
+pub const METHOD_FORWARD: &str = "forward sensitivities: each stepped solution is x0 + A0^-1 (b - A x0) with the base LU reused, then central differences in ln(p); second-order one-sided differences at a bound";
 
 /// One probe's sensitivities to every parameter, for a heat map.
 #[derive(Debug, Clone, Serialize)]
@@ -199,10 +234,11 @@ pub fn jacobian(design: &Design, opts: &SensitivityOptions) -> Result<Jacobian> 
     opts.validate()
         .map_err(|m| options_error("sensitivity", m))?;
     let h = opts.step.unwrap_or(DEFAULT_STEP);
+    let method = opts.method.unwrap_or_default();
     let base = design.base_point()?;
     let r0 = base.solve()?;
     let pidx = select_probes(&r0, opts.probes.as_deref())?;
-    let mut parameters = Vec::new();
+    let mut steps = Vec::new();
     let mut excluded = Vec::new();
     for def in design.selected(opts.parameters.as_deref())? {
         let value = match design.continuous_value(def) {
@@ -222,16 +258,30 @@ pub fn jacobian(design: &Design, opts: &SensitivityOptions) -> Result<Jacobian> 
             });
             continue;
         }
-        match differentiate(design, &base, &r0, &pidx, def, value, h) {
-            Ok(p) => parameters.push(p),
+        match prepare(design, &base, def, value, h) {
+            Ok(s) => steps.push(s),
             Err(reason) => excluded.push(Excluded {
                 name: def.name.clone(),
                 reason,
             }),
         }
     }
+    let values = match method {
+        Method::CompleteSolves => steps.iter().map(|s| complete_solves(s, &pidx)).collect(),
+        Method::ForwardSensitivity => forward_sensitivities(&base, &steps, &pidx)?,
+    };
+    let mut parameters = Vec::new();
+    for (s, v) in steps.iter().zip(values) {
+        match v {
+            Ok(y) => parameters.push(finish(s, &r0, &pidx, &y, h)),
+            Err(reason) => excluded.push(Excluded {
+                name: s.def.name.clone(),
+                reason,
+            }),
+        }
+    }
     Ok(Jacobian {
-        method: METHOD,
+        method: method.description(),
         step: h,
         freqs_hz: r0.freqs_hz.clone(),
         probes: pidx.iter().map(|&i| r0.probes[i].id.clone()).collect(),
@@ -244,45 +294,26 @@ pub fn jacobian(design: &Design, opts: &SensitivityOptions) -> Result<Jacobian> 
     })
 }
 
-/// Solves the design with one parameter moved to `x`, or says why the
-/// result cannot be differenced against the base.
-fn stepped(
-    design: &Design,
-    base: &Point,
-    r0: &SolveResult,
-    name: &str,
-    x: f64,
-) -> std::result::Result<SolveResult, String> {
-    let mut ov = Overrides::new();
-    ov.insert(name.to_string(), PValue::Num(x));
-    let point = design
-        .point(&ov)
-        .map_err(|e| format!("the design fails at {name} = {x}: {e}"))?;
-    if let Some(d) = base.topology_change(&point) {
-        return Err(format!(
-            "not differentiable here: moving it to {x} {d} (a topology change)"
-        ));
-    }
-    let r = point
-        .solve()
-        .map_err(|e| format!("the solve fails at {name} = {x}: {e}"))?;
-    if r.freqs_hz != r0.freqs_hz {
-        return Err(format!(
-            "not differentiable here: moving it to {x} changes the frequency grid"
-        ));
-    }
-    Ok(r)
+/// A parameter with its two stepped designs, compiled.
+struct Step<'a> {
+    def: &'a ParamDef,
+    value: f64,
+    scheme: Scheme,
+    points: [Point; 2],
 }
 
-fn differentiate(
+/// Probe values of the two stepped designs: `[point][probe][frequency]`.
+type StepValues = [Vec<Vec<C64>>; 2];
+
+/// Chooses the scheme and compiles the stepped designs, or says why the
+/// parameter cannot be differentiated here.
+fn prepare<'a>(
     design: &Design,
     base: &Point,
-    r0: &SolveResult,
-    pidx: &[usize],
-    def: &ParamDef,
+    def: &'a ParamDef,
     value: f64,
     h: f64,
-) -> std::result::Result<ParamSensitivity, String> {
+) -> std::result::Result<Step<'a>, String> {
     let (lo, hi) = def.bounds();
     let inside = |x: f64| lo.is_none_or(|l| x >= l) && hi.is_none_or(|u| x <= u);
     let at = |k: f64| value * (k * h).exp();
@@ -297,18 +328,273 @@ fn differentiate(
             "its bounds leave no room for a step of {h} in ln p"
         ));
     };
-    let ra = stepped(design, base, r0, &def.name, at(ks[0]))?;
-    let rb = stepped(design, base, r0, &def.name, at(ks[1]))?;
+    let point = |x: f64| -> std::result::Result<Point, String> {
+        let mut ov = Overrides::new();
+        ov.insert(def.name.clone(), PValue::Num(x));
+        let p = design
+            .point(&ov)
+            .map_err(|e| format!("the design fails at {} = {x}: {e}", def.name))?;
+        if let Some(d) = base.topology_change(&p) {
+            return Err(format!(
+                "not differentiable here: moving it to {x} {d} (a topology change)"
+            ));
+        }
+        if p.circuit.freqs != base.circuit.freqs {
+            return Err(format!(
+                "not differentiable here: moving it to {x} changes the frequency grid"
+            ));
+        }
+        Ok(p)
+    };
+    Ok(Step {
+        def,
+        value,
+        scheme,
+        points: [point(at(ks[0]))?, point(at(ks[1]))?],
+    })
+}
+
+/// The stepped designs solved completely.
+fn complete_solves(s: &Step, pidx: &[usize]) -> std::result::Result<StepValues, String> {
+    let solve = |p: &Point| -> std::result::Result<Vec<Vec<C64>>, String> {
+        let r = p.solve().map_err(|e| {
+            format!(
+                "the solve fails at {} = {}: {e}",
+                s.def.name,
+                stepped_value(p, s)
+            )
+        })?;
+        Ok(pidx.iter().map(|&i| r.probes[i].values.clone()).collect())
+    };
+    Ok([solve(&s.points[0])?, solve(&s.points[1])?])
+}
+
+fn stepped_value(p: &Point, s: &Step) -> String {
+    p.overrides
+        .get(&s.def.name)
+        .map_or_else(String::new, |v| v.to_string())
+}
+
+/// The factor [`Circuit::solve`] applies to a raw solution for the stated
+/// drive, as there (`solve.rs`): constant for no drive, voltage, power and
+/// characteristic drives, per frequency for constant current.
+enum DriveFactor {
+    Constant(f64),
+    Current { amps: f64, source: usize },
+}
+
+fn drive_factor(c: &Circuit) -> Result<DriveFactor> {
+    let Some(spec) = &c.drive else {
+        return Ok(DriveFactor::Constant(1.0));
+    };
+    let v = drive::source_voltage(c)?;
+    Ok(match spec {
+        DriveSpec::Voltage(t) => DriveFactor::Constant(t / v),
+        DriveSpec::Power { watts, rated_ohm } => {
+            DriveFactor::Constant(drive::voltage_for_power(*watts, *rated_ohm) / v)
+        }
+        DriveSpec::Characteristic {
+            probe,
+            level_db,
+            f_hz,
+        } => DriveFactor::Constant(drive::characteristic_voltage(c, probe, *level_db, *f_hz)? / v),
+        DriveSpec::Current(amps) => DriveFactor::Current {
+            amps: *amps,
+            source: c
+                .elements
+                .iter()
+                .position(|e| e.is_source())
+                .expect("source_voltage found the vsource"),
+        },
+    })
+}
+
+/// Stamps a circuit at one frequency.
+fn assemble(c: &Circuit, f: f64) -> Mna {
+    let cx = c.cx(f);
+    let mut mna = Mna::new(c.nodes.len(), c.dim - c.nodes.len());
+    for (i, e) in c.elements.iter().enumerate() {
+        e.stamp(&cx, &mut mna, &c.branches(i));
+    }
+    mna
+}
+
+/// Indices of the elements whose records differ between two expanded
+/// documents of the same structure, or `None` when something every stamp
+/// reads (`air`, `level`) differs. Only these elements need restamping:
+/// the MNA assembly is a sum of the elements' stamps, element order and
+/// unknowns being the same in both.
+fn changed_elements(base: &Value, stepped: &Value) -> Option<Vec<usize>> {
+    for key in ["air", "level"] {
+        if base.get(key) != stepped.get(key) {
+            return None;
+        }
+    }
+    let (a, b) = (
+        base.get("elements")?.as_array()?,
+        stepped.get("elements")?.as_array()?,
+    );
+    (a.len() == b.len()).then(|| (0..a.len()).filter(|&i| a[i] != b[i]).collect())
+}
+
+/// Residual b − A·x₀ of a stepped circuit at one frequency, given the base
+/// residual `res0` = b₀ − A₀·x₀: only the changed elements are stamped, at
+/// the stepped and at the base value, and their difference applied; with
+/// `changed` = `None` the whole stepped system is assembled.
+fn residual(
+    c0: &Circuit,
+    c: &Circuit,
+    changed: &Option<Vec<usize>>,
+    f: f64,
+    x0: &[C64],
+    res0: &[C64],
+) -> Vec<C64> {
+    let Some(list) = changed else {
+        let m = assemble(c, f);
+        let ax = m.a.mul_vec(x0);
+        return m.rhs.iter().zip(&ax).map(|(b, a)| b - a).collect();
+    };
+    if list.is_empty() {
+        return res0.to_vec();
+    }
+    let partial = |circuit: &Circuit| {
+        let cx = circuit.cx(f);
+        let mut m = Mna::new(circuit.nodes.len(), circuit.dim - circuit.nodes.len());
+        for &e in list {
+            circuit.elements[e].stamp(&cx, &mut m, &circuit.branches(e));
+        }
+        let ax = m.a.mul_vec(x0);
+        m.rhs
+            .iter()
+            .zip(&ax)
+            .map(|(b, a)| b - a)
+            .collect::<Vec<C64>>()
+    };
+    let (rs, rb) = (partial(c), partial(c0));
+    res0.iter()
+        .zip(rs.iter().zip(&rb))
+        .map(|(r0, (s, b))| r0 + (s - b))
+        .collect()
+}
+
+/// A⁻¹·r with the factors of A and one step of iterative refinement
+/// against A (the factors alone are accurate only norm-wise).
+fn refined_solve(lu: &Lu, a: &Matrix, r: &[C64]) -> Vec<C64> {
+    let mut d = lu.solve(r);
+    let ad = a.mul_vec(&d);
+    let res: Vec<C64> = r.iter().zip(&ad).map(|(x, y)| x - y).collect();
+    for (di, ci) in d.iter_mut().zip(lu.solve(&res)) {
+        *di += ci;
+    }
+    d
+}
+
+/// Forward sensitivities: at each frequency the base matrix A₀ is factored
+/// once, and each stepped design's solution is x₀ + A₀⁻¹·(b − A·x₀), with A
+/// and b stamped at the stepped parameter value (only the elements whose
+/// records change are restamped, see [`residual`]). That is x₀ + h·dx/d(ln p)
+/// with dx/dp = A₀⁻¹·(db/dp − (dA/dp)·x₀) and the derivatives of the stamps
+/// taken by the same finite step. The update errs by −h²·A₀⁻¹A'A₀⁻¹r at
+/// both ±h, with the same sign, so the central difference keeps its
+/// O(h²) accuracy (and the one-sided formula its second order, the errors
+/// growing as k²h² at k·h). The drive factor and the probes are evaluated on
+/// each stepped circuit as [`Circuit::solve`] does.
+fn forward_sensitivities(
+    base: &Point,
+    steps: &[Step],
+    pidx: &[usize],
+) -> Result<Vec<std::result::Result<StepValues, String>>> {
+    let c0 = &base.circuit;
+    let nf = c0.freqs.len();
+    let changed: Vec<[Option<Vec<usize>>; 2]> = steps
+        .iter()
+        .map(|s| {
+            s.points
+                .each_ref()
+                .map(|p| changed_elements(&base.doc, &p.doc))
+        })
+        .collect();
+    let mut out: Vec<std::result::Result<StepValues, String>> = Vec::new();
+    let mut factors: Vec<Option<[DriveFactor; 2]>> = Vec::new();
+    for s in steps {
+        let fac = |p: &Point| {
+            drive_factor(&p.circuit).map_err(|e| {
+                format!(
+                    "the drive fails at {} = {}: {e}",
+                    s.def.name,
+                    stepped_value(p, s)
+                )
+            })
+        };
+        match fac(&s.points[0]).and_then(|a| Ok([a, fac(&s.points[1])?])) {
+            Ok(f) => {
+                let empty = || vec![vec![C64::new(0.0, 0.0); nf]; pidx.len()];
+                factors.push(Some(f));
+                out.push(Ok([empty(), empty()]));
+            }
+            Err(e) => {
+                factors.push(None);
+                out.push(Err(e));
+            }
+        }
+    }
+    for (k, &f) in c0.freqs.iter().enumerate() {
+        // The engine's own solve first: it names the unknown of a singular
+        // matrix. Its factorisation is then known to succeed.
+        let x0 = c0.solve_at(f)?;
+        let m0 = assemble(c0, f);
+        let lu = Lu::factor(&m0.a).map_err(|s| Error::Singular {
+            f_hz: f,
+            unknown: format!("unknown {}", s.0),
+        })?;
+        let a0x0 = m0.a.mul_vec(&x0);
+        let res0: Vec<C64> = m0.rhs.iter().zip(&a0x0).map(|(b, a)| b - a).collect();
+        for (si, s) in steps.iter().enumerate() {
+            let (Some(fac), Ok(vals)) = (&factors[si], &mut out[si]) else {
+                continue;
+            };
+            let mut failure = None;
+            for (pt, p) in s.points.iter().enumerate() {
+                let c = &p.circuit;
+                let r = residual(c0, c, &changed[si][pt], f, &x0, &res0);
+                let d = refined_solve(&lu, &m0.a, &r);
+                let mut x: Vec<C64> = x0.iter().zip(&d).map(|(a, b)| a + b).collect();
+                let scale = match fac[pt] {
+                    DriveFactor::Constant(v) => C64::new(v, 0.0),
+                    DriveFactor::Current { amps, source } => {
+                        let cx = c.cx(f);
+                        let i = c.elements[source]
+                            .port_flow(&cx, &x, &c.branches(source), 0)
+                            .unwrap_or_default();
+                        C64::new(amps, 0.0) / i
+                    }
+                };
+                x.iter_mut().for_each(|v| *v *= scale);
+                for (j, &pi) in pidx.iter().enumerate() {
+                    match c.probe_value(&c.probes[pi], f, &x) {
+                        Ok(y) => vals[pt][j][k] = y,
+                        Err(e) => failure = Some(e.to_string()),
+                    }
+                }
+            }
+            if let Some(e) = failure {
+                out[si] = Err(e);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Derivatives from the probe values of the stepped designs.
+fn finish(s: &Step, r0: &SolveResult, pidx: &[usize], y: &StepValues, h: f64) -> ParamSensitivity {
+    let (lo, hi) = s.def.bounds();
+    let scheme = s.scheme;
     let nf = r0.freqs_hz.len();
     let mut db = vec![vec![f64::NAN; nf]; pidx.len()];
     let mut deg = vec![vec![f64::NAN; nf]; pidx.len()];
     let mut warnings = Vec::new();
     for (j, &pi) in pidx.iter().enumerate() {
-        let (y0, ya, yb) = (
-            &r0.probes[pi].values,
-            &ra.probes[pi].values,
-            &rb.probes[pi].values,
-        );
+        let (y0, ya, yb) = (&r0.probes[pi].values, &y[0][j], &y[1][j]);
         // g values relative to the base point (g₀ = 0).
         let mut ga = vec![0.0; nf];
         let mut gb = vec![0.0; nf];
@@ -329,8 +615,8 @@ fn differentiate(
         }
         if scheme == Scheme::Central {
             let id = &r0.probes[pi].id;
-            for (what, a, b, s) in [("level", &ga, &gb, &db[j]), ("phase", &pa, &pb, &deg[j])] {
-                if let Some(w) = continuity(&r0.freqs_hz, a, b, s, h) {
+            for (what, a, b, sd) in [("level", &ga, &gb, &db[j]), ("phase", &pa, &pb, &deg[j])] {
+                if let Some(w) = continuity(&r0.freqs_hz, a, b, sd, h) {
                     warnings.push(format!("{what} of '{id}': {w}"));
                 }
             }
@@ -347,17 +633,17 @@ fn differentiate(
             hi.unwrap_or(f64::NAN)
         )),
     };
-    Ok(ParamSensitivity {
-        name: def.name.clone(),
-        label: def.label.clone().unwrap_or_else(|| def.name.clone()),
-        value,
-        unit: def.display_unit(),
+    ParamSensitivity {
+        name: s.def.name.clone(),
+        label: s.def.label.clone().unwrap_or_else(|| s.def.name.clone()),
+        value: s.value,
+        unit: s.def.display_unit(),
         scheme,
         note,
         warnings,
         db_per_pct: db,
         deg_per_pct: deg,
-    })
+    }
 }
 
 /// Compares the forward and backward one-sided differences (g₊/h and

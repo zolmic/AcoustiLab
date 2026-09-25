@@ -48,9 +48,28 @@ degrees per %  S_deg = arg[y(p·e^h) / y(p·e^−h)] (degrees) / (2h) / 100
 ```
 
 This is the derivative with respect to ln p divided by 100 (spec Section 3).
-The spec's first-release wording suggests reusing the factorisation; this
-method does not. "Performance" below gives the measured cost and explains why
-the faster forward and adjoint methods are left for later.
+
+The stepped designs can be evaluated in two ways (option `method`):
+
+* `complete_solves` (the default, and the reference): each stepped design is
+  expanded, compiled and solved like any design.
+* `forward_sensitivity`: the spec's "reusing the factorisation", with the
+  method named as erratum E15 asks. At each frequency the base matrix A₀ is
+  factored once, and each stepped design's solution is the first-order
+  update x₀ + A₀⁻¹·(b − A·x₀), with A and b stamped at the stepped value.
+  This is x₀ + h·dx/d(ln p), where dx/dp = A₀⁻¹·(db/dp − (dA/dp)·x₀) and the
+  stamp derivatives are taken over the same step. Only the elements whose
+  expanded records the step changes are restamped (the assembly is a sum of
+  element stamps; a change of `air` or `level` restamps everything). The
+  update errs by −h²·A₀⁻¹A'A₀⁻¹r with the same sign at +h and −h, so the
+  central difference keeps its O(h²) accuracy, and so does the one-sided
+  formula. The drive factor and the probes are evaluated on each stepped
+  circuit, exactly as for a solve. On the template this method is 3.3 to
+  3.8 times faster. It agrees with complete solves to 4e-8 of each
+  parameter's largest sensitivity in the credible band, and to 3e-6 next to
+  the lightly damped depth resonance in the shaded band, which is about
+  either method's own truncation error there. The adjoint method (spec
+  Section 3) would be cheaper still for many parameters and few probes.
 
 * **Drive.** Probes are the solve's, at the stated drive. A characteristic
   drive renormalises the level at 500 Hz by a real factor. Each level
@@ -96,7 +115,7 @@ the faster forward and adjoint methods are left for later.
   disagree by more than half the probe's largest central derivative.
 
 Options (all optional): `{"parameters": [names], "probes": [ids], "step":
-1e-5}`. Result:
+1e-5, "method": "complete_solves" | "forward_sensitivity"}`. Result:
 
 ```json
 {
@@ -418,6 +437,7 @@ reimplements the text, and the tests compare against Python's `hashlib`.
 ```sh
 acoustilab sens examples/design_over_ear.json --probe p_drp          # largest dB/% in the credible band
 acoustilab sens examples/design_over_ear.json --csv > sens.csv       # frequency x (parameter@probe)
+acoustilab sens examples/design_over_ear.json --method forward_sensitivity --json
 acoustilab tornado examples/design_over_ear.json --probe p_drp --band 100 1000
 acoustilab tornado examples/design_over_ear.json --readout coupled_resonance_Hz
 acoustilab explain examples/design_over_ear.json --set rear=open
@@ -434,7 +454,7 @@ The tests are `crates/acoustilab/tests/analysis.rs` (tolerances and their
 reasons in its header), `crates/acoustilab-wasm/tests/analysis.rs`, and
 unit tests in each module.
 
-* **Sensitivities against closed forms.**
+* **Sensitivities against closed forms**, with both methods.
   * A series RC, H = 1/(1 + jωRC) and Zin = R + 1/jωC: R and C, magnitude
     and phase, to 1e-7 relative.
   * The central-difference error equals h²/6·g''' at h = 1e-3 and 1e-4,
@@ -445,6 +465,10 @@ unit tests in each module.
     Re, Kms and Rms against the complex log-derivatives of the lumped closed
     form (and Zin for Bl and Re), to 1e-7.
   * The characteristic and power drives against the voltage drive.
+  * Forward sensitivities against complete solves on the template under
+    all five drive conventions (power, voltage, characteristic, current,
+    none) and at levels 0 and 1: 1e-6 of the largest sensitivity in the
+    credible band, 1e-5 in the shaded band.
   * One-sided schemes at both bounds.
   * The exclusions (integer, boolean, choice, derived, zero, an `enabled`
     switch inside the step, a grid change) and the kink warning.
@@ -495,7 +519,8 @@ development container:
 |---|---|---|
 | one solve | 19 ms | 22 ms |
 | readouts (solve included) | 22 ms | 26 ms |
-| full sensitivity map (39 solves) | 0.67 s | 0.81 s |
+| full sensitivity map, complete solves (39 solves) | 0.63 s | 0.84 s |
+| full sensitivity map, forward sensitivities | 0.18 s | 0.22 s |
 | tornado at a pinned frequency | 13 ms | 21 ms |
 | explain (default options) | 0.34 s | 0.43 s |
 | Monte Carlo plan, 200 runs | not measured | 8 ms |
@@ -503,15 +528,12 @@ development container:
 | envelope of 200 runs | not measured | 80 ms |
 
 A solve's time is 74 % LU factorisation and refinement and 26 % stamping.
-Forward sensitivities would solve A·dx/dp = db/dp − (dA/dp)·x with the base
-LU reused and dA/dp from differenced stamps. That replaces the two complete
-solves per parameter by two stamps and one back substitution: about 12 ms
-instead of 42 ms per parameter, some 3× for the full map. They are not
-implemented yet, for two reasons. The drive renormalisation (characteristic
-and current drives), probe evaluation on stepped circuits and the one-sided
-schemes would each need their own path. And the complete-solve method is the
-reference such a path must be tested against. The adjoint method of spec
-Section 3 is the phase 2 replacement.
+Forward sensitivities replace a parameter's two complete solves by the
+restamping of the elements it changes and two back substitutions against
+the base factors. Measured in process (best of five): 0.63 s against 0.18 s
+for the closed-back template (3.6×), 0.54 s against 0.14 s open-back (3.8×),
+and 0.33 s against 0.10 s at level 0 (3.3×). Both timings of the
+sensitivity map in the table include the base design's own solve.
 
 ## Known limits
 

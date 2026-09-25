@@ -52,6 +52,24 @@ fn sensitivity_export_shape_and_subsets() {
         .unwrap()
         .contains("central differences"));
     assert!(v["hash"].as_str().unwrap().len() == 64);
+    // The forward-sensitivity method through the same export.
+    let f = wa::sensitivity_value(
+        &t,
+        r#"{"rear": "open"}"#,
+        r#"{"parameters": ["driver_Mms_g"], "probes": ["p_drp"], "method": "forward_sensitivity"}"#,
+    );
+    assert!(f["method"]
+        .as_str()
+        .unwrap()
+        .starts_with("forward sensitivities"));
+    let a = params[0]["dB_per_pct"][0].as_array().unwrap();
+    let b = f["parameters"][0]["dB_per_pct"][0].as_array().unwrap();
+    let scale = a
+        .iter()
+        .fold(0.0f64, |m, x| m.max(x.as_f64().unwrap().abs()));
+    for (x, y) in a.iter().zip(b) {
+        assert!((x.as_f64().unwrap() - y.as_f64().unwrap()).abs() < 1e-5 * scale);
+    }
 }
 
 #[test]
@@ -59,6 +77,10 @@ fn options_and_engine_errors_are_reported_by_kind() {
     let t = template();
     for (v, k) in [
         (wa::sensitivity_value(&t, "", r#"{"step": 0.2}"#), "options"),
+        (
+            wa::sensitivity_value(&t, "", r#"{"method": "adjoint"}"#),
+            "options",
+        ),
         (
             wa::sensitivity_value(&t, "", r#"{"steps": 0.2}"#),
             "options",

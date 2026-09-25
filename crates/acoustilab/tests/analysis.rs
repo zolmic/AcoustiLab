@@ -22,7 +22,7 @@ use acoustilab::analysis::explain::{self, ExplainOptions};
 use acoustilab::analysis::mc::{self, PlanSpec, RunOptions, Sample};
 use acoustilab::analysis::readouts::{self, ReadoutOptions};
 use acoustilab::analysis::rng::{SplitMix64, Xoshiro256};
-use acoustilab::analysis::sensitivity::{self, Scheme, SensitivityOptions};
+use acoustilab::analysis::sensitivity::{self, Method, Scheme, SensitivityOptions};
 use acoustilab::analysis::tornado::{self, Metric, TornadoOptions};
 use acoustilab::analysis::Design;
 use acoustilab::expr::PValue;
@@ -158,6 +158,17 @@ fn chamber_form(f: f64, mms: f64, kms: f64, sd: f64, v: f64) -> ChamberForm {
     }
 }
 
+/// Both ways of evaluating the stepped designs; every closed-form test
+/// runs with each.
+const METHODS: [Method; 2] = [Method::CompleteSolves, Method::ForwardSensitivity];
+
+fn with_method(method: Method) -> SensitivityOptions {
+    SensitivityOptions {
+        method: Some(method),
+        ..Default::default()
+    }
+}
+
 fn check_sens(got_db: &[f64], got_deg: &[f64], dlnp: &[C64], what: &str) {
     for (k, d) in dlnp.iter().enumerate() {
         let db = DB_PER_PCT * d.re;
@@ -180,7 +191,13 @@ fn check_sens(got_db: &[f64], got_deg: &[f64], dlnp: &[C64], what: &str) {
 #[test]
 fn sensitivity_of_a_series_rc_matches_the_closed_form() {
     let freqs = log_grid(10.0, 100_000.0, 6.0, &[500.0, 1000.0]);
-    let j = sensitivity::jacobian(&design(&rc(&freqs, (1.0, 1e6))), &Default::default()).unwrap();
+    for method in METHODS {
+        rc_case(&freqs, method);
+    }
+}
+
+fn rc_case(freqs: &[f64], method: Method) {
+    let j = sensitivity::jacobian(&design(&rc(freqs, (1.0, 1e6))), &with_method(method)).unwrap();
     assert_eq!(j.probes, ["vc", "zin"]);
     for name in ["R_ohm", "C_uF"] {
         let p = j.parameter(name).unwrap();
@@ -210,10 +227,17 @@ fn sensitivity_of_a_series_rc_matches_the_closed_form() {
             .collect();
         check_sens(&p.db_per_pct[1], &p.deg_per_pct[1], &dz, name);
     }
-    // H depends on the product RC only: the two rows agree (symmetry).
+    // H depends on the product RC only: the two rows agree (symmetry), to
+    // rounding with complete solves, and to the O(h²) terms of the update,
+    // which differ between a resistor and a capacitor, with forward
+    // sensitivities.
     let (r, c) = (j.db("R_ohm", "vc").unwrap(), j.db("C_uF", "vc").unwrap());
+    let tol = match method {
+        Method::CompleteSolves => 1e-11,
+        Method::ForwardSensitivity => 1e-9,
+    };
     for (a, b) in r.iter().zip(c) {
-        assert!((a - b).abs() < 1e-11);
+        assert!((a - b).abs() < tol, "{a} vs {b}");
     }
     let hm = j.heat_map("vc").unwrap();
     assert_eq!(hm.parameters, ["R_ohm", "C_uF"]);
@@ -236,6 +260,7 @@ fn central_difference_error_is_the_predicted_truncation() {
             parameters: Some(vec!["R_ohm".into()]),
             probes: Some(vec!["vc".into()]),
             step: Some(h),
+            ..Default::default()
         };
         let j = sensitivity::jacobian(&d, &opts).unwrap();
         let err = j.db("R_ohm", "vc").unwrap()[1] * 100.0 - g1;
@@ -282,7 +307,13 @@ fn pressure_chamber_sensitivities_match_the_lumped_closed_form() {
     //   Re: −1 + Ze/Z   Kms: −(Kms/jω)/Z   Rms: −Rms/Z
     // and for Zin = Re + Bl²/(Zm + Zb): Bl: 2(Zin − Re)/Zin, Re: Re/Zin.
     let freqs = log_grid(20.0, 5000.0, 6.0, &[]);
-    let j = sensitivity::jacobian(&design(&chamber(&freqs, None)), &Default::default()).unwrap();
+    for method in METHODS {
+        chamber_case(&freqs, method);
+    }
+}
+
+fn chamber_case(freqs: &[f64], method: Method) {
+    let j = sensitivity::jacobian(&design(&chamber(freqs, None)), &with_method(method)).unwrap();
     let forms: Vec<ChamberForm> = freqs
         .iter()
         .map(|&f| chamber_form(f, 3e-4, 1000.0, 1e-3, 30e-6))
@@ -327,11 +358,18 @@ fn characteristic_drive_sensitivity_is_renormalised_at_500_hz() {
     // the voltage-drive derivative minus the reference probe's at 500 Hz;
     // phases and impedances are unchanged. Under a power drive, P_mW scales the voltage by
     // √P: +10/ln 10 per unit of ln P for every level.
+    for method in METHODS {
+        drive_case(method);
+    }
+}
+
+fn drive_case(method: Method) {
     let freqs = [20.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0];
-    let volt = sensitivity::jacobian(&design(&chamber(&freqs, None)), &Default::default()).unwrap();
+    let volt =
+        sensitivity::jacobian(&design(&chamber(&freqs, None)), &with_method(method)).unwrap();
     let chr = sensitivity::jacobian(
         &design(&chamber(&freqs, Some(json!({"characteristic": "p"})))),
-        &Default::default(),
+        &with_method(method),
     )
     .unwrap();
     assert_eq!(chr.drive.convention, "characteristic");
@@ -364,7 +402,7 @@ fn characteristic_drive_sensitivity_is_renormalised_at_500_hz() {
         )),
         &SensitivityOptions {
             parameters: Some(vec!["P_mW".into()]),
-            ..Default::default()
+            ..with_method(method)
         },
     )
     .unwrap();
@@ -373,6 +411,86 @@ fn characteristic_drive_sensitivity_is_renormalised_at_500_hz() {
         assert!((p.db_per_pct[0][k] - DB_PER_PCT / 2.0).abs() < 1e-10);
         assert!(p.deg_per_pct[0][k].abs() < 1e-10);
         assert!(p.db_per_pct[1][k].abs() < 1e-10, "impedances are ratios");
+    }
+}
+
+#[test]
+fn forward_sensitivities_agree_with_complete_solves() {
+    // The template under every drive convention (the forward method applies
+    // the drive factor itself), at L1 and L0. The two methods have
+    // different O(h²) error terms, so they agree to about their truncation
+    // error: 1e-6 of each parameter's largest sensitivity in the credible
+    // band, 1e-5 next to the lightly damped depth resonance in the shaded
+    // band (measured: 3e-6; docs/analysis.md).
+    let base: Value = serde_json::from_str(TEMPLATE).unwrap();
+    let drives = [
+        Some(json!({"power_mW": "=drive_mW", "rated_ohm": "=rated_impedance_ohm"})),
+        Some(json!({"voltage_V": 0.5})),
+        Some(json!({"characteristic": "p_drp"})),
+        Some(json!({"current_mA": 5})),
+        None,
+    ];
+    let params: Vec<String> = [
+        "driver_Mms_g",
+        "driver_Sd_cm2",
+        "front_depth_mm",
+        "leak_gap_mm",
+        "rear_volume_cm3",
+        "vent_mesh_rayl",
+        "drive_mW",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    for (k, drive) in drives.iter().enumerate() {
+        let mut doc = base.clone();
+        match drive {
+            Some(d) => doc["drive"] = d.clone(),
+            None => {
+                doc.as_object_mut().unwrap().remove("drive");
+            }
+        }
+        let fidelity = if k == 0 { vec![1.0, 0.0] } else { vec![1.0] };
+        for level in fidelity {
+            // A coarser grid (8 per octave) keeps the test quick in debug builds.
+            let d = design_with(
+                &doc,
+                &[("fidelity", num(level)), ("points_per_octave", num(8.0))],
+            );
+            let opts = |m: Method| SensitivityOptions {
+                parameters: Some(params.clone()),
+                ..with_method(m)
+            };
+            let a = sensitivity::jacobian(&d, &opts(Method::CompleteSolves)).unwrap();
+            let b = sensitivity::jacobian(&d, &opts(Method::ForwardSensitivity)).unwrap();
+            assert_eq!(a.parameters.len(), b.parameters.len());
+            for (pa, pb) in a.parameters.iter().zip(&b.parameters) {
+                for (x, y) in [
+                    (&pa.db_per_pct, &pb.db_per_pct),
+                    (&pa.deg_per_pct, &pb.deg_per_pct),
+                ] {
+                    let scale = x
+                        .iter()
+                        .flatten()
+                        .filter(|v| v.is_finite())
+                        .fold(0.0f64, |m, v| m.max(v.abs()));
+                    for (row_u, row_v) in x.iter().zip(y) {
+                        for (k, (u, v)) in row_u.iter().zip(row_v).enumerate() {
+                            let credible = a.shading.band(a.freqs_hz[k]) == 0;
+                            let rel = if credible { 1e-6 } else { 1e-5 };
+                            assert!(
+                                // 1e-8 dB or degree per % is rounding noise where a
+                                // derivative vanishes (the phase of a pure level change).
+                                (u - v).abs() <= rel * scale + 1e-8,
+                                "{} under {drive:?}, L{level}, {} Hz: {u} vs {v}",
+                                pa.name,
+                                a.freqs_hz[k]
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -411,15 +529,16 @@ fn one_sided_differences_at_bounds() {
             -DB_PER_PCT * x2 / (1.0 + x2)
         })
         .collect();
-    for (bounds, scheme) in [
+    let cases = [
         ((1.0, 1000.0), Scheme::Backward),
         ((1000.0, 1e6), Scheme::Forward),
-    ] {
+    ];
+    for ((bounds, scheme), method) in cases.iter().flat_map(|c| METHODS.map(|m| (*c, m))) {
         let j = sensitivity::jacobian(
             &design(&rc(&freqs, bounds)),
             &SensitivityOptions {
                 parameters: Some(vec!["R_ohm".into()]),
-                ..Default::default()
+                ..with_method(method)
             },
         )
         .unwrap();
@@ -478,6 +597,20 @@ fn topology_changes_and_non_continuous_parameters_are_excluded() {
         k.warnings
     );
     assert!(j.parameter("R_ohm").unwrap().warnings.is_empty());
+    // Forward sensitivities update each side separately, so they see the
+    // kink and the same exclusions.
+    let jf =
+        sensitivity::jacobian(&design(&doc), &with_method(Method::ForwardSensitivity)).unwrap();
+    let names = |j: &sensitivity::Jacobian| -> Vec<String> {
+        j.excluded.iter().map(|e| e.name.clone()).collect()
+    };
+    assert_eq!(names(&jf), names(&j));
+    assert!(jf
+        .parameter("k")
+        .unwrap()
+        .warnings
+        .iter()
+        .any(|w| w.contains("kink or jump")));
     // Naming a derived parameter explicitly reports why it is excluded.
     let j = sensitivity::jacobian(
         &design(&doc),

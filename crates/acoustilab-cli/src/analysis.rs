@@ -4,7 +4,7 @@
 use acoustilab::analysis::explain::{self, ExplainOptions};
 use acoustilab::analysis::mc::{self, PlanSpec, RunOptions};
 use acoustilab::analysis::readouts::{self, ReadoutOptions, Readouts};
-use acoustilab::analysis::sensitivity::{self, SensitivityOptions};
+use acoustilab::analysis::sensitivity::{self, Method, SensitivityOptions};
 use acoustilab::analysis::tornado::{self, Metric, TornadoOptions};
 use acoustilab::analysis::{fmt_hz, fmt_hz_range, Design};
 use acoustilab::params::Overrides;
@@ -76,7 +76,7 @@ fn parse(cmd: &str, args: &[String]) -> Result<Args, String> {
             "--probe" => a.probes.push(value(&mut it, s)?),
             "--param" => a.params.push(value(&mut it, s)?),
             "--out" => a.out = Some(value(&mut it, s)?),
-            "--impedance" | "--readout" | "--driver" => {
+            "--impedance" | "--readout" | "--driver" | "--method" => {
                 let v = value(&mut it, s)?;
                 a.text.push((s.to_string(), v));
             }
@@ -148,10 +148,20 @@ pub fn run(cmd: &str, args: &[String], overrides: &Overrides) -> Result<(), Stri
 }
 
 fn sens(design: &Design, a: &Args) -> Result<String, String> {
+    let method = match a.text("--method").as_deref() {
+        None | Some("complete_solves") => Method::CompleteSolves,
+        Some("forward_sensitivity") => Method::ForwardSensitivity,
+        Some(m) => {
+            return Err(format!(
+                "--method is complete_solves or forward_sensitivity, got '{m}'"
+            ))
+        }
+    };
     let opts = SensitivityOptions {
         parameters: some(&a.params),
         probes: some(&a.probes),
         step: a.num("--step"),
+        method: Some(method),
     };
     let j = sensitivity::jacobian(design, &opts).map_err(|e| e.to_string())?;
     if a.json {
