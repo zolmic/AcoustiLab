@@ -39,7 +39,10 @@ cargo build -p acoustilab --target wasm32-unknown-unknown --release
 
 The netlist format is described in `docs/netlist.md`. Netlists can declare
 parameters and use expressions (`docs/parameters.md`);
-`examples/design_over_ear.json` is a parametric over-ear design:
+`examples/design_over_ear.json` is a parametric over-ear design. Its cup is
+vented through meshed holes in the driver baffle, as commercial closed
+over-ears are; `docs/over-ear-template.md` explains why and gives the
+sources (`--set baffle_vent_count=0` gives the sealed cup):
 
 ```sh
 cargo run -p acoustilab-cli -- params examples/design_over_ear.json

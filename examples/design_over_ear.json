@@ -1,7 +1,7 @@
 {
   "schema": "acoustilab-netlist/0.2",
   "title": "Over-ear headphone: parametric design template (theory-only)",
-  "description": "A 40 mm dynamic driver in an over-ear cup. The front cavity is a cylinder between the driver and the ear, sealed by the pad except for a leak gap around its inner edge. The back of the driver sees either a closed rear cavity vented through holes that can carry a mesh, or an open grille. The ear load is the IEC 60318-4 simulator or the ITU-T P.57 Type 4.3 ear. Driver defaults are the Tymphany HPD-40N16PET00-32 primary set (docs/spec-errata.md E5); tolerances are datasheet values where stated and estimates otherwise. Geometry is illustrative, not a measured product.",
+  "description": "A 40 mm dynamic driver in an over-ear cup. The front cavity is a cylinder between the driver and the ear, sealed by the pad except for a leak gap around its inner edge. Meshed holes in the driver baffle join the front cavity to the space behind the driver, as in commercial closed over-ears; with no baffle vents the cup is a sealed pressure chamber (docs/over-ear-template.md). The back of the driver sees either a closed rear cavity vented through holes that can carry a mesh, or an open grille. The ear load is the IEC 60318-4 simulator or the ITU-T P.57 Type 4.3 ear. Driver defaults are the Tymphany HPD-40N16PET00-32 primary set (docs/spec-errata.md E5); tolerances are datasheet values where stated and estimates otherwise. Geometry is illustrative, not a measured product.",
   "ui": {
     "template": "over_ear",
     "primary_probe": "p_drp",
@@ -77,6 +77,19 @@
     "leak_perimeter_mm": {"expr": "2 * pi * front_radius_mm",
       "label": "Leak perimeter", "group": "Pad and leak"},
 
+    "baffle_vent_count": {"value": 4, "min": 0, "max": 12, "integer": true,
+      "label": "Baffle vents, front to rear (0 = sealed)", "group": "Baffle",
+      "description": "Holes in the driver baffle, each under a resistive mesh, joining the front cavity to the space behind the driver. With 0 the cup is a sealed pressure chamber and the coupled resonance sits near 0.9 kHz, which published closed over-ears do not show. The default count, size and mesh put the fixture impedance peak inside the published range (docs/over-ear-template.md)."},
+    "baffle_vent_diameter_mm": {"value": 4, "min": 0.5, "max": 8, "step": 0.1,
+      "label": "Baffle vent diameter", "group": "Baffle",
+      "tolerance": {"abs": 0.05, "source": "estimate (moulding)"}},
+    "baffle_vent_length_mm": {"value": 2, "min": 0.3, "max": 10, "step": 0.1,
+      "label": "Baffle thickness (vent length)", "group": "Baffle"},
+    "baffle_vent_mesh_rayl": {"value": 65, "min": 0, "max": 2000, "step": 5,
+      "label": "Baffle vent mesh resistance (0 = open hole)", "group": "Baffle",
+      "description": "Specific flow resistance of the mesh over each baffle vent, MKS rayl. 65 is the Saati Acoustex 065 grade (datasheet ADS1200019EN V8, 2015). It damps the fixture resonance and sets the resistive coupling that keeps the drum response flat up to about 1.5 kHz.",
+      "tolerance": {"rel": 0.12, "source": "industry practice (10-15 %)"}},
+
     "rear": {"value": "closed", "choices": [
       {"value": "closed", "label": "Closed cup with vents"},
       {"value": "open", "label": "Open back (grille)"}],
@@ -145,6 +158,14 @@
      "perimeter_mm": "=leak_perimeter_mm", "depth_mm": "=pad_width_mm", "gap_mm": "=leak_gap_mm"},
     {"id": "ear", "type": "iec60318_4", "node": "a_ear", "enabled": "=ear == 'iec60318_4'"},
     {"id": "ear", "type": "type43", "node": "a_ear", "enabled": "=ear == 'type43'"},
+    {"id": "baffle_vent", "type": "vent", "nodes": ["a_front", "a_rear"],
+     "enabled": "=baffle_vent_count > 0 && baffle_vent_mesh_rayl > 0",
+     "diameter_mm": "=baffle_vent_diameter_mm", "length_mm": "=baffle_vent_length_mm",
+     "count": "=baffle_vent_count", "mesh": {"R_s_rayl": "=baffle_vent_mesh_rayl"}},
+    {"id": "baffle_vent", "type": "vent", "nodes": ["a_front", "a_rear"],
+     "enabled": "=baffle_vent_count > 0 && baffle_vent_mesh_rayl == 0",
+     "diameter_mm": "=baffle_vent_diameter_mm", "length_mm": "=baffle_vent_length_mm",
+     "count": "=baffle_vent_count"},
     {"id": "rear", "type": "cavity", "node": "a_rear", "volume_cm3": "=rear_volume_cm3",
      "max_distance_mm": "=hypot(front_radius_mm, rear_depth_mm)", "enabled": "=rear == 'closed'"},
     {"id": "vent", "type": "vent", "nodes": ["a_rear", "ambient"],
@@ -167,6 +188,8 @@
     {"id": "x", "quantity": "displacement", "node": "drv.m"},
     {"id": "u_vent", "quantity": "volume_velocity", "element": "vent",
      "enabled": "=rear == 'closed' && vent_count > 0"},
+    {"id": "u_baffle", "quantity": "volume_velocity", "element": "baffle_vent",
+     "enabled": "=baffle_vent_count > 0"},
     {"id": "u_leak", "quantity": "volume_velocity", "element": "leak", "enabled": "=leak_gap_mm > 0"}
   ]
 }

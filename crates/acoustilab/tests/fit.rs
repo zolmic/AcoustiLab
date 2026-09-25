@@ -761,11 +761,13 @@ fn model_form_error_shows_structured_residuals() {
 
 #[test]
 fn design_template_case_study() {
-    // The over-ear template: fit the pad leak, the front depth and the
+    // The over-ear template in its sealed configuration (no baffle vents,
+    // docs/over-ear-template.md): fit the pad leak, the front depth and the
     // driver's electrical parameters to a measured impedance and drum
     // response (IEC 60318-4), with a realistic pressure budget: 5 seatings,
     // repositioning, microphone calibration and coupler errors.
     let p = example("design_over_ear.json");
+    let sealed = [("baffle_vent_count", 0.0)];
     let truth = [
         ("leak_gap_mm", 0.12),
         ("front_depth_mm", 13.0),
@@ -775,12 +777,12 @@ fn design_template_case_study() {
         ("driver_Re_ohm", 31.8),
     ];
     let grid = exchange_grid(20.0, 10_000.0, 8.0);
-    let z = measure(&p, "zin", &truth, &[], &grid, impedance_noise(71));
+    let z = measure(&p, "zin", &truth, &sealed, &grid, impedance_noise(71));
     let pd = measure(
         &p,
         "p_drp",
         &truth,
-        &[],
+        &sealed,
         &grid,
         Noise {
             seed: 72,
@@ -793,17 +795,18 @@ fn design_template_case_study() {
             ..Noise::default()
         },
     );
-    let spec = FitSpec::new(
+    let mut spec = FitSpec::new(
         params(&truth),
         vec![CurveSpec::new("zin", z), CurveSpec::new("p_drp", pd)],
     );
+    spec.overrides = ov(&sealed);
     let rep = fit::fit(&p, &spec).unwrap();
     assert!(rep.converged, "{:?}", rep.stop);
     for (n, t) in &truth[..2] {
         recovered(&rep, n, *t);
     }
     recovered(&rep, "driver_Re_ohm", 31.8);
-    // In the cup the air spring is about 100 times stiffer than the
+    // In the sealed cup the air spring is about 100 times stiffer than the
     // suspension, so the free-air fs, Qms and Qes are not separately
     // identifiable: raising all three together changes only Cms. The report
     // names that direction; Qes/fs (∝ Mms·Re/Bl²) and Qms/fs (∝ Mms/Rms)

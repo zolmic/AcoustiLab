@@ -1074,7 +1074,8 @@ fn attribution_names_the_parameters_that_set_a_resonance() {
     assert!(s("R_ohm").dlnf_dlnp.abs() < 0.01);
 }
 
-/// The design template's resonances: the coupled resonance near 936 Hz is
+/// The design template's resonances in its sealed configuration (no baffle
+/// vents, docs/over-ear-template.md): the coupled resonance near 936 Hz is
 /// set by the diaphragm area (d ln f/d ln Sd ≈ +1, the air springs scale
 /// as Sd²), its mass (−1/2) and the cup radius (the front air spring, about
 /// 45 % of the total stiffness with the rear cavity: −0.45); the 11.6 kHz
@@ -1084,7 +1085,11 @@ fn attribution_names_the_parameters_that_set_a_resonance() {
 fn design_template_attribution() {
     let text = example("design_over_ear.json");
     let p = Parametric::parse(&text).unwrap();
-    let ov = Overrides::new();
+    let mut ov = Overrides::new();
+    ov.insert(
+        "baffle_vent_count".into(),
+        acoustilab::expr::PValue::Num(0.0),
+    );
     let c = Circuit::from_parametric(&p, &ov).unwrap();
     let opts = PoleFitOptions::default();
     let fit = fit_probe(&c, "p_drp", &opts).unwrap();

@@ -13,6 +13,12 @@ Conventions follow `docs/conventions.md`: `e^{+jωt}`, RMS phasors. The
 time-domain responses are those of the netlist's stated drive (`meta.drive`),
 exactly as a solve reports them.
 
+The figures quoted for the design template (`examples/design_over_ear.json`)
+were computed before it gained its baffle vents. They hold for its sealed
+configuration, `baffle_vent_count = 0`, which reproduces that template
+exactly (`docs/over-ear-template.md`). The pole attribution test sets that
+value; the other template tests pass with either configuration.
+
 ## Summary
 
 | Module | Does | Checked by |

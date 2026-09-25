@@ -7,7 +7,8 @@ for each parameter, and sensitivities, fits, tolerance analysis and optimisers
 act on the same names. The netlist stays the single source of truth (spec
 Section 2): a parameter value only changes the numbers the netlist resolves to.
 
-`examples/design_over_ear.json` is a complete template.
+`examples/design_over_ear.json` is a complete template; the physics and
+provenance of its defaults are in `docs/over-ear-template.md`.
 
 ## Declaring parameters
 

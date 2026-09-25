@@ -246,7 +246,8 @@ corrected statement. "p." is the PDF page.
   at negative times and a 1 kHz, Q = 5 resonator (−52 dB at 20 kHz)
   −61.1 dB. A 100 Hz, Q = 5 resonator (−92 dB at 20 kHz) meets −80 dB
   (−89 dB) once N covers E46 (N = 16 384). The design template's drum
-  response rises towards a resonance just above the band (a fitted pole at
+  response (sealed configuration, `baffle_vent_count = 0`; see E53) rises
+  towards a resonance just above the band (a fitted pole at
   20.4 kHz, Q = 28); its energy above the solved band is −25 dB of the
   total (`tools/time/ir_refs.py`, `tools/time/minphase_study.py`,
   `tests/time.rs`; the four network figures were reproduced by an
@@ -260,3 +261,44 @@ corrected statement. "p." is the PDF page.
   exactly 2.9·Q/f the late energy of a Q = 20 resonator is −79.1 dB, so the
   engine uses 2.93. A causal half of 2.2·Q/f (T60) leaves −60.1 dB, and a
   buffer of one T60 −30.0 dB.
+
+## Found by the over-ear template review
+
+- **E53 — coupled resonance and "model artefact" (Section 9, pp. 34–35).**
+  "The fall starts at the coupled resonance of Section 4, typically several
+  hundred hertz to about a kilohertz for circumaural front volumes" and "The
+  lumped model's 12 dB per octave fall above the coupled resonance is
+  plotted and labelled as a model artefact" are both wrong as general
+  statements.
+  - **The fall is physics, not an artefact.** A resonance in the hundreds
+    of hertz and the fall above it belong to a sealed cup: a mass-controlled
+    piston on the air springs of its volumes. The L1 and L2 levels reproduce
+    the fall below the cup's first mode, because the cavity is small against
+    the wavelength there. Two sources show it:
+    - Matsushita's sealed-headphone patent (US 4,239,945, 1980) says a
+      sealed headphone "exhibits a peak between 500 Hz and 1 KHz and it is
+      difficult to reproduce higher frequencies".
+    - 40 mm drivers on an IEC 60318-1 coupler resonate at 3.0–3.1 kHz,
+      against 80 Hz in free field, and are 11–16 dB down at 8 kHz from
+      their 1 kHz level (Ole Wolff OWR-4009T-38E, OWR-4007T-32C).
+  - **Published closed over-ears are not sealed cups.** Every fixture curve
+    found (12 entries from Audio Precision, ASR, SoundStage and RAA) puts
+    the low-frequency impedance maximum at about 25–95 Hz, 1.08–1.81 times
+    the mid-band minimum. None shows a coupled resonance in the hundreds of
+    hertz. For one headphone measured both on an ATF and in free air, the
+    ATF lowered the peak from about 62 to 55 Hz rather than raising it
+    (Audio Precision application note, 2017, Fig. 17).
+  - **Why.** With Vas = γP0·Sd²·Cms (1.79 L for the reference driver), a
+    sealed cup resonates at fs·sqrt(1 + Vas/V_front + Vas/V_rear): 4.3 to
+    11.4 times fs for a 30–100 cm³ front, with the rear from open to 25 cm³. Commercial designs avoid it with
+    controlled leaks and resistive coupling between the front and rear
+    volumes (Poldy, AES 2006 tutorial; Shaw and Thiessen, JASA 34, 1962;
+    Görike, US 4,389,542; Sennheiser, US 6,934,401).
+  - **Consequence.** A lumped model of a real closed over-ear needs its
+    leak and vent paths. A coupled resonance in the hundreds of hertz is a
+    sign that they are missing, not a property of circumaural volumes. The
+    design template now has meshed baffle vents, and `baffle_vent_count = 0`
+    gives the sealed cup (docs/over-ear-template.md).
+  - **Scope.** The p. 52 explain-panel example, "moves the coupled
+    resonance from 1.20 to 1.14 kHz", assumes the same sealed cup; E24
+    already covers its level.

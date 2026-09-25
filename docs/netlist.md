@@ -225,6 +225,9 @@ ports that balance in `Circuit::power_absorbed`.
 exact baffled-piston radiation impedance (whose reactance is the outer end
 correction) in series. Probe port 0 is the flow entering at the inner node,
 port 1 the flow entering at the outer node. `leak` exposes the same two ports.
+A `vent` may join two cavities, as the design template's baffle vents join
+the front and rear cavities; the outer radiation reactance then serves as
+the second end correction, and its resistance is small against the mesh.
 The vent's mesh is a `materials::Mesh` part (`<id>.mesh`) of the composite,
 so its pore velocity can be read like that of a stand-alone mesh.
 

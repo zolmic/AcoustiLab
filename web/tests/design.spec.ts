@@ -80,7 +80,7 @@ test('the template opens in Design mode with its groups, sketch and primary prob
   const optgroups = await page.locator('#example-select optgroup').evaluateAll((gs) =>
     gs.map((g) => [(g as HTMLOptGroupElement).label, [...g.querySelectorAll('option')].map((o) => o.value)]),
   );
-  expect(optgroups[0]).toEqual(['Design templates', ['design_over_ear']]);
+  expect(optgroups[0]).toEqual(['Design templates', ['closed_cup_isolation', 'design_over_ear', 'driver_bench']]);
   expect(optgroups[1][0]).toBe('Example netlists');
   expect(optgroups[1][1]).toContain('sealed_cup');
 
@@ -90,7 +90,7 @@ test('the template opens in Design mode with its groups, sketch and primary prob
 
   // Sections per group, in declaration order; "Model" holds only detailed parameters.
   const visibleGroups = page.locator('.pgroup:visible .pgroup-name');
-  await expect(visibleGroups).toHaveText(['Driver', 'Front cavity', 'Pad and leak', 'Rear', 'Ear', 'Source']);
+  await expect(visibleGroups).toHaveText(['Driver', 'Front cavity', 'Pad and leak', 'Baffle', 'Rear', 'Ear', 'Source']);
   await expect(row(page, 'driver_Le_uH')).toBeHidden();
 
   // One control per kind.
@@ -308,7 +308,7 @@ test('solve time of the template in Chromium (reported, loosely bounded)', async
     e2e.push(ms);
   }
   const median = (a: number[]) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
-  const report = `template, 265 frequencies × 7 probes: worker solve median ${median(worker).toFixed(1)} ms (${worker.map((x) => x.toFixed(0)).join(', ')}); click to drawn median ${median(e2e).toFixed(1)} ms (${e2e.map((x) => x.toFixed(0)).join(', ')})`;
+  const report = `template, 265 frequencies × 8 probes: worker solve median ${median(worker).toFixed(1)} ms (${worker.map((x) => x.toFixed(0)).join(', ')}); click to drawn median ${median(e2e).toFixed(1)} ms (${e2e.map((x) => x.toFixed(0)).join(', ')})`;
   test.info().annotations.push({ type: 'solve time', description: report });
   console.log(report);
   expect(median(worker)).toBeLessThan(2000);
@@ -321,11 +321,17 @@ test('raising the drive raises operating-limit warnings; clicking one highlights
   await expect(page.locator('#warn-jump')).toBeHidden();
   expect(await page.evaluate(`window.acoustilab.countColor('spl', '--hl-edge', 30)`)).toBeLessThan(20);
 
+  // The sealed cup (no baffle vents), whose rear vent and pad leak exceed
+  // their velocity limit in a band that 250 Hz lies outside.
+  const baffle = page.locator('#p-baffle_vent_count');
+  await baffle.fill('0');
+  await baffle.press('Enter');
+  await solved(page);
   const drive = page.locator('#p-drive_mW');
   await drive.fill('300');
   await drive.press('Enter');
   await solved(page);
-  expect(await text(page)).toBe(withValue(TEMPLATE, 'drive_mW', '1', '300'));
+  expect(await text(page)).toBe(withValue(withValue(TEMPLATE, 'baffle_vent_count', '4', '0'), 'drive_mW', '1', '300'));
   const r = (await hook(page, (h) => h.result()))!;
   await expect(page.locator('#strip-drive')).toContainText('300 mW into 32 ohm rated');
   const ops = r.warnings.filter((w) => w.f_min_Hz !== null);
@@ -436,9 +442,14 @@ test('freeze baselines, Δ readout, difference plot, rename and remove', async (
     return { box, i, y, v: live.probes[0].spl_dB![i]! };
   };
   await page.locator('figure.plot canvas').first().focus();
-  const a = await yAt(); // about 50 Hz, where the response is flat
-  for (let k = 0; k < 10; k++) await page.keyboard.press('Shift+ArrowRight');
-  const b = await yAt(); // about 850 Hz, below the coupled resonance
+  const a = await yAt(); // low frequencies, where the response is flat
+  // A second point at least 6 dB away: the fall above the baffle vents'
+  // resonance (about 1.5 kHz), found ten grid points at a time.
+  let b = await yAt();
+  for (let k = 0; k < 25 && Math.abs(b.v - a.v) < 6; k++) {
+    await page.keyboard.press('Shift+ArrowRight');
+    b = await yAt();
+  }
   const pxPerDb = (a.y - b.y) / (b.v - a.v);
   expect(Math.abs(b.v - a.v), 'two distinct levels to scale from').toBeGreaterThan(3);
   const blueAt = async (dy: number) => {
@@ -517,7 +528,7 @@ test('a hand edit in the Netlist tab updates the Design tab, and back', async ({
 
   // Detailed view: tolerances, expressions, and "show in netlist".
   await page.getByRole('switch', { name: 'Show detailed parameters' }).click();
-  await expect(page.locator('.pgroup:visible .pgroup-name')).toHaveText(['Driver', 'Front cavity', 'Pad and leak', 'Rear', 'Ear', 'Source', 'Model']);
+  await expect(page.locator('.pgroup:visible .pgroup-name')).toHaveText(['Driver', 'Front cavity', 'Pad and leak', 'Baffle', 'Rear', 'Ear', 'Source', 'Model']);
   await expect(row(page, 'driver_Le_uH')).toBeVisible();
   await expect(row(page, 'driver_fs_Hz').locator('.ptol')).toHaveText('Tolerance ±15 % (normal, 2σ), datasheet (Tymphany HPD-40N16PET00-32)');
   await expect(row(page, 'leak_gap_mm').locator('.ptol')).toHaveText('Tolerance ±50 % (log-normal, 2σ), estimate (fit variation)');

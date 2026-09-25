@@ -80,8 +80,10 @@ wavelength apart are reached with independent phases, and the paths then
 add in power: `insertion_loss_incoherent_dB` =
 10·log10(|p_open|²/Σ|p_path|²) (reported when there are two or more
 paths). Where the in-phase paths cancel, the coherent IL is optimistic: in
-the design template the leak and vent contributions cancel near 1.16 kHz,
-40.5 dB coherent against 28.3 dB in power. Neither is the measured diffuse-
+the sealed configuration of the design template (`baffle_vent_count = 0`)
+the leak and vent contributions cancel near 1.16 kHz, 40.5 dB coherent
+against 28.3 dB in power. The default's baffle vents remove the
+cancellation (31.1 against 31.0 dB). Neither is the measured diffuse-
 field loss, which lies between them depending on the openings' separation;
 below about 1 kHz (openings a few centimetres apart) the coherent value
 applies.
@@ -152,9 +154,10 @@ template these are 5.0–6.9 kHz and 15.9–18.3 kHz.
 That is a statement about the model more than about the fixture. The
 design template has no `shell` path (no cup moving on its cushion, no wall
 transmission) and no porous pad path, so its IL is an upper bound set by
-the leak and the vent alone: 41–61 dB from 1.25 to 8 kHz in 1/3-octave
-bands, where real closed over-ear headphones measure a few tens of dB. The
-84 dB peak at 5.8 kHz is the front cavity's depth line acting as a
+the leak and the vent alone: 32–60 dB from 1.25 to 8 kHz in 1/3-octave
+bands (41–61 dB with the sealed baffle), where real closed over-ear
+headphones measure a few tens of dB. The 76 dB peak at 5.8 kHz (84 dB with
+the sealed baffle) is the front cavity's depth line acting as a
 quarter-wave side branch at the ear entrance (c/(4·15 mm) = 5.7 kHz): the
 leak path's own zero, a feature of the one-dimensional cavity model with
 a point leak. `examples/closed_cup_isolation.json` adds the cushion and
@@ -211,7 +214,8 @@ The JSON report (also returned by the wasm export
   distance], band_dB, drive, model}.
 
 The CSV has the frequency, the IL, both drum SPLs and one column per path.
-Native cost for the design template is 56 ms for its four sweeps (the
+Native cost for the design template, measured with the sealed baffle it
+had then, is 56 ms for its four sweeps (the
 occluded ear, the open ear, and each of the two paths alone) and 17 ms for
 the bleed; in wasm, 87 ms for both.
 

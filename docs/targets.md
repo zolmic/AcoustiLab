@@ -584,6 +584,10 @@ acoustilab score design.json --target my_target.csv --probe p_drp --smoothing 1/
 acoustilab score --list
 ```
 
+The design template scores well below the 5128 target from 2 to 8 kHz.
+`docs/over-ear-template.md` explains how much of that comes from the
+missing pinna, and how much from a lumped cup.
+
 **Probe.** `--probe`, else the netlist's `ui.primary_probe`, else its only
 pressure probe on an ear's drum reference point, else its only pressure
 probe.

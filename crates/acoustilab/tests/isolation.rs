@@ -430,7 +430,13 @@ fn transformation_and_warnings() {
 fn incoherent_insertion_loss() {
     let text = example("design_over_ear.json");
     let p = Parametric::parse(&text).unwrap();
-    let iso = insertion_loss(&p, &Overrides::new(), &IsolationOptions::default()).unwrap();
+    // The sealed configuration, whose leak and vent paths cancel (below).
+    let mut ov = Overrides::new();
+    ov.insert(
+        "baffle_vent_count".into(),
+        acoustilab::expr::PValue::Num(0.0),
+    );
+    let iso = insertion_loss(&p, &ov, &IsolationOptions::default()).unwrap();
     let inc = iso.insertion_loss_incoherent_db.as_ref().unwrap();
     for (i, f) in iso.freqs_hz.iter().enumerate() {
         let open = iso.p_open[i].norm_sqr();
@@ -442,8 +448,9 @@ fn incoherent_insertion_loss() {
         let n = iso.paths.len() as f64;
         assert!(iso.insertion_loss_db[i] >= inc[i] - 10.0 * n.log10() - 1e-9);
     }
-    // In the template the leak and vent contributions cancel near 1.16 kHz
-    // when driven in phase: 40.5 dB coherent against 28.3 dB in power.
+    // In the sealed template the leak and vent contributions cancel near
+    // 1.16 kHz when driven in phase: 40.5 dB coherent against 28.3 dB in
+    // power. The baffle vents of the default remove the cancellation.
     let k = iso
         .freqs_hz
         .iter()

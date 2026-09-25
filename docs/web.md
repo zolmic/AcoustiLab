@@ -217,9 +217,10 @@ serde_json does not.
   until the new result lands. `parameters()` calls are coalesced the same way
   on the second worker, so derived values and the sketch follow a drag
   without waiting for the solve. Measured in Chromium (headless, this
-  container, `design.spec.ts`), the template (265 frequencies, 7 probes, L1)
-  solves in the worker in a median of about 30 ms, and a click on a stepper
-  is drawn about 50 ms later; with the container's four cores busy with other
+  container, `design.spec.ts`), the template (265 frequencies, 8 probes, L1)
+  solves in the worker in a median of about 40 ms, and a click on a stepper
+  is drawn about 60 ms later (30 and 50 ms with 7 probes and no baffle
+  vents); with the container's four cores busy with other
   builds the same test measured medians of 90 to 200 ms and 110 to 130 ms.
   The solve status is a live region: it says when operating limits are
   exceeded, so a change that crosses one is announced, not only drawn.
