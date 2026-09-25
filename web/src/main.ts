@@ -780,6 +780,12 @@ function applyParams(values: [string, Scalar][]): void {
 
 function onParams(text: string, reply: Reply): void {
   const fresh = text === editor.value;
+  if (fresh) {
+    // The netlist's own description (its provenance), as written.
+    const d = parseDoc(text)?.description;
+    $('design-about').hidden = typeof d !== 'string' || !d.trim();
+    $('design-about-text').textContent = typeof d === 'string' ? d : '';
+  }
   if (!reply.ok) {
     if (fresh) design.showMessage([`The engine could not read the parameters: ${reply.crash}`]);
     return;
@@ -958,6 +964,7 @@ restoreBtn.addEventListener('click', () => {
   if (replacedText === null) return;
   const text = replacedText;
   hideRestore();
+  selectTab(hasParameters(text) ? 'design' : 'netlist', false, false);
   loadText(text);
   if (!panelNetlist.hidden) editor.focus();
 });

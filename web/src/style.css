@@ -872,6 +872,21 @@ svg.has-glow .sk-part:not(.glow) {
   font-weight: 700;
 }
 
+.design-about {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+}
+.design-about summary {
+  cursor: pointer;
+  color: var(--ink-2);
+  font-weight: 600;
+}
+.design-about p {
+  max-width: 70ch;
+  margin: 4px 0 0;
+  color: var(--ink-2);
+}
+
 .design-message {
   margin: 8px 0;
   padding: 10px 12px;

@@ -84,6 +84,10 @@ test('the template opens in Design mode with its groups, sketch and primary prob
   expect(optgroups[1][0]).toBe('Example netlists');
   expect(optgroups[1][1]).toContain('sealed_cup');
 
+  // The template's description (its provenance), as written in the netlist.
+  await page.locator('#design-about summary').click();
+  await expect(page.locator('#design-about-text')).toHaveText(JSON.parse(TEMPLATE).description);
+
   // Sections per group, in declaration order; "Model" holds only detailed parameters.
   const visibleGroups = page.locator('.pgroup:visible .pgroup-name');
   await expect(visibleGroups).toHaveText(['Driver', 'Front cavity', 'Pad and leak', 'Rear', 'Ear', 'Source']);

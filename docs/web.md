@@ -268,7 +268,9 @@ The text alternative lists every dimension the drawing shows.
   name is editable, and any number can be kept. Baselines are drawn under the
   live curves as thin (1.25 px) lines in the colour of the live curve they
   shadow, each baseline with its own dash pattern, none of which a live curve
-  uses; the list shows each pattern, and plot descriptions name them. One
+  uses (five patterns; from the sixth baseline on they repeat, and the names
+  tell them apart); the list shows each pattern, and plot descriptions name
+  them. One
   baseline is the Δ reference: the readout adds "Δ +1.23 dB vs baseline
   “name”" to every SPL curve (marked ≈ where the baseline is on another
   frequency grid and is interpolated in log frequency), and the optional

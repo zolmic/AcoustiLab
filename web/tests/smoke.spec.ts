@@ -525,6 +525,20 @@ test('loading an example over an edited netlist keeps the edits restorable', asy
   await expect(page.locator('#restore-note')).toBeVisible();
   await page.selectOption('#example-select', 'open_back');
   await expect(page.locator('#restore-note')).toBeHidden();
+
+  // Edits made in the Design tab are restorable too, back into that tab.
+  await openExample(page, 'design_over_ear');
+  await expect(page.getByRole('tab', { name: 'Design' })).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('button', { name: 'Increase Number of rear vents' }).click();
+  await solved(page);
+  const designed = await page.locator('#netlist').inputValue();
+  await openExample(page, 'sealed_cup');
+  await expect(page.getByRole('tab', { name: 'Netlist' })).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('button', { name: 'Restore your edits' }).click();
+  await expect(page.getByRole('tab', { name: 'Design' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#netlist')).toHaveValue(designed);
+  await expect(page.locator('#p-vent_count')).toHaveValue('2');
+  await solved(page);
   expect(dialogs).toBe(0);
 });
 
