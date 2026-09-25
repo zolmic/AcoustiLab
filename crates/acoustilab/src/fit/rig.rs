@@ -48,6 +48,10 @@ use crate::C64;
 use serde_json::{json, Map, Value};
 use std::f64::consts::PI;
 
+/// Largest number of seatings times frequencies one [`measure`] call draws,
+/// which bounds its run time (about a second natively).
+pub const MAX_SAMPLES: usize = 20_000_000;
+
 /// Noise settings of the virtual rig (module documentation). All levels are
 /// standard deviations.
 #[derive(Debug, Clone, PartialEq)]
@@ -353,6 +357,16 @@ pub fn measure(p: &Parametric, spec: &RigSpec) -> Result<Curve, FitError> {
             freqs.len()
         )));
     }
+    let samples = freqs
+        .len()
+        .saturating_mul(spec.noise.seatings.max(1) as usize);
+    if samples > MAX_SAMPLES {
+        return Err(spec_err(format!(
+            "rig: {} seatings of {} frequencies are {samples} samples; the limit of one call is {MAX_SAMPLES}",
+            spec.noise.seatings,
+            freqs.len()
+        )));
+    }
     let mut c = Circuit::from_parametric(p, &spec.overrides)?;
     let q = quantity_of(&c, &spec.probe)?;
     c.freqs = freqs.clone();
@@ -381,47 +395,42 @@ pub fn measure(p: &Parametric, spec: &RigSpec) -> Result<Curve, FitError> {
     };
     let coupler = Ripple::draw(&mut rng, 4);
     let n = nz.seatings.max(1) as usize;
-    let mut seatings: Vec<Vec<C64>> = Vec::with_capacity(n);
+    // The seatings are summed as they are drawn (vector sum, power sum and
+    // sum of levels), so memory does not grow with their number.
+    let m = freqs.len();
+    let (mut sum, mut power, mut levels) =
+        (vec![C64::new(0.0, 0.0); m], vec![0.0; m], vec![0.0; m]);
     for _ in 0..n {
         let g = rng.normal();
         let rip = Ripple::draw(&mut rng, 3);
         let tau = nz.repositioning_delay_us * 1e-6 * rng.normal();
-        let values = freqs
-            .iter()
-            .zip(&truth)
-            .map(|(&f, h)| {
-                let d = if pressure {
-                    nz.repositioning_db * (g / 2f64.sqrt() + rip.at(x(f)) / 2f64.sqrt())
-                } else {
-                    0.0
-                };
-                let nl = nz.level_db * rng.normal();
-                let np = nz.phase_deg.to_radians() * rng.normal();
-                let delay = if pressure { -2.0 * PI * f * tau } else { 0.0 };
-                h * 10f64.powf((d + nl) / 20.0) * C64::from_polar(1.0, np + delay)
-            })
-            .collect();
-        seatings.push(values);
+        for (i, (&f, h)) in freqs.iter().zip(&truth).enumerate() {
+            let d = if pressure {
+                nz.repositioning_db * (g / 2f64.sqrt() + rip.at(x(f)) / 2f64.sqrt())
+            } else {
+                0.0
+            };
+            let nl = nz.level_db * rng.normal();
+            let np = nz.phase_deg.to_radians() * rng.normal();
+            let delay = if pressure { -2.0 * PI * f * tau } else { 0.0 };
+            let v = h * 10f64.powf((d + nl) / 20.0) * C64::from_polar(1.0, np + delay);
+            sum[i] += v;
+            power[i] += v.norm_sqr();
+            levels[i] += v.norm().log10();
+        }
     }
     let averaging = if n == 1 {
         Averaging::None
     } else {
         nz.averaging
     };
-    let averaged: Vec<C64> = (0..freqs.len())
+    let averaged: Vec<C64> = (0..m)
         .map(|i| {
-            let mean: C64 = seatings.iter().map(|s| s[i]).sum::<C64>() / n as f64;
+            let mean = sum[i] / n as f64;
             match averaging {
                 Averaging::None | Averaging::Complex => mean,
-                Averaging::Magnitude => {
-                    let rms =
-                        (seatings.iter().map(|s| s[i].norm_sqr()).sum::<f64>() / n as f64).sqrt();
-                    C64::from_polar(rms, mean.arg())
-                }
-                Averaging::Db => {
-                    let l = seatings.iter().map(|s| s[i].norm().log10()).sum::<f64>() / n as f64;
-                    C64::from_polar(10f64.powf(l), mean.arg())
-                }
+                Averaging::Magnitude => C64::from_polar((power[i] / n as f64).sqrt(), mean.arg()),
+                Averaging::Db => C64::from_polar(10f64.powf(levels[i] / n as f64), mean.arg()),
             }
         })
         .collect();

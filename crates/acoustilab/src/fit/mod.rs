@@ -90,6 +90,10 @@ pub const MIN_SIGMA: f64 = 1.0;
 /// the report warns above the same value.
 pub const GROSS_CHI2: f64 = 10.0;
 
+/// Most starts of one fit (they share `max_evaluations`; the Latin
+/// hypercube is drawn before any of them runs).
+pub const MAX_STARTS: usize = 1000;
+
 /// The fit has converged when three accepted steps together lower χ² by
 /// less than this: far below the Δχ² = 1 of a one-standard-deviation move.
 pub const STALL_CHI2: f64 = 1e-3;
@@ -317,6 +321,9 @@ impl FitSpec {
         s.max_iterations = count_opt(o, "max_iterations")?.unwrap_or(s.max_iterations);
         s.max_evaluations = count_opt(o, "max_evaluations")?.unwrap_or(s.max_evaluations);
         s.starts = count_opt(o, "starts")?.unwrap_or(s.starts);
+        if s.starts > MAX_STARTS {
+            return Err(spec_err(format!("'starts' must be at most {MAX_STARTS}")));
+        }
         s.seed = match o.get("seed") {
             None => s.seed,
             Some(v) => v
@@ -366,7 +373,8 @@ fn count_opt(o: &Map<String, Value>, k: &str) -> Result<Option<usize>, FitError>
         Some(v) => v
             .as_u64()
             .filter(|n| *n >= 1)
-            .map(|n| Some(n as usize))
+            // Saturate rather than wrap where usize is 32 bits (wasm32).
+            .map(|n| Some(usize::try_from(n).unwrap_or(usize::MAX)))
             .ok_or_else(|| spec_err(format!("'{k}' must be a positive integer"))),
     }
 }
@@ -957,6 +965,9 @@ pub fn fit(p: &Parametric, spec: &FitSpec) -> Result<FitReport, FitError> {
     }
     if !(spec.f_min > 0.0 && spec.f_max > spec.f_min) {
         return Err(spec_err("the band needs 0 < f_min_Hz < f_max_Hz"));
+    }
+    if spec.starts > MAX_STARTS {
+        return Err(spec_err(format!("'starts' must be at most {MAX_STARTS}")));
     }
     let base_values = p.values(&spec.overrides)?;
     let mut warnings = Vec::new();

@@ -1131,6 +1131,9 @@ fn fit_spec_json_is_validated() {
     assert!(err(&|v| v["curves"][0]["weight"] = json!(0)).contains("weight"));
     assert!(err(&|v| v["curves"][0]["f_max_Hz"] = json!(10.5)).contains("fewer than 2 points"));
     assert!(err(&|v| v["parameters"] = json!([])).contains("no parameters"));
+    // The Latin hypercube is drawn before any start runs: its size is
+    // bounded (a wasm worker would abort on the allocation).
+    assert!(err(&|v| v["starts"] = json!(1_000_000_000_000u64)).contains("at most 1000"));
     // A compensated curve is not the model's probe, unless allowed.
     let compensated =
         |v: &mut Value| v["curves"][0]["curve"]["sidecar"]["compensation"] = json!("diffuse_field");
@@ -1343,6 +1346,13 @@ fn rig_json_spec() {
         s.freqs = freqs;
         assert!(rig::measure(&p, &s).is_err());
     }
+    // Seatings times points bound one call's run time.
+    let mut s = RigSpec::new("zin");
+    s.freqs = exchange_grid(10.0, 20_000.0, 2000.0);
+    s.noise.seatings = 10_000;
+    s.noise.averaging = Averaging::Complex;
+    let e = rig::measure(&p, &s).unwrap_err().to_string();
+    assert!(e.contains("the limit of one call"), "{e}");
 }
 
 /// Cost of the case-study fit on three grid densities; run with

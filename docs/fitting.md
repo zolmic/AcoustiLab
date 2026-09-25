@@ -249,8 +249,8 @@ curve without a stated drive, or with `calibrated: false`, gets a free level
 offset in dB, a nuisance parameter reported with its interval. A curve
 whose budget has a calibration term gets an offset with that prior (see
 "Weights"). `offset` may also be set to `"none"` (the calibration term
-then weights the points as before), `"free"` or `{"prior_dB": σ}` (free
-with a Gaussian prior). A curve whose sidecar states a
+then weights the points), `"free"` or `{"prior_dB": σ}` (free with a
+Gaussian prior). A curve whose sidecar states a
 compensation other than `none` is refused (the model's probe is
 uncompensated) unless the curve's `allow` lists `compensation`. The fit
 warns when a curve is smoothed coarser than 1/6 octave, when its source
@@ -267,9 +267,10 @@ determine are not stepped along, so those combinations stay where they
 are instead of drifting on noise to a bound. The test is made where the
 fit stands: a direction that is still resolved at the start and becomes
 flat on the way (the fs–Qms–Qes direction of the over-ear case below) can
-end far from its start, and is reported as undetermined. The σ > 1 condition holds
-only at an acceptable misfit: if the iteration would stop with such
-directions left out and a reduced χ² above 10, it continues along them. A
+end far from its start, and is reported as undetermined. The σ > 1
+condition holds only at an acceptable misfit: if the iteration would stop
+with such directions left out and a reduced χ² above 10, it continues
+along them. A
 parameter that starts where the data hardly respond to it (a pad leak
 starting nearly closed, σ = 0.02) would otherwise stop at once with a
 reduced χ² of 350 and be reported converged. The parameters' `min`/`max`
@@ -304,9 +305,13 @@ linear one), seeded by `seed`; the lowest cost wins and every start is
 reported. All starts share `max_evaluations`.
 
 **Bounded runtime.** `max_iterations` and `max_evaluations` (model
-evaluations, Jacobian columns included) cap a call. A caller that wants
-progress or cancellation (a web worker) runs a few iterations per call and
-passes the report's `fitted` values as the next call's `start` values.
+evaluations, Jacobian columns included) cap a call; one evaluation solves
+every condition at its curves' frequencies (natively about 0.06 ms per
+point, so 5 ms for the 72-point case study and 26 ms at 430 points). At
+most 1000 `starts`, and at most 10^6 distinct frequencies per condition
+(the engine's sweep limit). A caller that wants progress or cancellation
+(a web worker) runs a few iterations per call and passes the report's
+`fitted` values as the next call's `start` values.
 
 ### The report (`acoustilab-fit-report/0.1`)
 
@@ -473,7 +478,9 @@ JSON form:
  "sidecar": {"fixture": "GRAS 45CA", "ear_simulator": "iec60318_4"}}
 ```
 
-(`frequencies_Hz` may replace the grid keys.)
+(`frequencies_Hz` may replace the grid keys.) One call draws at most
+2·10^7 samples (seatings times frequencies); the seatings are summed as
+they are drawn, so memory does not grow with their number.
 
 ## Interfaces
 
