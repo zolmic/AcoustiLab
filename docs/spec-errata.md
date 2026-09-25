@@ -260,3 +260,24 @@ corrected statement. "p." is the PDF page.
   exactly 2.9·Q/f the late energy of a Q = 20 resonator is −79.1 dB, so the
   engine uses 2.93. A causal half of 2.2·Q/f (T60) leaves −60.1 dB, and a
   buffer of one T60 −30.0 dB.
+
+## Found by the analysis package
+
+- **E53 — explain panel from sensitivities (pp. 13, 52).** The spec generates
+  the explain sentences "from the adjoint sensitivities and the solved
+  curves". A 10 % change is not small near the coupled resonance, so a
+  linearised change can be wrong by several decibels, and even in sign. For
+  a resonance of quality Q, a relative frequency shift δ leaves the level at
+  the old peak unchanged to first order, but lowers it by about
+  10·log10(1 + (2Qδ)²) (near the peak, |H|² ≈ 1/(1 + (2Q·Δf/f)²); for
+  Q = 6 and δ = 5 %, 1.34 dB against 1.28 dB exactly). The linear model
+  holds only while 2Qδ ≪ 1. On `examples/design_over_ear.json` (in-situ
+  Qts ≈ 6), sensitivity × 100·ln 1.1 against a re-solve at +10 %, in the
+  credible band:
+  - Sd predicts +4.57 dB at 973 Hz, where the re-solve gives −0.22 dB.
+  - Mms predicts +0.72 dB at 919 Hz, where the re-solve gives −0.63 dB.
+  - Front radius predicts −0.50 dB at 919 Hz, where the re-solve gives
+    −1.50 dB.
+
+  The engine generates the sentences from re-solves (`docs/analysis.md`).
+  Sensitivities in dB per percent describe small changes only.

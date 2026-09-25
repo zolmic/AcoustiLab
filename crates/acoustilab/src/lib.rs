@@ -10,6 +10,7 @@
 //! ```
 
 pub mod air;
+pub mod analysis;
 pub mod circuit;
 pub mod diag;
 pub mod drive;
