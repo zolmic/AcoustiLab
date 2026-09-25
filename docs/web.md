@@ -347,6 +347,12 @@ everything through its `ViewHost`:
 The worker's `call` operation reaches every export except the lifecycle and
 test hooks (`default`, `initSync`, `take_last_panic`).
 
+**Listen** (`listen.view.ts`, audio code in `web/src/audio/`): auralization
+of the current design against a baseline (spec Section 16): the engine's
+audition filter (`audition_filter`), played through an AudioWorklet with
+partitioned convolution, loudness matching and a true-peak limiter. See
+`docs/auralization.md`.
+
 **Parameter table** (`summary.view.ts`): every parameter of the solved design
 with its value, the loaded template's value, and whether the netlist uses it
 (`meta.parameters_used`: a parameter the topology ignores, such as vent sizes
@@ -570,6 +576,9 @@ closed-form netlists):
    for 2 s.
 9. axe-core in light and dark themes; Tab reaches the example picker, Run,
    the tabs, the editor, the legend and the plots.
+
+`audio-dsp.spec.ts` (no browser) and `listen.spec.ts` (Chromium,
+OfflineAudioContext and the Listen view): see `docs/auralization.md`.
 
 The Rust side (`cargo test -p acoustilab-wasm`) tests the JSON API natively.
 

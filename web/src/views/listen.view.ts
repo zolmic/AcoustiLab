@@ -16,6 +16,7 @@
 
 import './listen.css';
 import { formatHz } from '../format';
+import { lineKey } from '../keys';
 import { PlotPanel } from '../plot';
 import type { PlotGroup } from '../series';
 import type { Shading } from '../types';
@@ -159,12 +160,14 @@ class LevelMatcher {
     return w;
   }
 
-  measure(key: string, programme: Programme, filters: Float32Array[][]): Promise<{ programme: Measurement; filters: Measurement[]; ms: number }> {
+  measure(key: string, programme: Programme, filters: { key?: string; taps: Float32Array[] }[]): Promise<{ programme: Measurement; filters: Measurement[]; ms: number }> {
     this.worker ??= this.spawn();
     const id = ++this.seq;
-    const send: { key: string; channels?: Float32Array[] } = { key };
+    const send: { key: string; channels?: Float32Array[]; mono?: boolean } = { key };
     if (this.sentKey !== key) {
-      send.channels = programme.channels.map((c) => c.slice());
+      const [l, r] = programme.channels;
+      send.mono = l === r;
+      send.channels = send.mono ? [l.slice()] : [l.slice(), r.slice()];
       this.sentKey = key;
     }
     return new Promise((resolve, reject) => {
@@ -185,7 +188,7 @@ class LevelMatcher {
 class ListenView implements ResultView {
   readonly id = 'listen';
   readonly label = 'Listen';
-  readonly order = 70;
+  readonly order = 95;
   private host!: ViewHost;
   private readonly player = new AuditionPlayer();
   private readonly matcher = new LevelMatcher();
@@ -202,6 +205,7 @@ class ListenView implements ResultView {
   private progress!: HTMLElement;
   private reportEl!: HTMLElement;
   private readoutEl!: HTMLElement;
+  private legendEl!: HTMLElement;
   private tableWrap!: HTMLElement;
   private programmeSel!: HTMLSelectElement;
   private seedInput!: HTMLInputElement;
@@ -287,6 +291,7 @@ class ListenView implements ResultView {
     this.baselineSel.addEventListener('change', () => {
       this.curveInput.hidden = this.baselineSel.value !== 'curve:import';
       if (this.baselineSel.value === 'curve:import' && !this.curve) this.curveInput.click();
+      else if (this.report) this.requestDesign();
     });
     this.curveInput = h('input', { type: 'file', id: 'listen-curve', accept: '.frd,.txt,.csv,.zma,.json', hidden: true, 'aria-label': 'Measured curve file (FRD, REW text, CSV)' });
     this.curveInput.addEventListener('change', () => void this.importCurve());
@@ -307,6 +312,7 @@ class ListenView implements ResultView {
       onView: () => undefined,
     });
     this.readoutEl = h('div', { className: 'readout listen-readout', 'aria-live': 'off' });
+    this.legendEl = h('ul', { className: 'listen-legend', 'aria-label': 'Curves' });
     this.tableWrap = h('div');
     this.reportEl = h('div', { className: 'listen-report' });
     sec.append(
@@ -319,6 +325,7 @@ class ListenView implements ResultView {
       this.progress,
       this.status,
       this.reportEl,
+      this.legendEl,
       plots,
       this.readoutEl,
       this.tableWrap,
@@ -346,7 +353,7 @@ class ListenView implements ResultView {
     const match = this.radioGroup('match', 'Level match', MATCH.map(([v, l]) => [v, l]), 'bs1770', () => void this.onLevelChange());
     this.matchRadios = match.radios;
     this.matchActive = h('p', { className: 'listen-match-active', 'aria-live': 'polite' });
-    this.playBtn = h('button', { type: 'button', className: 'primary listen-play', textContent: 'Play', 'aria-pressed': 'false' });
+    this.playBtn = h('button', { type: 'button', className: 'primary listen-play', textContent: 'Play' });
     this.playBtn.addEventListener('click', () => void (this.player.running ? this.stop() : this.play()));
     const ab = this.radioGroup('ab', 'Listen to', [['a', 'A: through the filter'], ['b', 'B: reference (programme alone)']], 'a', (v) => this.player.select(v === 'b' ? 1 : 0));
     this.abRadios = ab.radios;
@@ -485,6 +492,7 @@ class ListenView implements ResultView {
     this.fillBaselines();
     this.baselineSel.value = 'curve:import';
     this.setStatus(`Imported ${f.name}.`);
+    if (this.report) this.requestDesign();
   }
 
   private onModeChange(): void {
@@ -654,12 +662,19 @@ class ListenView implements ResultView {
       series: [
         { probe: 2, id: 'error', values: r.error_dB },
         { probe: 3, id: `+${tol} dB`, values: r.error_dB.map(() => tol) },
-        { probe: 4, id: `−${tol} dB`, values: r.error_dB.map(() => -tol) },
+        { probe: 3, id: `−${tol} dB`, values: r.error_dB.map(() => -tol) },
       ],
       overlays: [],
       height: 'small',
     };
     this.panel.setGroups([filter, error], { freqs: r.frequencies_Hz, shading: r.candidate.shading });
+    const key = (probe: number, text: string) => h('li', {}, lineKey(probe), text);
+    this.legendEl.replaceChildren(
+      key(0, 'analytic filter (the engine’s exact solves)'),
+      key(1, 'taps (their own frequency response)'),
+      key(2, 'taps minus analytic'),
+      key(3, `±${tol} dB (spec Section 16)`),
+    );
     this.renderTable();
     this.renderReadout(null);
   }
@@ -800,7 +815,7 @@ class ListenView implements ResultView {
     this.player.select(this.abRadios[1].checked ? 1 : 0);
     this.player.play();
     this.playBtn.textContent = 'Stop';
-    this.playBtn.setAttribute('aria-pressed', 'true');
+    this.playBtn.classList.remove('primary');
     this.playBtn.disabled = false;
     this.pollTimer = window.setInterval(() => this.renderMeters(this.player.poll()), 100);
     this.renderDiagnostics();
@@ -818,7 +833,7 @@ class ListenView implements ResultView {
     this.player.stop();
     window.clearInterval(this.pollTimer);
     this.playBtn.textContent = 'Play';
-    this.playBtn.setAttribute('aria-pressed', 'false');
+    this.playBtn.classList.add('primary');
     this.playingEl.textContent = 'Stopped.';
     this.renderMeters(null);
     this.renderDiagnostics();
@@ -837,7 +852,10 @@ class ListenView implements ResultView {
     this.playingEl.textContent = 'Matching levels over the programme…';
     let m;
     try {
-      m = await this.matcher.measure(`${p.kind}|${p.seed}|${p.fs}|${p.sha256}|${p.channels[0].length}`, p, [[a], [b]]);
+      m = await this.matcher.measure(`${p.kind}|${p.seed}|${p.fs}|${p.sha256}|${p.channels[0].length}`, p, [
+        { taps: [a] },
+        { key: `delay:${r.latency_samples}`, taps: [b] },
+      ]);
     } catch (e) {
       this.playingEl.textContent = `Level match failed: ${String(e)}`;
       return false;

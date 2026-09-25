@@ -385,6 +385,17 @@ test('pink noise (Kellet): −3.01 dB/octave within 0.05 dB from 20 Hz to 20 kHz
     expect(dev, `${fs} Hz`).toBeLessThan(0.05);
     expect(Math.abs(dev - c.maxErrorAudioDb)).toBeLessThan(0.005);
     expect(Math.abs(kelletMagnitude(c, fs, 1000) - 1)).toBeLessThan(1e-12);
+    // The magnitude fit cannot see a pole outside the unit circle (an
+    // earlier unbounded refit put one at −1.19 at 88.2 and 96 kHz, and the
+    // programme came out all NaN): check the poles and the whole loop.
+    for (const p of c.poles) expect(Math.abs(p), `${fs} Hz pole ${p}`).toBeLessThan(1);
+    const prog = generate('pink_kellet', 2, fs);
+    let acc = 0;
+    for (const v of prog.channels[0]) {
+      if (!Number.isFinite(v)) throw new Error(`non-finite pink noise at ${fs} Hz`);
+      acc += v * v;
+    }
+    expect(Math.abs(10 * Math.log10(acc / prog.channels[0].length) + 23), `${fs} Hz RMS`).toBeLessThan(1e-4);
   }
   // Another rate: no coefficients; spectral shaping, said so.
   expect(pinkFilter(32000)).toBeNull();
@@ -539,4 +550,26 @@ test('sweep, programmes and level matching', () => {
   expect(Math.abs(la - lb)).toBeLessThan(1e-6);
   expect(Math.abs(la + 23)).toBeLessThan(1e-6);
   expect(ga).toBeLessThan(gb);
+});
+
+test('every programme at every rate: finite, at its level, a whole loop', () => {
+  // Rates with Kellet coefficients, one without (spectral shaping), and
+  // the top of the range. Guards against a generator that is right in
+  // the frequency domain and diverges in the time domain.
+  for (const fs of [32000, 44100, 48000, 88200, 96000, 192000]) {
+    for (const kind of ['pink_kellet', 'pink_voss', 'white', 'sweep'] as const) {
+      const p = generate(kind, 9, fs);
+      const x = p.channels[0];
+      expect(x.length, `${kind} at ${fs} Hz`).toBe(loopLength(fs));
+      let acc = 0;
+      let peak = 0;
+      for (const v of x) {
+        if (!Number.isFinite(v)) throw new Error(`non-finite ${kind} at ${fs} Hz`);
+        acc += v * v;
+        peak = Math.max(peak, Math.abs(v));
+      }
+      if (kind === 'sweep') expect(Math.abs(db(peak) + 6), `${kind} at ${fs} Hz`).toBeLessThan(0.01);
+      else expect(Math.abs(10 * Math.log10(acc / x.length) + 23), `${kind} at ${fs} Hz`).toBeLessThan(1e-4);
+    }
+  }
 });

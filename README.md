@@ -56,5 +56,7 @@ synthetic measurements are described in `docs/fitting.md`.
 
 Impulse responses, pole/Q tables and passive isolation: `acoustilab ir | poles | isolation` (`docs/time-domain.md`, `docs/isolation.md`).
 
+Auralization (hear a design against a baseline, level matched, in the Listen view): `acoustilab audition` and `docs/auralization.md`.
+
 To run the browser UI:
 `cd web && npm ci && npm run dev` (details in `docs/web.md`).

@@ -30,8 +30,18 @@ Method, per rate fs:
    against the ideal 10*log10(C/f) (C free) at 64 points per octave from
    9.2*fs/44100 Hz (Kellet's lower limit, scaled) to 0.9 of Nyquist, then
    refine towards a minimax fit by iteratively reweighted least squares
-   (weights grown where the error is largest).
-3. Scale so that |H| = 1 at 1 kHz.
+   (weights grown where the error is largest). The poles are bounded
+   to [-POLE_LIMIT_NEGATIVE, POLE_LIMIT_POSITIVE]: the dB error sees
+   only |H|, and an unbounded fit put the negative pole at -1.19 at 88.2
+   and 96 kHz, whose magnitude matches but whose recursion diverges (the
+   programme was all NaN).
+3. Scale so that |H| = 1 at 1 kHz, and check every pole is inside the
+   unit circle.
+
+In normalised frequency f/fs the fit band is the same at every rate and
+the target 1/f has no scale, so the problem is the same at every rate and
+the fits converge to one filter up to gain (the 48 and 88.2 kHz poles
+agree to 8 digits). What the rate changes is where 20 Hz falls in the band.
 
 The script also checks Kellet's own claim at 44.1 kHz. It writes
 web/src/audio/pink-coefficients.ts (and prints each rate's largest error
@@ -57,6 +67,11 @@ KELLET_GAINS = [0.0555179, 0.0750759, 0.1538520, 0.3104856, 0.5329522, -0.016898
 KELLET_D = 0.5362
 KELLET_E = 0.115926
 RATES = [44100.0, 48000.0, 88200.0, 96000.0]
+# Pole bounds for the fit. The slowest pole (Kellet's 0.99886 at 44.1 kHz,
+# 0.99948 at 96 kHz by matched z) stays well below the positive bound; a
+# negative pole at the negative bound decays by 60 dB in about 690 samples.
+POLE_LIMIT_POSITIVE = 0.99999
+POLE_LIMIT_NEGATIVE = 0.99
 
 
 def response(params, f, fs):
@@ -89,10 +104,16 @@ def fit(fs):
     )
     if fs == 44100.0:
         start = np.array(KELLET_POLES + KELLET_GAINS + [KELLET_D, KELLET_E])
+    lb = np.full(14, -np.inf)
+    ub = np.full(14, np.inf)
+    lb[:6], ub[:6] = -POLE_LIMIT_NEGATIVE, POLE_LIMIT_POSITIVE
+    start[:6] = np.clip(start[:6], lb[:6], ub[:6])
     w = np.ones_like(f)
     x = start
     for _ in range(12):
-        res = least_squares(lambda q: w * db_error(q, f, fs), x, xtol=1e-15, ftol=1e-15, gtol=1e-15, max_nfev=4000)
+        res = least_squares(
+            lambda q: w * db_error(q, f, fs), x, bounds=(lb, ub), xtol=1e-15, ftol=1e-15, gtol=1e-15, max_nfev=4000
+        )
         x = res.x
         e = np.abs(db_error(x, f, fs))
         w = w * (1 + e / e.max())
@@ -124,6 +145,7 @@ def main():
         else:
             x, _ = fit(fs)
             kind = "refitted (tools/audio/pink_kellet.py)"
+        assert np.all(np.abs(x[:6]) < 1), f"unstable pole at {fs} Hz: {x[:6]}"
         fit_lo, fit_hi = 9.2 * fs / 44100.0, 0.9 * fs / 2
         err_fit = report(x, fs, fit_lo, fit_hi)
         err_audio = report(x, fs, 20.0, min(20000.0, 0.9 * fs / 2))

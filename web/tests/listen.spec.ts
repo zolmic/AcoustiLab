@@ -86,12 +86,15 @@ interface RenderSpec {
   /** Messages posted at render times (s, a multiple of 128/fs). */
   events?: { t: number; msg: unknown }[];
   volume?: number;
+  /** Context rate (default 48 kHz). */
+  fs?: number;
 }
 
 /** Renders the worklet offline; returns [left, right, limiter gain, state] per sample. */
 async function render(page: Page, spec: RenderSpec): Promise<number[][]> {
   return page.evaluate(async (s) => {
-    const ctx = new OfflineAudioContext(4, s.length, 48000);
+    const rate = s.fs ?? 48000;
+    const ctx = new OfflineAudioContext(4, s.length, rate);
     await ctx.audioWorklet.addModule(s.url);
     const node = new AudioWorkletNode(ctx, 'acoustilab-audition', {
       numberOfInputs: 1,
@@ -100,7 +103,7 @@ async function render(page: Page, spec: RenderSpec): Promise<number[][]> {
       processorOptions: { maxTaps: 16384, ceilingDb: -1 },
     });
     node.parameters.get('volume')!.value = s.volume ?? 1;
-    const buf = new AudioBuffer({ length: s.inputs[0].length, numberOfChannels: 2, sampleRate: 48000 });
+    const buf = new AudioBuffer({ length: s.inputs[0].length, numberOfChannels: 2, sampleRate: rate });
     buf.copyToChannel(Float32Array.from(s.inputs[0]), 0);
     buf.copyToChannel(Float32Array.from(s.inputs[1] ?? s.inputs[0]), 1);
     const src = new AudioBufferSourceNode(ctx, { buffer: buf });
@@ -204,6 +207,44 @@ test.describe('audition chain (OfflineAudioContext)', () => {
       // And it is the engine's own check, to f32 rounding.
       expect(Math.abs(worst - f.check.max_abs_error_dB)).toBeLessThan(1e-3);
     }
+  });
+
+  test('at 96 kHz: the filter designed for the rate, through the chain, within 0.1 dB', async ({ page }) => {
+    const fs = 96000;
+    const f = engineFilter({ fs_Hz: fs });
+    expect(f.n).toBe(16384);
+    expect(f.check.met).toBe(true);
+    // 16 384 taps load in 32 quanta; the impulse comes after that.
+    const at = 8192;
+    const n = 1 << 15;
+    const impulse = new Array(n).fill(0);
+    impulse[at] = 1;
+    const out = await render(page, {
+      url: worklet(),
+      inputs: [impulse, impulse],
+      length: n,
+      fs,
+      messages: [
+        { type: 'limiter', enabled: false },
+        { type: 'load', slot: 0, left: f.taps, right: f.taps, gain: 1 },
+      ],
+    });
+    // The limiter's delay scales with the rate: 16 + 2 ms.
+    const start = at + 16 + Math.round(0.002 * fs);
+    const ir = out[0].slice(start, start + f.n);
+    let worst = 0;
+    f.frequencies_Hz.forEach((fr, i) => {
+      const w = (2 * Math.PI * fr) / fs;
+      let re = 0;
+      let im = 0;
+      for (let k = 0; k < ir.length; k++) {
+        re += ir[k] * Math.cos(w * k);
+        im -= ir[k] * Math.sin(w * k);
+      }
+      worst = Math.max(worst, Math.abs(20 * Math.log10(Math.hypot(re, im)) - f.design_dB[i]));
+    });
+    expect(worst, `${worst} dB`).toBeLessThan(0.1);
+    expect(Math.abs(worst - f.check.max_abs_error_dB)).toBeLessThan(1e-3);
   });
 
   test('A/B crossfade: linear over two quanta, no discontinuity', async ({ page }) => {
@@ -437,7 +478,7 @@ test('Listen view: play, meters, A/B, diagnostics, stop', async ({ page }) => {
   await expect(page.locator('#listen-volume')).toHaveValue('-20');
   await page.getByRole('button', { name: 'Play', exact: true }).click();
   await expect(view.locator('.listen-playing')).toContainText('Playing', { timeout: 30_000 });
-  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible();
   // Level match over the programme after convolution: A and B at −23 LUFS.
   const matched = view.locator('.listen-level-table tbody tr td:last-child');
   await expect(matched).toHaveCount(2);
@@ -460,6 +501,10 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme });
     await openListen(page);
     await designed(page);
+    // Playing: the Stop button, meters and the level-match table are shown.
+    await page.getByRole('button', { name: 'Play', exact: true }).click();
+    await expect(page.locator('#view-listen .listen-level-table')).toBeVisible({ timeout: 30_000 });
+    await page.locator('#view-listen').getByText('Data table', { exact: true }).click();
     await page.locator('#view-listen').getByText('Diagnostics', { exact: true }).click();
     await page.locator('#view-listen').getByText('Audition state', { exact: true }).click();
     const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();

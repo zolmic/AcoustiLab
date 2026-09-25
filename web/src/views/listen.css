@@ -210,3 +210,18 @@
 .listen-level-table th {
   white-space: normal;
 }
+.listen-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+  margin: 6px 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.listen-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

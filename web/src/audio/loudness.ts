@@ -152,6 +152,13 @@ export const STEP_S = 0.1;
 
 const toLkfs = (z: number) => (z > 0 ? -0.691 + 10 * Math.log10(z) : -Infinity);
 
+/** Distinct channel arrays with the number of times each is given. */
+function unique(channels: ArrayLike<number>[]): [ArrayLike<number>, number][] {
+  const m = new Map<ArrayLike<number>, number>();
+  for (const x of channels) m.set(x, (m.get(x) ?? 0) + 1);
+  return [...m.entries()];
+}
+
 export interface Loudness {
   /** Integrated loudness, LUFS (−∞ when every block is gated out). */
   integrated: number;
@@ -176,7 +183,8 @@ export function integratedLoudness(channels: ArrayLike<number>[], fs: number, pe
   // Mean square per 100 ms step per channel, then per block.
   const steps = Math.floor(n / step);
   const z = new Float64Array(count);
-  for (const x of channels) {
+  // A channel array given twice (a mono programme in both ears) is filtered once and counted twice.
+  for (const [x, times] of unique(channels)) {
     const kw = new BiquadCascade(kWeighting(fs));
     if (periodic) for (let i = 0; i < n; i++) kw.step(x[i]);
     const sq = new Float64Array(steps);
@@ -192,7 +200,7 @@ export function integratedLoudness(channels: ArrayLike<number>[], fs: number, pe
     for (let j = 0; j < count; j++) {
       let acc = 0;
       for (let s = j; s < j + per; s++) acc += sq[s];
-      z[j] += acc / block;
+      z[j] += (times * acc) / block;
     }
   }
   let maxMomentary = -Infinity;
@@ -213,9 +221,11 @@ export function integratedLoudness(channels: ArrayLike<number>[], fs: number, pe
 export function rmsDb(channels: ArrayLike<number>[]): number {
   let acc = 0;
   let n = 0;
-  for (const x of channels) {
-    for (let i = 0; i < x.length; i++) acc += x[i] * x[i];
-    n += x.length;
+  for (const [x, times] of unique(channels)) {
+    let a = 0;
+    for (let i = 0; i < x.length; i++) a += x[i] * x[i];
+    acc += times * a;
+    n += times * x.length;
   }
   return n && acc > 0 ? 10 * Math.log10(acc / n) : -Infinity;
 }
@@ -223,7 +233,7 @@ export function rmsDb(channels: ArrayLike<number>[]): number {
 /** True peak (4× oversampled) over all channels, dBTP. */
 export function truePeakDb(channels: ArrayLike<number>[]): number {
   let p = 0;
-  for (const x of channels) p = Math.max(p, truePeak(x));
+  for (const [x] of unique(channels)) p = Math.max(p, truePeak(x));
   return p > 0 ? 20 * Math.log10(p) : -Infinity;
 }
 
