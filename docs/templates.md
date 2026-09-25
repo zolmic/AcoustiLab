@@ -291,8 +291,8 @@ example is an earbud, not a sealed insert: it rests at the canal entrance
 behind a foam cover (Poldy's Fig. 17), its circuit shunts the canal
 entrance to the room through the foam (a resistance labelled 4e5, a
 hundredth of the back holes' 400e5), and its rear cavity opens to the room
-through back holes and a bass tube. With those leaks its
-Fig. 21 gives about 95 dB at the IEC 711 drum point at 100 Hz. It is a
+through back holes and a bass tube. With those leaks its Fig. 21 gives
+about 95 dB at the IEC 711 drum point at 100 Hz. It is a
 simulation example, not a measured driver, and it has no mechanical loss
 (Rms = 0); the template takes Qms = 3 as an estimate and derives
 Qes = 2π·fs·Mms·Re/Bl² = 1.91. The tutorial was read in a copy hosted by a
@@ -318,9 +318,9 @@ every tolerance.
 | Loose | 87.5 | 94.6 | 104.4 | 124.8 | 123.1 | 115.3 |
 
 Sealed, the IEM is a pressure chamber: the drum level is flat within 1 dB
-from 50 Hz to a third of the in-situ resonance (the input impedance's local
-maximum near 1.3 kHz; tested). The relief vent lifts the level below its corner near
-25 Hz. Loose, the bass is lost below the leak's resonance with the coupler
+from 50 Hz to a third of the in-situ resonance (the input impedance's
+local maximum near 1.3 kHz; tested). The relief vent lifts the level below
+its corner near 25 Hz. Loose, the bass is lost below the leak's resonance with the coupler
 (near 300 Hz). The front volume and nozzle resonate near 5 kHz, where the
 input impedance has its maximum (16.3 Ω); a nozzle mesh damps it (200 rayl:
 the level falls smoothly from 118 dB at 100 Hz to 112 dB at 3 kHz). Without
@@ -335,7 +335,7 @@ pressure is p = ρc²·Sd·x/V_front, which is Bl·i/(Sd·(1 + V_front/V_rear))
 when the suspension's stiffness k_s is small. With i = 8.8 mA,
 V_front = 1.42 cm³ (the 0.1 cm³ front volume, the nozzle's 0.02 cm³ and
 the coupler's 1.30 cm³ at 100 Hz) and V_rear = 0.65 cm³ (the air space and
-the rear volume, joined through the damping, whose 3 MPa·s/m³ is small
+the rear volume, joined through the damping, whose 30 MPa·s/m³ is small
 against the rear volume's reactance below about 1.5 kHz), this gives
 117.8 dB; the engine gives 118.2 dB. Two choices set the level: a driver
 from an earbud that plays into a large leak, and the template's estimated
@@ -374,9 +374,10 @@ break-up, and balanced-armature drivers (out of the spec's scope).
   area it assumes for a volume-only cavity, the end corrections and end
   resistances), which the element tests check against their sources. The
   front (or canal-entrance) pressure agrees within
-  0.01 dB at L0 from 20 Hz to 2 kHz (observed: 1e-6 dB sealed, 0.003 dB with
-  the slit leaks, whose end correction the oracle takes from the wide-slit
-  asymptote) and within 0.05 dB at L1 from 20 to 500 Hz (observed 0.033 dB;
+  1e-4 dB at L0 from 20 Hz to 2 kHz (observed 1e-8 to 7e-6 dB), or 0.01 dB
+  with the on-ear slit leaks (observed 0.003 dB: their end correction the
+  oracle takes from the wide-slit asymptote), and within 0.05 dB at L1 from
+  20 to 500 Hz (observed 0.033 dB;
   the oracle's Π sections are the first-order form of the depth line and
   the nozzle). Cases: over-ear with and without the damping cloth; on-ear
   sealed, low and high leak; in-ear sealed and loose.

@@ -670,16 +670,17 @@ fn grid(r: &SolveResult, lo: f64, hi: f64) -> Vec<usize> {
 }
 
 /// Agreement required between the engine and the oracle. At L0 the engine
-/// solves the same lumped network; what differs is the oracle's slit end
-/// correction (the wide-slit asymptote instead of the rectangular-piston
-/// integral), worth under 0.003 dB here. At L1 the oracle's Π sections are
-/// the first-order form of the engine's lines; below 500 Hz the remainder,
-/// O((kd)²), stays under 0.035 dB.
-fn tolerance(level: u8) -> f64 {
-    if level == 0 {
-        0.01
-    } else {
-        0.05
+/// solves the same lumped network, which the oracle reproduces to about
+/// 1e-5 dB (observed 1e-8 to 7e-6 dB); with the on-ear template's wide slit
+/// leaks the oracle's end correction (the wide-slit asymptote instead of the
+/// rectangular-piston integral) differs by up to 0.003 dB. At L1 the
+/// oracle's Π sections are the first-order form of the engine's lines;
+/// below 500 Hz the remainder, O((kd)²), stays under 0.035 dB.
+fn tolerance(level: u8, wide_slit: bool) -> f64 {
+    match (level, wide_slit) {
+        (0, false) => 1e-4,
+        (0, true) => 0.01,
+        _ => 0.05,
     }
 }
 
@@ -762,7 +763,7 @@ fn over_ear_matches_its_lumped_network() {
         };
         let err = worst(&res, "p_front", 20.0, hi, oracle);
         assert!(
-            err < tolerance(level),
+            err < tolerance(level, false),
             "damping {damping}, L{level}: {err} dB"
         );
     }
@@ -852,7 +853,10 @@ fn on_ear_matches_its_lumped_network() {
             d.volume_velocity(w, e, zf + zb) * zf
         };
         let err = worst(&res, "p_front", 20.0, hi, oracle);
-        assert!(err < tolerance(level), "{fit}, L{level}: {err} dB");
+        assert!(
+            err < tolerance(level, fit != "sealed"),
+            "{fit}, L{level}: {err} dB"
+        );
     }
 }
 
@@ -958,7 +962,7 @@ fn in_ear_matches_its_lumped_network() {
             u * zf * zout / (znoz + zout) * ztip / (zstep + ztip)
         };
         let err = worst(&res, "p_tip", 20.0, hi, oracle);
-        assert!(err < tolerance(level), "{fit}, L{level}: {err} dB");
+        assert!(err < tolerance(level, false), "{fit}, L{level}: {err} dB");
     }
 }
 
