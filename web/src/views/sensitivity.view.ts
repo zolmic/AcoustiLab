@@ -114,6 +114,8 @@ class SensitivityView implements ResultView {
   private shown = false;
   private retry = 0;
   private retries = 0;
+  /** The results on screen are of an earlier design. */
+  private isStale = false;
   /** What the parameter list was last built from (rebuilt only when it changes, so focus stays). */
   private paramSig = '';
 
@@ -287,6 +289,7 @@ class SensitivityView implements ResultView {
     // Response plots (with its own warnings'); the buttons and the map
     // follow, so no button stays pressed for a mark that is gone.
     if (stale && this.selected) this.select(null, '', 0, false);
+    this.isStale = stale;
     this.stale.set(stale, 'these results were');
     this.out.classList.toggle('is-stale', stale);
     this.syncControls();
@@ -388,7 +391,9 @@ class SensitivityView implements ResultView {
       else if (!this.chosenNames().length) this.runBar.status.textContent = 'Choose at least one parameter.';
       else if (!this.res) this.runBar.status.textContent = '';
     }
-    this.metricBtn.disabled = !this.res || this.runBar.running;
+    // A tornado of a stale design would sit beside the current curves as if
+    // it were theirs: Recompute (the banner) runs everything instead.
+    this.metricBtn.disabled = !this.res || this.runBar.running || this.isStale;
   }
 
   private metricBar(): HTMLElement {

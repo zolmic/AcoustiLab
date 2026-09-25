@@ -12,7 +12,7 @@ import { lineKey } from '../keys';
 import { PlotPanel } from '../plot';
 import type { PlotGroup } from '../series';
 import { band, bandName, bandNote } from '../shading';
-import type { Num } from '../types';
+import type { Num, Shading } from '../types';
 import {
   button,
   callJson,
@@ -88,6 +88,8 @@ class TargetView implements ResultView {
   private imported: Imported[] = [];
   private report: Report | null = null;
   private reportText: string | null = null;
+  /** Validity shading of the result the report was computed from (not of a newer one still being compared). */
+  private reportShading: Shading | null = null;
   private reportError: string | null = null;
   private targetInfo = new Map<string, TargetObject>();
   /** Request counter: only the newest reply is shown. */
@@ -244,6 +246,7 @@ class TargetView implements ResultView {
       if (seq === this.seq) {
         this.report = report;
         this.reportText = text;
+        this.reportShading = cur.result.shading;
         this.reportError = null;
       }
     } catch (e) {
@@ -388,7 +391,7 @@ class TargetView implements ResultView {
       overlays: [],
       height: 'small',
     };
-    this.panel.setGroups([level, error], { freqs: r.grid_Hz, shading: cur.result.shading, highlight: null });
+    this.panel.setGroups([level, error], { freqs: r.grid_Hz, shading: this.reportShading ?? cur.result.shading, highlight: null });
     this.panel.setView(this.panel.lo, this.panel.hi);
     const item = (key: Node, text: string) => {
       const sp = el('span', 'an-legend-item');
@@ -421,7 +424,7 @@ class TargetView implements ResultView {
     const v = (x: Num) => (x === null ? 'n/a' : `${signed(x, 2)} dB`);
     const text =
       `${formatHz(f)}: ${r.response.label} ${v(r.response_dB[i])}, target ${v(r.target_dB[i])}, ` +
-      `band ${v(r.preference_band.lower_dB[i])} to ${v(r.preference_band.upper_dB[i])}, error ${v(r.error_dB[i])}; ${bandNote(cur.result.shading, f)}.`;
+      `band ${v(r.preference_band.lower_dB[i])} to ${v(r.preference_band.upper_dB[i])}, error ${v(r.error_dB[i])}; ${bandNote(this.reportShading ?? cur.result.shading, f)}.`;
     this.readout.textContent = text;
     if (fromKeyboard) this.spoken.textContent = text;
   }
@@ -436,7 +439,7 @@ class TargetView implements ResultView {
       ['Frequency (Hz)', 'Validity', 'Response', 'Target', 'Band low', 'Band high', 'Error'],
       r.grid_Hz.map((f, i) => [
         formatParam(f, 6),
-        bandName(band(cur.result.shading, f)),
+        bandName(band(this.reportShading ?? cur.result.shading, f)),
         db(r.response_dB[i]),
         db(r.target_dB[i]),
         db(r.preference_band.lower_dB[i]),

@@ -754,7 +754,7 @@ const DEG_PER_RAD: f64 = 180.0 / std::f64::consts::PI;
 /// carries it, which holds at least 1/√2 of |d ln y| somewhere, so it is
 /// still found.
 fn continuity(freqs: &[f64], gp: &[f64], gm: &[f64], scale: f64, h: f64) -> Option<String> {
-    if !(scale > 0.0) {
+    if scale.is_nan() || scale <= 0.0 {
         return None;
     }
     let mut count = 0;

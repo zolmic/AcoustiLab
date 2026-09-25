@@ -458,7 +458,8 @@ then "Run sensitivity analysis". It computes, in order:
    frequency (default 1 kHz), the mean level over a band, or a scalar
    readout (coupled resonance, bass extension, Q, ...; a readout is split
    into calls of three parameters and the rows merged in the engine's order);
-   "Update tornado" recomputes only the tornado, for the same design;
+   "Update tornado" recomputes only the tornado, for the same design
+   (disabled while the results are stale; Recompute runs everything);
 3. the **explain sentences**, `explain` with the probe and parameters.
 
 The explain panel comes first: each sentence as the engine wrote it, with a

@@ -205,7 +205,7 @@ test('readouts: Δ against the reference baseline, ambiguous resonance and missi
 
   // Two |Z| peaks: the Q values are of the first, and marked indicative.
   expect(cur.impedance.peaks.length).toBeGreaterThan(1);
-  expect(cur.impedance.q).not.toBeNull();
+  expect(cur.impedance.q.f_Hz).toBeCloseTo(cur.impedance.resonance.f_Hz, 6);
   await expect(cell('q').locator('.ro-flag')).toHaveText('⚠ indicative');
   await expect(cell('q').locator('.ro-extra')).toContainText(`of the first of ${cur.impedance.peaks.length} |Z| peaks (${formatHz(cur.impedance.q.f_Hz)})`);
   // Every cell's whole text, unclamped, one click away (the cells clamp theirs).
@@ -555,6 +555,8 @@ test('sensitivity: the colour scale is symmetric, says when it saturates, and ca
   await setParam(page, 'front_depth_mm', '16');
   await expect(page.locator('#view-sensitivity .an-stale')).toBeVisible();
   await expect(btn).toHaveAttribute('aria-pressed', 'false');
+  // Nor can a tornado of the earlier design be recomputed beside the new curves.
+  await expect(page.getByRole('button', { name: 'Update tornado', exact: true })).toBeDisabled();
   s = await analysis(page, 'sensitivity');
   expect(s.selected).toBeNull();
   expect(s.highlight).toBeNull();

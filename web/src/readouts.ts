@@ -13,10 +13,12 @@
 // The block sits above the plots and arrives after them, so its height
 // must not depend on what the engine returns: the same cells in the same
 // order every time (a dash where a design has no such readout), a status of
-// one line, a Δ line whenever a baseline is the reference, an extra line of
-// at most two lines per cell (clamped on screen; the whole text stays in
-// the page and in a tooltip), and the engine's notes behind a disclosure.
-// The plots then never move when readouts land.
+// one line (two below 600 px), a flag line in the readouts that can carry
+// a flag (empty or not), a Δ line whenever a baseline is the reference, an
+// extra line of at most two lines per cell (clamped on screen; the whole
+// text stays in the page, in a tooltip and under "All readouts in full"),
+// and the engine's notes behind a disclosure. The plots then never move
+// when readouts land.
 //
 // Numbers only: each readout names its method (a short name here, the
 // engine's method text under "Probes and methods"); the engine's notes say
