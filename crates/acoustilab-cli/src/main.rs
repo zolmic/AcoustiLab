@@ -4,10 +4,13 @@
 //! acoustilab solve <netlist.json> [--csv] [--out FILE] [--set NAME=VALUE]...
 //! acoustilab check <netlist.json> [--set NAME=VALUE]...
 //! acoustilab params <netlist.json> [--set NAME=VALUE]...
+//! acoustilab sens | tornado | explain | readouts | mc <netlist.json> [options]
 //! acoustilab types
 //! acoustilab help | --help | -h
 //! acoustilab version | --version | -V
 //! ```
+
+mod analysis;
 
 use acoustilab::expr::PValue;
 use acoustilab::params::{Overrides, Parametric};
@@ -20,7 +23,18 @@ const USAGE: &str = "usage:
   acoustilab check <netlist.json>                        parse and validate only
   acoustilab params <netlist.json>                       list the parameters and their values
     solve, check and params take --set NAME=VALUE (repeatable) to override a parameter
-  acoustilab types                                       list element types
+  acoustilab sens <netlist.json> [--probe ID]... [--param NAME]... [--step H] [--json | --csv]
+                                                         sensitivities in dB per percent
+  acoustilab tornado <netlist.json> [--probe ID] [--f HZ | --band LO HI | --readout NAME]
+                     [--param NAME]... [--json]          metric at each parameter's tolerance ends
+  acoustilab explain <netlist.json> [--probe ID] [--top N] [--step PCT] [--threshold DB] [--json]
+                                                         sentences generated from re-solves
+  acoustilab readouts <netlist.json> [--probe ID] [--impedance ID] [--rated OHM] [--re OHM]
+                      [--driver ID] [--json]             resonance, Q, impedance, sensitivity, bass
+  acoustilab mc <netlist.json> [-n N] [--seed S] [--param NAME]... [--probe ID]... [--chunk K]
+                [--csv | --json] [--out FILE]            Latin hypercube Monte Carlo over the tolerances
+    the analyses also take --set and --out; see docs/analysis.md
+  acoustilab types                                      list element types
   acoustilab help                                        print this message
   acoustilab version                                     print the engine version";
 
@@ -149,6 +163,9 @@ fn run(args: &[String]) -> Result<(), String> {
                     .write_all(text.as_bytes())
                     .map_err(|e| e.to_string()),
             }
+        }
+        "sens" | "tornado" | "explain" | "readouts" | "mc" => {
+            analysis::run(cmd, &args[1..], &overrides)
         }
         _ => Err(USAGE.into()),
     }
