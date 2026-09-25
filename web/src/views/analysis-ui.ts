@@ -81,10 +81,15 @@ export function primaryProbeOf(text: string | null | undefined): string | null {
   }
 }
 
-/** Replaces the options of a select, keeping `keep` selected when it is still offered. */
+/**
+ * Sets the options of a select, keeping `keep` selected when it is still
+ * offered. The same options are left alone, so a refresh never closes a
+ * select the viewer has open.
+ */
 export function setOptions(sel: HTMLSelectElement, options: [string, string][], keep: string | null): void {
-  sel.replaceChildren(...options.map(([v, t]) => Object.assign(el('option', undefined, t), { value: v })));
-  if (keep !== null && options.some(([v]) => v === keep)) sel.value = keep;
+  const same = sel.options.length === options.length && options.every(([v, t], i) => sel.options[i].value === v && sel.options[i].text === t);
+  if (!same) sel.replaceChildren(...options.map(([v, t]) => Object.assign(el('option', undefined, t), { value: v })));
+  if (keep !== null && options.some(([v]) => v === keep) && sel.value !== keep) sel.value = keep;
 }
 
 /** A labelled control: `<label>text</label>` then the control, in one wrapper. */

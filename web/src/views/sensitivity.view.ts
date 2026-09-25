@@ -179,7 +179,7 @@ class SensitivityView implements ResultView {
     this.heatTable = disclosure('data table', () => this.heatTableEl());
     onThemeChange(() => {
       this.div.read();
-      this.renderScale(this.heat.scaleMax, this.heat.range);
+      this.renderScale(this.heat.scaleMax, this.heat.scaleBasis);
     });
     const heatSec = el('section', 'an-section');
     this.heatHead.id = nextId('an-h');
@@ -370,6 +370,7 @@ class SensitivityView implements ResultView {
       this.runBar.run.disabled = !ready;
       if (!this.host.current()) this.runBar.status.textContent = 'Run a netlist first: the analysis uses the design on the Response tab.';
       else if (!this.probeSel.value) this.runBar.status.textContent = 'This design has no pressure probe to analyse.';
+      else if (!candidates(this.params).length) this.runBar.status.textContent = 'This netlist declares no continuous parameters to vary (docs/parameters.md).';
       else if (!this.chosenNames().length) this.runBar.status.textContent = 'Choose at least one parameter.';
       else if (!this.res) this.runBar.status.textContent = '';
     }

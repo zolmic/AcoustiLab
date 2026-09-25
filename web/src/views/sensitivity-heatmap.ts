@@ -52,13 +52,16 @@ export class HeatMap {
   cursor: { row: number; col: number } | null = null;
   highlight: Highlight | null = null;
   range: RangeMode = 'credible';
-  /** Largest |value| the colours span (set by `render`). */
+  /** Largest |value| the colours span, and over which columns (set by `render`). */
   scaleMax = 0;
+  scaleBasis: RangeMode = 'credible';
   private frame = 0;
   /** Cell colours, recomputed only when the data, the scale or the theme change (not on crosshair moves). */
   private colors: string[][] = [];
   private colorKey = '';
   private version = 0;
+  /** Scale last reported to `onScale` (the legend is rebuilt only when it changes). */
+  private scaleKey = '';
 
   constructor(
     caption: HTMLElement,
@@ -227,8 +230,11 @@ export class HeatMap {
     });
   }
 
-  /** Largest |value| over the unshaded columns ('credible') or all of them. */
-  private computeScale(): number {
+  /**
+   * Largest |value| over the unshaded columns ('credible') or all of them,
+   * and which it is: the whole sweep when nothing unshaded has a value.
+   */
+  private computeScale(): { max: number; basis: RangeMode } {
     const d = this.data!;
     let m = 0;
     let credible = 0;
@@ -239,7 +245,7 @@ export class HeatMap {
         m = Math.max(m, Math.abs(v));
       });
     }
-    return this.range === 'credible' && credible > 0 ? credible : m;
+    return this.range === 'credible' && credible > 0 ? { max: credible, basis: 'credible' } : { max: m, basis: 'all' };
   }
 
   draw(): void {
@@ -269,9 +275,13 @@ export class HeatMap {
     const widest = Math.max(...d.rows.map((r) => ctx.measureText(r.label).width));
     this.labelW = Math.round(Math.min(Math.max(90, widest + 12), w * 0.42));
     const r = this.rect();
-    const max = this.computeScale();
+    const { max, basis } = this.computeScale();
     this.scaleMax = max;
-    this.onScale(max, this.range === 'credible' && max > 0 ? 'credible' : 'all');
+    this.scaleBasis = basis;
+    if (`${max}|${basis}` !== this.scaleKey) {
+      this.scaleKey = `${max}|${basis}`;
+      this.onScale(max, basis);
+    }
 
     // Cells.
     const key = `${this.version}|${max}|${this.div.hex.neg}|${this.div.hex.mid}|${this.div.hex.pos}|${th.bg}`;
