@@ -364,15 +364,23 @@ fn all_pass_goes_mixed_with_delay_alignment() {
 
 /// The hybrid of Section 16 on the design template (3 vents against the
 /// template's one), with mixed phase forced: below the validity frequency
-/// (the rear cavity's lumped limit, 1061 Hz) the filter's phase is the
-/// model's ratio (delay aligned); from a third of an octave above it, the
-/// minimum-phase filter's. Asserted to 0.25° and 0.01° (observed 0.17°,
-/// a ripple between the bins at 50–70 Hz, and 3e-4°): both references are
-/// the engine's own spectra, so this checks the construction, not the
-/// cepstrum. Below 20 Hz the mixed filter pairs the held magnitude with
-/// the model's phase, which lengthens its low-frequency decay a little:
-/// the check's largest error is 0.074 dB there against 0.003 dB for the
-/// minimum-phase filter, still inside 0.1 dB.
+/// (the rear cavity's lumped limit, 1011 Hz) the filter is the minimum
+/// phase of its magnitude times the model's excess phase (delay aligned);
+/// from a third of an octave above it, the minimum-phase filter.
+///
+/// * Below f_v the phase follows the model's ratio (delay aligned) to 1°
+///   from 50 Hz (observed 0.55°): the two differ by the minimum phase of
+///   the band-limited (held) magnitude against that of the model's whole
+///   magnitude. The reference is the engine's exact solves at each
+///   frequency, not its FFT-grid spectra.
+/// * Above it the phase is the minimum-phase filter's to 0.01° (observed
+///   4e-5°).
+/// * The taps meet 0.1 dB from 20 Hz to 20 kHz (observed 0.028 dB), the
+///   tail is below −80 dB (observed −83 dB) and the pre-response below
+///   −80 dB (observed −86 dB). Before the review the mixed filter carried
+///   the model's own phase in band, paired with the held magnitude
+///   outside it: 0.14 dB at 20 Hz on this template (tolerance not met),
+///   tail −60 dB, pre-response −63 dB.
 #[test]
 fn mixed_phase_is_minimum_above_the_validity_frequency() {
     let text = example("design_over_ear.json");
@@ -388,8 +396,14 @@ fn mixed_phase_is_minimum_above_the_validity_frequency() {
         Baseline::Design(&mut base),
         json!({"phase": "minimum"}),
     );
+    // f_v is the lower of the designs' 10 % lumped-error frequencies (the
+    // FFT grid's reading of it; the netlists' 24-per-octave sweeps give
+    // it to their spacing): 1011 Hz for the template.
     let fv = mixed.phase.hybrid_from_hz.unwrap();
-    assert!((fv - 1061.3).abs() < 1.0, "{fv}");
+    let begin = |d: &Design| d.shading.begin_hz.unwrap();
+    let want = begin(&cand).min(begin(&base));
+    assert!((fv / want - 1.0).abs() < 0.03, "{fv} Hz against {want} Hz");
+    assert!((fv - 1011.2).abs() < 1.0, "{fv}");
     let pre = mixed.latency_samples as f64 / mixed.fs_hz;
     let tau = mixed.phase.delay_removed_s;
     let (mut below, mut above) = (0.0f64, 0.0f64);
@@ -404,10 +418,13 @@ fn mixed_phase_is_minimum_above_the_validity_frequency() {
             above = above.max(wrap(h.arg() - hm.arg()).to_degrees().abs());
         }
     }
-    assert!(below < 0.25, "{below} degrees");
+    assert!(below < 1.0, "{below} degrees");
     assert!(above < 0.01, "{above} degrees");
-    assert!(mixed.check.as_ref().unwrap().met);
-    assert!(mixed.pre_energy_db.unwrap() < -50.0);
+    let c = mixed.check.as_ref().unwrap();
+    assert!(c.met && c.max_abs_error_db < 0.05, "{c:?}");
+    assert!(mixed.tail_energy_db < -80.0, "{}", mixed.tail_energy_db);
+    assert!(mixed.pre_energy_db.unwrap() < -80.0);
+    assert!(mixed.flags.is_empty(), "{:?}", mixed.flags);
 }
 
 /// Linear phase: the taps are symmetric about N/2 (f32 rounding aside),

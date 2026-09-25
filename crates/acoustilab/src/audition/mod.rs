@@ -33,11 +33,13 @@
 //!    filter itself, whose excess phase is the candidate's minus the
 //!    baseline's (a magnitude-only baseline counts as minimum phase).
 //!    `minimum`: the cepstral minimum phase of M ([`min_phase_fir_spectrum`]),
-//!    with the filter's polarity. `mixed`: below the validity frequency f_v
-//!    (the lowest `begin_hz` of the designs' shading, capped at the band
-//!    top) the model's own complex ratio, advanced by the pure-delay
-//!    estimate (delay alignment); above f_v minimum phase, crossfaded in
-//!    phase over 1/3 octave (the hybrid). `linear`: M delayed by N/2
+//!    with the filter's polarity. `mixed`: the minimum phase of M times
+//!    the model's excess phase (its all-pass part, arg of the ratio over
+//!    the ratio of the designs' own minimum-phase counterparts), advanced
+//!    by the pure-delay estimate (delay alignment), below the validity
+//!    frequency f_v (the lowest `begin_hz` of the designs' shading, capped
+//!    at the band top); above f_v minimum phase, crossfaded in phase over
+//!    1/3 octave (the hybrid). `linear`: M delayed by N/2
 //!    samples (a diagnostic: its pre-ringing would be blamed on the
 //!    design). `auto` takes `minimum` when the decision passes, else
 //!    `mixed`.
@@ -721,19 +723,6 @@ fn anchor_mean(grid: &[f64], db: &[f64]) -> f64 {
     }
 }
 
-/// Unwraps a phase sequence from index `k0` both ways.
-fn unwrap_from(raw: &[f64], k0: usize) -> Vec<f64> {
-    let mut ph = raw.to_vec();
-    let wrap = |d: f64| d - 2.0 * PI * (d / (2.0 * PI)).round();
-    for k in k0 + 1..raw.len() {
-        ph[k] = ph[k - 1] + wrap(raw[k] - raw[k - 1]);
-    }
-    for k in (0..k0).rev() {
-        ph[k] = ph[k + 1] + wrap(raw[k] - raw[k + 1]);
-    }
-    ph
-}
-
 /// The filter's DTFT at frequency `f` from its taps (Horner's scheme in
 /// e^{−jω/fs}, double precision).
 pub fn dtft(taps: &[f32], fs_hz: f64, f: f64) -> C64 {
@@ -1085,28 +1074,20 @@ pub fn audition(cand: &mut Design, base: Baseline, opts: &Options) -> Result<Aud
         PhaseRequest::Mixed => {
             let tau = decision.pure_delay_s;
             let f_v = validity.unwrap_or(band.1).min(band.1);
-            // The target phase: the model's complex filter (a design
-            // baseline) or the candidate's excess over the minimum phase of
-            // M (a magnitude-only baseline, taken as minimum phase).
-            let d: Vec<f64> = match &base {
-                Baseline::Design(_) => {
-                    let raw: Vec<f64> = (0..=half)
-                        .map(|k| {
-                            let aligned =
-                                r_bins[k] * C64::from_polar(1.0, 2.0 * PI * k as f64 * df * tau);
-                            if aligned.norm() > 0.0 && s_min[k].norm() > 0.0 {
-                                (aligned / s_min[k]).arg()
-                            } else {
-                                0.0
-                            }
-                        })
-                        .collect();
-                    unwrap_from(&raw, k0)
-                }
-                _ => (0..=half)
-                    .map(|k| excess.phase_rad[k] + 2.0 * PI * k as f64 * df * tau)
-                    .collect(),
-            };
+            // The model's excess phase, delay aligned: arg(R/R_min), with
+            // R the filter's complex ratio and R_min the ratio of the
+            // designs' own cepstral minimum-phase counterparts (for a
+            // magnitude-only baseline, taken as minimum phase, the
+            // candidate's). It multiplies the minimum phase of M: a
+            // minimum-phase filter times the model's all-pass part. (Before
+            // the review the target was arg(R)·delay − arg(min phase of M),
+            // i.e. the model's own phase in band; paired with the held
+            // magnitude outside the band it gave a slow low-frequency
+            // decay: 0.14 dB error at 20 Hz for the template's 3 vents,
+            // tail −60 dB, against 0.028 dB and −83 dB now.)
+            let d: Vec<f64> = (0..=half)
+                .map(|k| excess.phase_rad[k] + 2.0 * PI * k as f64 * df * tau)
+                .collect();
             // The excess phase d is kept below f_v and crossfaded to a
             // multiple of 2π (minimum phase) above it ([`HybridPhase`]).
             let nyquist = half as f64 * df;

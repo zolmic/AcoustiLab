@@ -93,12 +93,12 @@ bins both designs trust (solved, unshaded, within 60 dB of the peak).
 | mode | construction | latency |
 |---|---|---|
 | `minimum` | cepstral minimum phase of M (`min_phase_fir_spectrum`, 4× refined), with the filter's polarity | 0 |
-| `mixed` | below the validity frequency f_v, the model's own complex ratio advanced by the pure-delay estimate (delay alignment); above f_v, minimum phase, crossfaded over 1/3 octave (the **hybrid**: "forced above the model's declared validity frequency") | N/32 samples of pre-response |
+| `mixed` | below the validity frequency f_v, the minimum phase of M times the model's excess phase (the ratio's all-pass part: arg(R/R_min), R_min the ratio of the designs' own cepstral minimum-phase counterparts), advanced by the pure-delay estimate (delay alignment); above f_v, minimum phase, crossfaded over 1/3 octave (the **hybrid**: "forced above the model's declared validity frequency") | N/32 samples of pre-response |
 | `linear` | M delayed by N/2: a diagnostic (`linear_phase_diagnostic`), since its pre-ringing would be blamed on the design | N/2 |
 | `auto` (default) | `minimum` when the filter's largest excess group delay in the trusted band is below 0.5 ms, else `mixed` | |
 
 f_v is the lowest `begin_hz` of the two designs' shading (10 % lumped
-error; 1061 Hz for the design template), capped at the band top. In the
+error; 1011 Hz for the design template), capped at the band top. In the
 crossfade above f_v the excess phase goes to the multiple of 2π *below* it,
 so the phase keeps falling and the group delay stays non-negative, unless
 the multiple above is within 45°. For a 0.5 ms all-pass lattice, whose
@@ -110,6 +110,15 @@ causally). Below the band the excess phase is kept (it tends to 0 or π at
 DC); crossfading it to minimum phase over the few bins below 20 Hz made a
 narrowband phase feature whose decay outlasted N.
 
+In band the mixed filter's phase follows the model's ratio (delay aligned)
+to the difference between the minimum phase of the held, band-limited
+magnitude and that of the model's whole magnitude: 0.55° from 50 Hz up
+for the template's 3 vents. Until the review the mixed filter carried the
+model's ratio phase itself in band, paired with the held magnitude
+outside it; on the revised template that pairing decayed slowly at low
+frequencies and missed the 0.1 dB tolerance (0.14 dB at 20 Hz, tail
+−60 dB, pre-response −63 dB, against 0.028 dB, −83 dB and −86 dB now).
+
 Windows (Tukey): minimum phase, a half-cosine over the last N/16 samples;
 mixed phase, a rise over the first N/32 (the pre-response) and the same
 fall; linear phase, N/16 at both ends. The report gives the energy of the
@@ -118,7 +127,7 @@ filter's pre-response (`pre_energy_dB`).
 
 The reason for the chosen mode is an engine sentence in the report, e.g.
 "Minimum phase: the filter's largest excess group delay in its trusted
-band (105 Hz to 1061 Hz) is 0.001 ms, below the 0.5 ms threshold". The
+band (105 Hz to 1008 Hz) is 0.001 ms, below the 0.5 ms threshold". The
 0.5 ms threshold is the spec's, "to be confirmed from" Blauert and Laws
 (1978); it has not been checked against that paper here.
 
@@ -174,14 +183,17 @@ against the analytic filter (`tests/audition.rs`):
 |---|---|
 | RLC ratio (1 kHz, Q = 2 over 1.5 kHz, Q = 0.7), closed form | 3e-5 dB |
 | design template, 3 vents over 1 | 0.003 dB |
-| front depth 14 mm (a Q = 147 resonance at 12.4 kHz in the ratio) | 0.0006 dB |
-| leak gap 0.3 mm (the ratio falls 24 dB below the anchor at 20 Hz) | 0.012 dB |
-| open back | 0.005 dB |
-| Type 4.3 ear (flagged: another reference point) | 0.004 dB |
-| 3 vents, mixed phase / linear phase | 0.074 dB / 0.002 dB |
-| 3 vents at 44.1 kHz / 96 kHz (N = 16 384) | 0.002 / 0.003 dB |
+| front depth 14 mm (a Q = 155 resonance at 12.4 kHz in the ratio) | 0.003 dB |
+| leak gap 0.3 mm (the ratio falls 25 dB below the anchor at 20 Hz) | 0.015 dB |
+| open back | 0.008 dB |
+| Type 4.3 ear (flagged: another reference point) | 0.002 dB |
+| 3 vents, mixed phase / linear phase | 0.028 dB / 0.002 dB |
+| 3 vents at 44.1 kHz / 96 kHz (N = 16 384) | 0.004 / 0.003 dB |
 | target baseline (Ravizza 2023, 5128) | 0.004 dB |
 | 200 Hz, Q = 8 resonance over a divider (N = 16 384 by E46) | 0.0009 dB |
+
+(Template figures from the template as revised after this package was
+written, recomputed in review with `acoustilab audition`.)
 
 The whole chain gives the same figures: the impulse response of the
 worklet, rendered in Chromium's OfflineAudioContext with the engine's taps

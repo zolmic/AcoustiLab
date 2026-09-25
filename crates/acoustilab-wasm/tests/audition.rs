@@ -106,10 +106,12 @@ fn targets_curves_and_absolute_mode() {
         .any(|f| f["code"] == "fixture_mismatch"));
     // A measured curve (the template's own response as a curve document)
     // against the template. Where the curve stays near its 500 Hz–2 kHz
-    // level (below 700 Hz: within 3 dB) the inversion undoes it to 1 dB
-    // (sixth-octave smoothing and regularisation are what remain). Above
-    // 3 kHz the template lies more than 20 dB below that level; the 12 dB
-    // cap leaves the rest uninverted, so the filter keeps a deep cut there.
+    // level (below 700 Hz) the inversion undoes it to 1 dB (sixth-octave
+    // smoothing and regularisation are what remain; 0.16 dB observed).
+    // From 3 to 6 kHz the revised template lies about 12 dB below that
+    // level: the regularisation (−0.9 dB there) and the smoothing leave a
+    // cut of 1.7 dB. (Before the template's revision it lay more than 20 dB
+    // below, and the cut exceeded 6 dB.)
     let r = acoustilab::Circuit::from_json(&text)
         .unwrap()
         .solve()
@@ -141,8 +143,11 @@ fn targets_curves_and_absolute_mode() {
     };
     let (lo, hi) = worst(20.0, 700.0);
     assert!(lo > -1.0 && hi < 1.0, "{lo} {hi}");
+    // Where the baseline lies far below its reference the regularised
+    // inverse falls short of 1/b by b²/(b² + β), and the smoothing leaves
+    // the unsmoothed detail: the filter keeps a cut there.
     let (lo, _) = worst(3000.0, 6000.0);
-    assert!(lo < -6.0, "{lo}");
+    assert!(lo < -1.0, "{lo}");
     assert!(m["check"]["met"].as_bool().unwrap());
     let a = call(&cand, &Value::Null, r#"{"mode": "absolute"}"#);
     assert_eq!(a["mode"], "absolute");
@@ -209,6 +214,22 @@ fn errors_name_their_kind() {
             "",
             "probe",
             "nope",
+        ),
+        // These panicked (index out of bounds) before the review: a panic
+        // in wasm kills the worker.
+        (
+            cand.clone(),
+            base.clone(),
+            r#"{"band_Hz": [3000, 10000]}"#,
+            "options",
+            "anchor band",
+        ),
+        (
+            cand.clone(),
+            json!({"kind": "target", "target": "ravizza2023_5128"}),
+            r#"{"fs_Hz": 16000, "inversion": {"band_Hz": [8000, 16000]}}"#,
+            "netlist",
+            "inversion band",
         ),
     ] {
         let v = audition_filter_value(&c.to_string(), &b.to_string(), o);
