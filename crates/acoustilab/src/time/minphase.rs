@@ -44,7 +44,7 @@
 //! analytic phase to 0.01° for a flat-topped response and to 1° at 19 kHz
 //! for one still falling 12 dB/octave at 20 kHz (0.05° below 1 kHz); the
 //! filter keeps its energy at negative times below −89 dB for the same
-//! networks (`tests/time.rs`; numpy study in docs/time-domain.md). Both
+//! networks (`tests/time.rs`; numpy study: `tools/time/minphase_study.py`). Both
 //! spectra have the magnitude of H at every bin.
 //!
 //! **Polarity.** The excess phase is referred to the all-pass with unit DC

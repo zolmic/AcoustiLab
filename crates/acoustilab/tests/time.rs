@@ -576,7 +576,7 @@ fn impulse_length_rule_e46() {
 /// band-limits it symmetrically: the high-pass, flat to 20 kHz, keeps a
 /// band-limited impulse at t = 0 with energy at negative times near the
 /// band-edge share of its spectrum. The minimum-phase filter is causal in
-/// both cases (below −80 dB; the numpy study of the same construction gives
+/// both cases (below −80 dB; `tools/time/minphase_study.py` gives
 /// −89 dB for the high-pass).
 #[test]
 fn minimum_phase_system_is_causal() {
@@ -632,7 +632,7 @@ fn phase_error(
 /// The cepstral minimum phase of known minimum-phase networks against
 /// their analytic phase, over 20 Hz–20 kHz with the band solved to 20 kHz
 /// and tapered above. Tolerances: the method's error, measured
-/// independently in numpy on the same spectra (docs/time-domain.md):
+/// independently in numpy on the same spectra (`tools/time/minphase_study.py`):
 /// flat-topped responses (high-pass, notch) 0.002°, allowed 0.01°; a
 /// response still falling 12 dB/octave at 20 kHz 0.83° at 19 kHz and
 /// 0.042° at 1 kHz with the default 8× extension, allowed 1° and 0.05°.
@@ -1098,4 +1098,112 @@ fn design_template_attribution() {
     assert!((depth.parameters[0].dlnf_dlnp + 1.0).abs() < 0.05);
     let ear = find(7_100.0);
     assert!(ear.fixed_elements.contains(&"ear".to_string()), "{:?}", ear);
+}
+
+// ----- Pure delay, alignment and energy concentration -----------------------
+
+/// A 100 mm tube of radius 10 mm between a matched source and a matched
+/// termination (ρc/S): a travelling wave, H ≈ e^{−jωL/c} with small
+/// thermoviscous dispersion.
+fn matched_tube() -> Circuit {
+    let air = acoustilab::AirState::spec_reference();
+    let zc = air.rho_c() / (PI * 1e-4);
+    let doc = json!({
+        "air": {"preset": "spec_reference"},
+        "sweep": {"f_min_Hz": 10, "f_max_Hz": 20000, "points_per_octave": 24},
+        "nodes": [{"id": "s", "domain": "acoustic"}, {"id": "a", "domain": "acoustic"}],
+        "elements": [
+            {"id": "src", "type": "pressure_source", "node": "s", "p_Pa": 2.0, "Zs_Pa_s_per_m3": zc},
+            {"id": "tube", "type": "tube", "nodes": ["s", "a"], "radius_mm": 10, "length_mm": 100},
+            {"id": "end", "type": "acoustic_resistance", "node": "a", "R_Pa_s_per_m3": zc}
+        ],
+        "probes": [{"id": "p", "quantity": "pressure", "node": "a"}]
+    });
+    Circuit::from_json(&doc.to_string()).unwrap()
+}
+
+/// The matched tube's excess group delay is its propagation delay L/c =
+/// 291.5 µs (to 2 %: the boundary layers slow the wave by
+/// ~δ_v/a·(1 + (γ−1)/√Pr)/2, under 1 % above 100 Hz). The decision is
+/// minimum phase (below 0.5 ms), the pure delay is found, and alignment
+/// advances the mixed-phase IR's peak by that delay.
+#[test]
+fn pure_delay_of_a_matched_tube_and_alignment() {
+    let c = matched_tube();
+    let tau = 0.1 / 343.0;
+    let plain = impulses(
+        &c,
+        "p",
+        &ImpulseRequest {
+            length_check: false,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let d = &plain.decision;
+    assert!(
+        (d.pure_delay_s / tau - 1.0).abs() < 0.02,
+        "{} vs {tau}",
+        d.pure_delay_s
+    );
+    assert!(
+        (d.max_excess_gd_s / tau - 1.0).abs() < 0.02,
+        "{}",
+        d.max_excess_gd_s
+    );
+    assert_eq!(d.mode, "minimum");
+    let aligned = impulses(
+        &c,
+        "p",
+        &ImpulseRequest {
+            length_check: false,
+            align_delay: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(aligned.delay_removed_s, d.pure_delay_s);
+    let shift = plain.mixed.peak_s - aligned.mixed.peak_s;
+    assert!((shift - d.pure_delay_s).abs() <= 1.0 / 48_000.0, "{shift}");
+}
+
+/// Minimum-phase energy concentration (spec Section 17; Robinson's
+/// energy-delay theorem): among causal sequences with the same magnitude
+/// spectrum the minimum-phase one accumulates energy fastest, so its
+/// partial energies dominate at every sample. The mixed-phase sequence
+/// must itself be causal for the theorem to apply, so the response is
+/// negligible at Nyquist: a 200 Hz, Q = 0.7 low-pass (−83 dB at 24 kHz)
+/// times the all-pass (a − s)/(a + s), a = 2π·300 rad/s. Tolerance 1e-9
+/// of the total energy (the totals are equal by Parseval).
+#[test]
+fn minimum_phase_energy_concentration() {
+    let lp = Lp::new(200.0, 0.7, 1e-6);
+    let a = 2.0 * PI * 300.0;
+    let n = 16384;
+    let df = 48_000.0 / n as f64;
+    let mut half: Vec<C64> = (0..=n / 2)
+        .map(|k| {
+            let s = jw(k as f64 * df);
+            lp.h(s) * (a - s) / (a + s)
+        })
+        .collect();
+    half[n / 2] = C64::new(half[n / 2].re, 0.0);
+    let fir =
+        acoustilab::time::minphase::min_phase_fir_spectrum(&half, (1, n / 2), df, None, 4, 1.0);
+    let mixed = impulse(&half, 48_000.0, 0).h;
+    let minimum = impulse(&fir, 48_000.0, 0).h;
+    let total: f64 = mixed.iter().map(|v| v * v).sum();
+    let total_min: f64 = minimum.iter().map(|v| v * v).sum();
+    assert!((total_min / total - 1.0).abs() < 1e-9);
+    let (mut e_min, mut e_mix) = (0.0, 0.0);
+    for (x, y) in minimum.iter().zip(&mixed) {
+        e_min += x * x;
+        e_mix += y * y;
+        assert!(e_min >= e_mix - 1e-9 * total, "{e_min} < {e_mix}");
+    }
+    // The all-pass holds back a measurable share: after 1 ms the mixed
+    // response has delivered less energy than the minimum-phase one.
+    let m = 48;
+    let head = |h: &[f64]| h[..m].iter().map(|v| v * v).sum::<f64>() / total;
+    assert!(head(&minimum) > head(&mixed) + 0.01);
 }

@@ -50,6 +50,9 @@ pub struct ImpulseRequest {
     /// Run the rational fit for the E46 impulse-length check.
     pub length_check: bool,
     pub fit: PoleFitOptions,
+    /// Remove the pure-delay estimate from the mixed-phase IR (Section 16,
+    /// mode 2 "delay alignment"): multiply its spectrum by e^{+jωτ}.
+    pub align_delay: bool,
 }
 
 impl Default for ImpulseRequest {
@@ -62,6 +65,7 @@ impl Default for ImpulseRequest {
             threshold_s: EXCESS_GD_THRESHOLD_S,
             length_check: true,
             fit: PoleFitOptions::default(),
+            align_delay: false,
         }
     }
 }
@@ -84,12 +88,13 @@ pub struct Impulses {
     pub group_delay: Vec<f64>,
     pub ir_length: Option<IrLengthCheck>,
     pub fit_error: Option<String>,
+    /// Delay removed from the mixed-phase IR, s (0 unless aligned).
+    pub delay_removed_s: f64,
 }
 
 pub fn impulses(circuit: &Circuit, probe: &str, req: &ImpulseRequest) -> Result<Impulses> {
     let response = uniform_response(circuit, probe, &req.uniform)?;
     let pre = req.pre.unwrap_or_else(|| default_pre(response.n));
-    let mixed = impulse(&response.values, response.fs_hz, pre);
     let mp = min_phase(&response, &req.min_phase);
     let fir = min_phase_fir(&response, req.min_phase.refine, mp.polarity);
     let minimum = impulse(&fir, response.fs_hz, pre);
@@ -107,6 +112,25 @@ pub fn impulses(circuit: &Circuit, probe: &str, req: &ImpulseRequest) -> Result<
         mp.polarity,
         req.threshold_s,
     );
+    let delay_removed = if req.align_delay {
+        decision.pure_delay_s
+    } else {
+        0.0
+    };
+    let mixed = if delay_removed != 0.0 {
+        let df = response.df();
+        let mut v: Vec<crate::C64> = response
+            .values
+            .iter()
+            .enumerate()
+            .map(|(k, h)| h * crate::C64::from_polar(1.0, 2.0 * PI * k as f64 * df * delay_removed))
+            .collect();
+        let half = v.len() - 1;
+        v[half] = crate::C64::new(v[half].re, 0.0);
+        impulse(&v, response.fs_hz, pre)
+    } else {
+        impulse(&response.values, response.fs_hz, pre)
+    };
     let group_delay = group_delay_dense(&response.values, response.fs_hz);
     let (ir_length, fit_error) = if req.length_check {
         match fit_probe(circuit, probe, &req.fit) {
@@ -130,6 +154,7 @@ pub fn impulses(circuit: &Circuit, probe: &str, req: &ImpulseRequest) -> Result<
         group_delay,
         ir_length,
         fit_error,
+        delay_removed_s: delay_removed,
     })
 }
 
@@ -186,7 +211,8 @@ impl Impulses {
             "drive": r.drive,
             "shading": r.shading,
             "warnings": r.warnings,
-            "time_axis": "sample m is at t = t0_s + m*dt_s; the buffers are the circular IDFT rotated by pre_samples; no other delay is applied",
+            "delay_removed_s": self.delay_removed_s,
+            "time_axis": "sample m is at t = t0_s + m*dt_s; the buffers are the circular IDFT rotated by pre_samples; the mixed-phase IR is advanced by delay_removed_s (0 unless aligned), nothing else is shifted",
             "scaling": "h[n] = IDFT(H): the response to a one-sample unit pulse of the drive, in the probe's unit per unit of drive per sample",
         });
         if spectrum {

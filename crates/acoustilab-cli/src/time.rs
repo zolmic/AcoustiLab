@@ -8,7 +8,7 @@ use acoustilab::Circuit;
 use std::io::Write;
 
 pub const USAGE: &str = "  acoustilab ir <netlist.json> [--probe ID] [--fs 48000] [--n 8192] [--phase min|mixed]
-                 [--pre SAMPLES] [--wav FILE] [--wav-raw] [--csv] [--out FILE] [--no-check]
+                 [--pre SAMPLES] [--align] [--wav FILE] [--wav-raw] [--csv] [--out FILE] [--no-check]
                                                         impulse, step, ETC, minimum phase and excess phase
   acoustilab poles <netlist.json> [--probe ID] [--order 30] [--attribute] [--json] [--out FILE]
                                                         vector fit: poles, zeros, Q and fit error
@@ -103,6 +103,7 @@ pub fn ir(path: &str, args: &[String], overrides: &Overrides) -> Result<(), Stri
         req.uniform.n = n;
     }
     req.pre = f.number("--pre")?;
+    req.align_delay = f.switch("--align");
     let phase = f.value("--phase")?;
     let wav = f.value("--wav")?;
     let raw = f.switch("--wav-raw");

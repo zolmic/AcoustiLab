@@ -10,7 +10,7 @@
 //! * [`impulse_value`] options: `probe`, `fs_Hz` (48000), `n` (8192),
 //!   `f_min_Hz`, `f_max_Hz`, `pre_samples` (n/32), `refine` (4), `extend`
 //!   (8), `threshold_ms` (0.5), `ir_length_check` (true), `order` (30),
-//!   `spectrum` (true).
+//!   `align_delay` (false), `spectrum` (true).
 //! * [`vector_fit_value`] options: `probe`, `order` (30), `iterations`
 //!   (12), `asymptote` (`zero` | `constant` | `linear`), `weighting`
 //!   (`relative` | `uniform`), `f_min_Hz`, `f_max_Hz`, `q_min` (1),
@@ -175,6 +175,7 @@ pub fn impulse_value(netlist_json: &str, overrides_json: &str, options_json: &st
             }
             req.fit.vf.order = order;
         }
+        req.align_delay = o.bool("align_delay")?.unwrap_or(false);
         let spectrum = o.bool("spectrum")?.unwrap_or(true);
         o.finish()?;
         let (p, _, c) = load(netlist_json, overrides_json)?;
