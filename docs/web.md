@@ -51,6 +51,7 @@ npm run dev            # build the wasm, then serve with hot reload on http://lo
 npm run build          # build the wasm, type-check, bundle into web/dist
 npm run preview        # serve web/dist on http://localhost:4173
 npm test               # build, then run the Playwright tests in Chromium
+                       # (PW_PORT=4188 npm test if port 4173 is taken)
 npm run screenshot     # build, then refresh docs/img/web-ui.png
 ```
 
@@ -163,9 +164,15 @@ and every other character, the user's formatting included, stays as it
 was. Switching to the Netlist tab therefore always shows the current design,
 and a hand edit in the Netlist tab reaches the Design tab (its parameters
 are described again 250 ms after the last keystroke, and the Design tab
-solves the text when it is shown). A netlist that is not valid JSON, or whose
-parameters the engine rejects, shows the engine's message in the Design tab
-with a button to the editor.
+solves the text when it is shown, after any Run still in flight). The panel
+writes only over text it has seen, the text its controls were built from or
+its own last write: a control used after a hand edit or a load, before the
+engine has described the new text, would compute its value from the old one,
+so that edit is dropped and the control is reset from the new description. A
+netlist that is not valid JSON, or whose parameters the engine rejects, shows
+the engine's message in the Design tab with a button to the editor. The
+scanner rejects lone `\u` surrogates, which `JSON.parse` accepts but
+serde_json does not.
 
 ### Design panel
 
@@ -179,8 +186,11 @@ with a button to the editor.
     step is a hint, the bounds are hard). Typed text is checked against
     `min`/`max` and must be a number, optionally followed by the unit; a
     rejected entry shows an inline message and is never written to the
-    netlist. <kbd>Esc</kbd> restores the value.
-  - *integer*: − / + stepper with a numeric entry.
+    netlist. <kbd>Esc</kbd> restores the value. The entry's accessible
+    description gives its bounds and says that the arrow keys step it (a
+    text entry announces neither), and the bounds are its tooltip.
+  - *integer*: − / + stepper with a numeric entry; always a whole number
+    within the bounds, whatever `step` says.
   - *boolean*: a switch. *choice*: segmented radio buttons for up to three
     options (stacked when their labels are long), a select otherwise.
   - *derived*: the read-only value with its unit; the expression is in a
@@ -189,6 +199,10 @@ with a button to the editor.
   the template the netlist was loaded from; "Reset all (n)" restores them
   all at once (the text returns to the template byte for byte). A changed
   row carries a bar at its left edge, and its section counts the changes.
+  The keyboard focus survives a reset: a row's ↺ hands it to the restored
+  control before hiding, and "Reset all" is marked unavailable with
+  `aria-disabled` rather than `disabled` (a disabled or hidden button drops
+  the focus to the page in Chromium).
 - **Help**: `description` is behind a "?" button (and linked to the control
   with `aria-describedby`).
 - **Show detailed parameters** also shows the `advanced` parameters, each
@@ -204,8 +218,11 @@ with a button to the editor.
   on the second worker, so derived values and the sketch follow a drag
   without waiting for the solve. Measured in Chromium (headless, this
   container, `design.spec.ts`), the template (265 frequencies, 7 probes, L1)
-  solves in the worker in about 30 to 60 ms, and a click on a stepper is
-  drawn about 50 to 60 ms later.
+  solves in the worker in a median of about 30 ms, and a click on a stepper
+  is drawn about 50 ms later; with the container's four cores busy with other
+  builds the same test measured medians of 90 to 200 ms and 110 to 130 ms.
+  The solve status is a live region: it says when operating limits are
+  exceeded, so a change that crosses one is announced, not only drawn.
 
 ### Cross-section sketch
 
@@ -216,9 +233,14 @@ diameter, the pads with the leak gap under them, the closed rear cavity with
 its wall and vents (a hatch over each vent when it has a mesh) or the open
 grille, and the ear-load surface with its label. Dimensions are labelled in
 millimetres, with a scale bar. Nothing is invented: a slot left unbound is
-not drawn. Two things are not to scale and say so on screen: the leak gap
-(tenths of a millimetre, drawn a few pixels high with its true value) and the
-positions of the vents along the section. The scale covers the template's
+not drawn. Every dimension is to scale (the tests check the front and rear
+cavities, pad, diaphragm and vent widths against the parameters) except what
+the caption lists: the leak gap (tenths of a millimetre, drawn 3 to 10 px
+high with its true value, and labelled "drawn enlarged" only when that is
+larger than to scale), the positions of the vents along the section, and
+symbols that carry no dimension: the diaphragm's dome, the side walls (drawn
+as thick as the vented top wall, `vent_length_mm`), the open-back grille's
+height above the driver, and the head surface. The scale covers the template's
 geometry, so it stays put while you edit and only zooms out when the design
 grows beyond it; the sketch's height depends only on the panel width, so the
 controls below it never move during a drag.
@@ -266,11 +288,12 @@ The text alternative lists every dimension the drawing shows.
   overlay. Its default name lists the parameters that differ from the
   template (`vent_count=3, front_depth_mm=12`), or "template values"; the
   name is editable, and any number can be kept. Baselines are drawn under the
-  live curves as thin (1.25 px) lines in the colour of the live curve they
-  shadow, each baseline with its own dash pattern, none of which a live curve
-  uses (five patterns; from the sixth baseline on they repeat, and the names
-  tell them apart); the list shows each pattern, and plot descriptions name
-  them. One
+  live curves as thin (1.25 px) lines in a muted tone of the live curve's
+  colour (half mixed with the secondary ink, which keeps at least 3.5:1
+  against the plot surface and both shades in either theme), each baseline
+  with its own dash pattern, none of which a live curve uses (five patterns;
+  from the sixth baseline on they repeat, and the names tell them apart); the
+  list shows each pattern, and plot descriptions name them. One
   baseline is the Δ reference: the readout adds "Δ +1.23 dB vs baseline
   “name”" to every SPL curve (marked ≈ where the baseline is on another
   frequency grid and is interpolated in log frequency), and the optional
@@ -398,8 +421,8 @@ Every action also has a button.
   adjacent-pair colour-vision-deficiency separation checked (OKLab ΔE ≥ 8 under
   simulated protanopia and deuteranopia). Colour and dash follow the probe's
   position in the netlist, so hiding a curve never repaints the others.
-  Baselines are thinner and use dash patterns no live curve uses, and are
-  named in the legend list, the plot descriptions and the readout.
+  Baselines are thinner, muted and use dash patterns no live curve uses,
+  and are named in the legend list, the plot descriptions and the readout.
 - Every control is reachable with the keyboard and every slider has a
   numeric entry; sliders announce their value with its unit
   (`aria-valuetext`). Choices are radio groups, the detail switch is a
@@ -427,8 +450,11 @@ commas, comments, leading zeros, bad escapes) with the offset of the fault,
 records exact spans, and a rewrite produces exactly the expected text (the
 old token replaced in place) on compact, pretty, CRLF and tab-indented text,
 shorthand scalars, object forms with `value` after other keys, nested
-`choices` with their own `value` keys, duplicate declarations (the last, as
-in the engine) and escaped key spellings.
+`choices` with their own `value` keys, duplicate declarations and duplicate
+`parameters` blocks (the last, as in the engine), escaped key spellings, a
+parameter named `value` and a `parameters` key inside an element. Escaped
+surrogate pairs decode, lone surrogates are rejected (as serde_json does),
+and a name given twice to `setParams` takes its last value.
 
 `design.spec.ts`:
 
@@ -459,11 +485,18 @@ in the engine) and escaped key spellings.
 10. A hand edit in the Netlist tab reaches the Design tab (and a solve), an
     unreadable netlist is reported there, and the detailed view shows
     tolerances, expressions and "Show in netlist".
-11. The sketch is to scale (the front cavity's aspect ratio is 2r/d, the
-    diaphragm's width d/2r) and linked both ways with the controls.
-12. Open sections are remembered; at 390 px nothing scrolls sideways.
-13. axe-core in light and dark themes with every panel open, and Tab reaches
-    every kind of control.
+11. Races: a Run of a dense sweep still in flight when an edited text is
+    shown in the Design tab is followed by a solve of that text, whose
+    result stays; a stepper clicked in the same task as a hand edit (before
+    the engine has described it) does not overwrite the edit.
+12. The sketch is to scale (the front cavity's aspect ratio is 2r/d; the
+    diaphragm, rear-cavity depth V/(πr²), pad and vent widths relative to
+    2r; the leak gap is labelled enlarged) and linked both ways with the
+    controls.
+13. Open sections are remembered; at 390 px nothing scrolls sideways.
+14. axe-core in light and dark themes with every panel open, and Tab reaches
+    every kind of control. Resets keep the keyboard focus; entries announce
+    their bounds; exceeded limits are announced with the solve.
 
 `smoke.spec.ts` (the netlist editor and plots, on `sealed_cup` and
 closed-form netlists):
@@ -517,6 +550,14 @@ The Rust side (`cargo test -p acoustilab-wasm`) tests the JSON API natively.
   models do not expose their canal geometry as parameters), no pinna, liner,
   baffle or fixture geometry.
 - **Tolerances** are shown, not yet used (no Monte Carlo band in the UI).
+- **Designer workflow.** Comparing with the template needs a Freeze before
+  the first change (no automatic or one-click "template" baseline); the
+  sketch cannot be collapsed and takes a third of the panel's height on a
+  900 px screen; below 960 px the plots come after every control, two
+  screens down, so a change on a phone is not seen without scrolling (a
+  compact pinned SPL plot would fix it); no per-group ordering hint, so the
+  vents sit under the driver's seven parameters; the input history of the
+  editor (undo) is lost when a control rewrites the text.
 - From spec Section 15 and the rest of the interface chapter: the schematic
   view, live L0 recompute with ghost curves while a higher level solves,
   a pinned inspection frequency, smoothing, target curves, the explain
