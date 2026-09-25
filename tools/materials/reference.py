@@ -127,7 +127,12 @@ def one_param(kind, sigma, w):
     else:
         zc = RHO * C0 * (1 + 5.50 * X**-0.632 - 1j * 8.43 * X**-0.632)
         k = w / C0 * (1 + 7.81 * X**-0.618 - 1j * 11.41 * X**-0.618)
-    return zc * k / w, zc * w / k
+    rho, K = zc * k / w, zc * w / k
+    # Passivity guard (engine: PorousModel::equivalent_fluid): Im rho <= 0,
+    # Im K >= 0. It acts only at low f/sigma, e.g. DB at 50 Hz for 20 kPa.
+    rho = mp.mpc(mp.re(rho), min(mp.im(rho), 0))
+    K = mp.mpc(mp.re(K), max(mp.im(K), 0))
+    return rho, K
 
 
 def surface(rho_eq, k_eq, t, area, w):

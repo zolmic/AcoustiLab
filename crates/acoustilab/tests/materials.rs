@@ -633,20 +633,100 @@ fn jca_agrees_with_miki_in_miki_range() {
 }
 
 #[test]
-fn delany_bazley_goes_non_passive_below_its_window_miki_does_not() {
-    // Miki (1990) re-fitted Delany & Bazley because the DB surface
-    // resistance of a rigid-backed layer turns negative at low f/σ.
+fn one_parameter_laws_are_kept_passive_below_their_window() {
+    // Written out here from the papers' coefficients (X = f/σ, σ in Pa·s/m²):
+    // (ρ_eq, K_eq) of the raw power law, without the engine's guard.
     let air = air();
-    let layer = |model| PorousLayer {
-        model,
-        thickness: 0.025,
-        area: 1e-3,
+    let raw = |miki: bool, f: f64, sigma: f64| {
+        let y = 1e3 * f / sigma;
+        let (zc, k) = if miki {
+            (
+                C64::new(1.0 + 5.50 * y.powf(-0.632), -8.43 * y.powf(-0.632)),
+                C64::new(1.0 + 7.81 * y.powf(-0.618), -11.41 * y.powf(-0.618)),
+            )
+        } else {
+            (
+                C64::new(1.0 + 9.08 * y.powf(-0.75), -11.9 * y.powf(-0.73)),
+                C64::new(1.0 + 10.8 * y.powf(-0.70), -10.3 * y.powf(-0.59)),
+            )
+        };
+        (air.rho * zc * k, air.rho * air.c * air.c * zc / k)
     };
-    let w = 2.0 * PI * 100.0; // f/σ = 0.005, below both windows
-    let db = layer(PorousModel::DelanyBazley { sigma: 20_000.0 }).surface_impedance(&air, w);
-    let mk = layer(PorousModel::Miki { sigma: 20_000.0 }).surface_impedance(&air, w);
-    assert!(db.re < 0.0, "{db}");
-    assert!(mk.re > 0.0, "{mk}");
+    let model = |miki: bool, sigma: f64| {
+        if miki {
+            PorousModel::Miki { sigma }
+        } else {
+            PorousModel::DelanyBazley { sigma }
+        }
+    };
+    // Where the raw law is passive the engine uses it unchanged: Miki over
+    // its whole window, DB from f/σ = 0.011 up.
+    for (miki, x0) in [(true, 0.01f64), (false, 0.011)] {
+        for i in 0..=30 {
+            let x = x0 * (3.0 / x0).powf(i as f64 / 30.0);
+            let (f, sigma) = (x * 20_000.0, 20_000.0);
+            let (r0, k0) = raw(miki, f, sigma);
+            let (r1, k1) = model(miki, sigma).equivalent_fluid(&air, 2.0 * PI * f);
+            assert!(k0.im > 0.0 && r0.im < 0.0, "raw law active at X = {x}");
+            assert!(close(r1, r0, 1e-12) && close(k1, k0, 1e-12), "X = {x}");
+        }
+    }
+    // Below f/σ ≈ 0.00105 (Miki) and 0.0106 (DB, just inside its window)
+    // the raw Im K_eq turns negative — an active medium (Dragna et al.
+    // 2015). The engine clips it at zero and keeps the real part.
+    for (miki, x) in [(true, 5e-4), (false, 5e-3), (false, 0.01)] {
+        let (_, k0) = raw(miki, x * 50_000.0, 50_000.0);
+        assert!(k0.im < 0.0, "raw K at X = {x}: {k0}");
+        let (_, k1) = model(miki, 50_000.0).equivalent_fluid(&air, 2.0 * PI * x * 50_000.0);
+        assert_eq!(k1.im, 0.0);
+        assert!((k1.re / k0.re - 1.0).abs() < 1e-12);
+    }
+    // Every slab and rigid-backed layer is then passive from 1 Hz to
+    // 40 kHz: Re Z_s ≥ 0, Re Z ≥ 0 of the lumped slab, and the Hermitian
+    // part of the slab's impedance matrix is positive semi-definite. For
+    // the symmetric slab its eigenvalues are Re((A ± 1)/C).
+    for miki in [true, false] {
+        for sigma in [5_900.0, 20_000.0, 50_000.0, 100_000.0] {
+            for t in [2e-3, 10e-3, 25e-3] {
+                let layer = PorousLayer {
+                    model: model(miki, sigma),
+                    thickness: t,
+                    area: 1e-3,
+                };
+                for i in 0..=120 {
+                    let f = 40_000f64.powf(i as f64 / 120.0);
+                    let w = 2.0 * PI * f;
+                    let zs = layer.surface_impedance(&air, w);
+                    assert!(zs.re >= 0.0, "Z_s {zs} at {f} Hz, σ {sigma}, t {t}");
+                    assert!(layer.lumped_impedance(&air, w).re >= 0.0);
+                    let [a, _, c, _] = layer.abcd(&air, w);
+                    let one = C64::new(1.0, 0.0);
+                    for e in [(a + one) / c, (a - one) / c] {
+                        assert!(e.re >= -1e-9 * e.norm(), "slab {e} at {f} Hz");
+                    }
+                }
+            }
+        }
+    }
+    // Through a netlist: 10 mm of the 50 kPa·s/m² pad foam (Miki by
+    // default) on a rigid backing absorbs power at 10-40 Hz; the raw law
+    // gave it a negative surface resistance there.
+    let circ = circuit(
+        1,
+        &["a"],
+        json!([
+            {"id": "src", "type": "flow_source", "nodes": ["a"]},
+            {"id": "pad", "type": "porous_layer", "nodes": ["a"], "backing": "rigid",
+             "material": "pu_foam_acoustic_grade", "thickness_mm": 10, "area_cm2": 20}
+        ]),
+    );
+    for f in [10.0, 20.0, 40.0] {
+        assert!(input_impedance(&circ, f).re > 0.0, "{f} Hz");
+        let x = circ.solve_at(f).unwrap();
+        let p = circ.power_absorbed(f, &x);
+        let pad = p.iter().find(|(id, _)| id == "pad").unwrap().1.unwrap();
+        assert!(pad > 0.0, "{p:?}");
+    }
     // The one-parameter laws flag their range; the physical models do not.
     assert_eq!(
         PorousModel::DelanyBazley { sigma: 20_000.0 }.window(),

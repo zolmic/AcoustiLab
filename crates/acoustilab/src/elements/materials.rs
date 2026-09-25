@@ -719,7 +719,8 @@ pub enum PorousModel {
     /// 0.01 ≤ f/σ ≤ 1 (σ in Pa·s/m²).
     DelanyBazley { sigma: f64 },
     /// Miki (1990, J. Acoust. Soc. Jpn (E) 11, 19), a re-fit of Delany and
-    /// Bazley's data that stays passive below their window.
+    /// Bazley's data that behaves better below their window. Neither law is
+    /// passive at very low f/σ; see [`PorousModel::equivalent_fluid`].
     Miki { sigma: f64 },
 }
 
@@ -773,6 +774,19 @@ impl PorousModel {
     /// Miki: Z_c/ρ0c0 = 1 + 5.50(10³X)^−0.632 − j8.43(10³X)^−0.632,
     ///     k·c0/ω = 1 + 7.81(10³X)^−0.618 − j11.41(10³X)^−0.618;
     /// then ρ_eq = Z_c·k/ω and K_eq = Z_c·ω/k.
+    ///
+    /// Passivity guard for the one-parameter laws. A passive rigid-frame
+    /// fluid has Im ρ_eq ≤ 0 and Im K_eq ≥ 0 (e^{+jωt}). Both power laws
+    /// violate the second at low f/σ (they are not physically admissible:
+    /// Dragna, Attenborough & Blanc-Benon 2015, JASA 138, 2399): Im K_eq
+    /// changes sign below f/σ ≈ 0.0106 for Delany–Bazley (just inside its
+    /// window) and ≈ 0.00105 for Miki. A layer would then generate power —
+    /// with Miki, a 50 kPa·s/m² pad foam below about 50 Hz. The engine
+    /// clips Im K_eq (and, for safety, Im ρ_eq) at zero, which changes the
+    /// laws only where they would be active and keeps every slab and
+    /// rigid-backed layer passive at all frequencies. Below the window
+    /// (see [`PorousModel::window`]) the results remain outside the fitted
+    /// range.
     pub fn equivalent_fluid(&self, air: &AirState, omega: f64) -> (C64, C64) {
         let j = C64::new(0.0, 1.0);
         let (rho0, eta, pr, gamma, p0) = (air.rho, air.mu, air.prandtl, air.gamma, air.p0);
@@ -792,7 +806,11 @@ impl PorousModel {
             let x = 1e3 * (omega / (2.0 * PI)) / sigma;
             let zc = air.rho_c() * C64::new(1.0 + a[0] * x.powf(-e[0]), -a[1] * x.powf(-e[1]));
             let k = omega / air.c * C64::new(1.0 + a[2] * x.powf(-e[2]), -a[3] * x.powf(-e[3]));
-            (zc * k / omega, zc * omega / k)
+            let (rho, bulk) = (zc * k / omega, zc * omega / k);
+            (
+                C64::new(rho.re, rho.im.min(0.0)),
+                C64::new(bulk.re, bulk.im.max(0.0)),
+            )
         };
         match *self {
             PorousModel::Jca {

@@ -19,7 +19,7 @@
 //! around a pad perimeter) build on the same duct model, and `area_step`
 //! is the static discontinuity inertance at a change of cross-section.
 
-use super::materials::MeshModel;
+use super::materials::{Mesh, MeshModel};
 use super::radiation::{radiation_impedance, Baffle};
 use super::{Build, Composite, CompositePort, Constructor, Element, FreqCx, OnePort, TwoPort};
 use crate::air::AirState;
@@ -526,14 +526,13 @@ fn vent(mut b: Build) -> Result<Box<dyn Element>> {
         limits,
     )];
     if let Some(m) = mesh {
-        let limits = m.limits(&format!("{id}.mesh"));
-        parts.push(Box::new(OnePort {
+        // A `Mesh` part, so that callers can downcast it and read the pore
+        // velocity of a solution (spec: flag above about 1 m/s in a vent).
+        parts.push(Box::new(Mesh {
             id: format!("{id}.mesh"),
-            type_name: "mesh",
             n1: mouth,
             n2: mesh_node,
-            y: Box::new(move |cx: &FreqCx| m.impedance(cx.air, cx.omega).inv()),
-            limits,
+            model: m,
         }));
     }
     // Outer end: radiation plus the outer end resistance, oriented from the
@@ -580,6 +579,12 @@ fn vent(mut b: Build) -> Result<Box<dyn Element>> {
 /// equal to the pad face width, its own gap (zero means sealed) and, with
 /// `ends: "flanged"`, the baffled end correction of [`slit_end_correction`]
 /// at both ends.
+///
+/// Each segment's end correction is that of an isolated aperture: the
+/// mutual radiation mass of open neighbours is neglected. For N equal,
+/// adjacent open segments of gap h the continuous slit would have
+/// (h/π)·ln N more per end (0.66 mm for 1 mm and N = 8), so the default
+/// flanged leak slightly under-estimates the mass of a uniform gap.
 pub struct Leak {
     pub id: String,
     pub n1: Unknown,

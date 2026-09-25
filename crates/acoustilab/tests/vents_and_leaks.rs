@@ -10,6 +10,8 @@
 use acoustilab::elements::ducts::{
     area_step_inertance, slit_end_correction, step_end_correction, surface_resistance,
 };
+use acoustilab::elements::materials::{Mesh, PORE_VELOCITY_WARNING};
+use acoustilab::elements::Composite;
 use acoustilab::{AirState, Circuit, C64};
 use serde_json::{json, Value};
 use std::f64::consts::PI;
@@ -268,6 +270,43 @@ fn mesh_160_rayl_turns_the_vent_into_a_resistive_leak() {
         let f = 20.0 * 1.1f64.powi(i);
         assert!(h(f) <= 1.0 + 1e-9, "{f} Hz: {}", h(f));
     }
+}
+
+#[test]
+fn vent_mesh_pore_velocity_is_readable() {
+    // Spec: particle velocity above about 1 m/s in a vent flags the laminar
+    // assumption. The vent's mesh is a `Mesh` part, so the helper applies.
+    // L0: the neck carries no compressibility, so the mesh passes exactly
+    // the source flow.
+    let c = circuit(
+        0,
+        &["cav"],
+        json!([
+            {"id": "src", "type": "flow_source", "nodes": ["cav"], "U_m3_per_s": 2e-6},
+            {"id": "v", "type": "vent", "nodes": ["cav"], "diameter_mm": 2, "length_mm": 1.5,
+             "count": 2, "mesh": {"R_s_rayl": 160, "thickness_um": 60, "open_area": 0.3}}
+        ]),
+    );
+    let f = 200.0;
+    let x = c.solve_at(f).unwrap();
+    let cx = c.cx(f);
+    let vent = c.elements[c.element_index("v").unwrap()]
+        .as_any()
+        .downcast_ref::<Composite>()
+        .unwrap();
+    let mesh = vent
+        .parts
+        .iter()
+        .find_map(|p| p.as_any().downcast_ref::<Mesh>())
+        .unwrap();
+    assert_eq!(mesh.id, "v.mesh");
+    // The mesh covers both holes by default: |U|/(φ·2πa²).
+    let expect = 2e-6 / (0.3 * 2.0 * PI * 1e-6);
+    let v = mesh.pore_velocity(&cx, &x).unwrap();
+    assert!((v / expect - 1.0).abs() < 1e-9, "{v} vs {expect}");
+    // 2 cm³/s through 30 % of two 2 mm holes is 1.06 m/s: flagged.
+    assert!(v > PORE_VELOCITY_WARNING);
+    assert_power_balance(&c, &[50.0, 500.0, 5000.0]);
 }
 
 #[test]

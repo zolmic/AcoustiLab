@@ -109,6 +109,8 @@ ports that balance in `Circuit::power_absorbed`.
 exact baffled-piston radiation impedance (whose reactance is the outer end
 correction) in series. Probe port 0 is the flow entering at the inner node,
 port 1 the flow entering at the outer node. `leak` exposes the same two ports.
+The vent's mesh is a `materials::Mesh` part (`<id>.mesh`) of the composite,
+so its pore velocity can be read like that of a stand-alone mesh.
 
 ### Materials
 | type | nodes | parameters |
@@ -137,8 +139,11 @@ Models, in short (the doc comments give formulas and sources):
   backing. Delany–Bazley and Miki use the variable f/σ (σ in Pa·s/m², no
   air density) and are fitted for 0.01 ≤ f/σ ≤ 1: the upper end is a
   validity limit, the lower end is reported by `PorousModel::window` (limits
-  can only express upper bounds). Below its window Delany–Bazley can give a
-  negative surface resistance; Miki stays passive.
+  can only express upper bounds). Neither power law is physically
+  admissible at low f/σ: their Im K_eq turns negative below f/σ ≈ 0.0106
+  (Delany–Bazley) and ≈ 0.00105 (Miki), e.g. below about 50 Hz for a
+  50 kPa·s/m² pad foam with Miki. The engine clips Im K_eq at zero there,
+  so every porous layer stays passive.
 - `fill`: a shunt admittance jω·ΔC at the cavity node with
   ΔC = V/(γP0)·(γ−1)·φ/(1 + jωτ) (App. C6). τ from fibres uses Tarnow's
   isothermal-fibre cell and the matching first moment (Lafarge's thermal
