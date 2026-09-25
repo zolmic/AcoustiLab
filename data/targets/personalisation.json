@@ -1,0 +1,42 @@
+{
+  "schema": "acoustilab-personalisation/0.1",
+  "description": "Bass and treble shelves (spec Section 11: first-class personalisation parameters, stored separately from the reference target), the Harman-style reconstruction recipe that uses them, the listener classes that turn a target into a preference band, and the band widening above 2 and 8 kHz. Shelves are the analog prototypes of the RBJ Audio EQ Cookbook shelving filters evaluated as magnitude responses (docs/targets.md).",
+  "shelves": {
+    "bass": {"type": "low_shelf", "fc_Hz": 105, "Q": 0.7071067811865476},
+    "treble": {"type": "high_shelf", "fc_Hz": 2500, "Q": 0.7071067811865476},
+    "source": "Shelf frequencies: Olive, Welti and McMullin, 'Listener Preferences for In-Room Loudspeaker and Headphone Target Responses', AES 135th Convention, 2013, and Olive and Welti, AES 139th Convention, 2015 (e-library 17940): listeners adjusted the gain of a low shelf at 105 Hz and a high shelf at 2.5 kHz. Neither paper was read; the frequencies and the fact that the papers do not disclose the shelf Q are taken from PEQdB, 'Large-Scale Optimization of Perceptual Headphone Sound Quality Target Curves' (white paper, 2025-07-10, https://peqdb.com/wiki/PEQdB-White-Paper.pdf, section 1.2), which quotes the 2013 paper's reasons for both frequencies.",
+    "q_status": "assumed: Q = 1/sqrt(2), the RBJ shelf slope S = 1 (steepest shelf without overshoot). The Harman papers do not publish their shelf Q (PEQdB, above). AutoEq uses a 105 Hz low shelf with Q 0.7 by default."
+  },
+  "recipe": {
+    "id": "harman_style",
+    "description": "target = user-supplied baseline + bass shelf + treble shelf. The baseline is the fixture's response to an accurate loudspeaker equalised flat in a reference listening room, measured at the drum reference point of the fixture the target is for (Olive and Welti 2015, slides 7-11: Revel Performa F208 in the Harman reference listening room, flat in-room response averaged over 9 microphone positions, measured with a GRAS ear simulator on a head at three head angles). That baseline is not published as data and is not shipped.",
+    "presets": [
+      {
+        "id": "olive_welti_2015_mean",
+        "bass_dB": 6.44,
+        "treble_dB": -1.41,
+        "source": "Olive and Welti, 'Factors that Influence Listeners' Preferred Bass and Treble Balance in Headphones', AES 139th Convention, 2015, presentation slides 19-20 (mean preferred levels over all programmes and all 249 listeners, relative to the headphone equalised to the in-room loudspeaker response at the DRP). Slides posted by the author (link on http://seanolive.blogspot.com/2015/11/factors-that-influence-listeners.html), read from the Internet Archive copy of 2016-10-06."
+      }
+    ]
+  },
+  "classes": {
+    "items": [
+      {"id": "as_is", "label": "Prefer the target as is", "share": 0.64, "bass_dB": [0, 0]},
+      {"id": "more_bass", "label": "Prefer 4 to 6 dB more bass", "share": 0.15, "bass_dB": [4, 6]},
+      {"id": "less_bass", "label": "Prefer 2 dB less bass", "share": 0.21, "bass_dB": [-2, -2]}
+    ],
+    "source": "Olive, 'The Perception and Measurement of Headphone Sound Quality: What Do Listeners Prefer?', Acoustics Today 18(1), 2022, pp. 58-67, p. 63 (agglomerative hierarchical clustering of the Olive et al. 2018 ratings: Class 1 64 %, Class 2 15 % with 4-6 dB more bass, Class 3 21 % with 2 dB less bass). The spec cites Olive, Welti and Khonsaripour, AES 146th Convention 2019, paper 10156 (not read).",
+    "shelf": "The class offsets are applied as gains of the bass shelf above. The article states the offsets as 'more bass' and 'less bass' without a filter; using the 105 Hz shelf is this project's reading."
+  },
+  "widening": {
+    "above_2kHz": {
+      "start_Hz": 2000, "full_Hz": 4000, "half_width_dB": 5.0,
+      "basis": "Spec Section 11: 'widened above 2 kHz by the inter-individual spread of headphone transfer functions, where the main ear resonance varies by about 2 kHz and 10 dB across people'. The 10 dB spread is taken as +/-5 dB, reached one octave above 2 kHz. The spec gives no source for the numbers and none was found; engineering parameter."
+    },
+    "above_8kHz": {
+      "start_Hz": 8000, "full_Hz": 16000, "half_width_dB": 3.0,
+      "basis": "Spec Section 11: 'widened above 8 kHz by fixture validity'. No number is given; +/-3 dB over the octave 8-16 kHz is an engineering estimate, added to the 2 kHz widening."
+    },
+    "ramp": "linear in dB on log frequency from 0 at start_Hz to half_width_dB at full_Hz, constant above"
+  }
+}

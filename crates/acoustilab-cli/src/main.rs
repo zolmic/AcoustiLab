@@ -4,6 +4,7 @@
 //! acoustilab solve <netlist.json> [--csv] [--out FILE] [--set NAME=VALUE]...
 //! acoustilab check <netlist.json> [--set NAME=VALUE]...
 //! acoustilab params <netlist.json> [--set NAME=VALUE]...
+//! acoustilab score <netlist.json> --target NAME|FILE.csv [--probe ID] [--fixture ID] [--smoothing N] [--json] [--set NAME=VALUE]...
 //! acoustilab types
 //! acoustilab help | --help | -h
 //! acoustilab version | --version | -V
@@ -15,11 +16,16 @@ use acoustilab::Circuit;
 use std::io::Write;
 use std::process::ExitCode;
 
+mod score;
+
 const USAGE: &str = "usage:
   acoustilab solve <netlist.json> [--csv] [--out FILE]   solve and print results (JSON by default)
   acoustilab check <netlist.json>                        parse and validate only
   acoustilab params <netlist.json>                       list the parameters and their values
-    solve, check and params take --set NAME=VALUE (repeatable) to override a parameter
+  acoustilab score <netlist.json> --target NAME|FILE.csv [--probe ID] [--fixture ID] [--smoothing N] [--json]
+                                                         error metrics and preference scores against a target
+  acoustilab score --list                                list the bundled targets
+    solve, check, params and score take --set NAME=VALUE (repeatable) to override a parameter
   acoustilab types                                       list element types
   acoustilab help                                        print this message
   acoustilab version                                     print the engine version";
@@ -149,6 +155,12 @@ fn run(args: &[String]) -> Result<(), String> {
                     .write_all(text.as_bytes())
                     .map_err(|e| e.to_string()),
             }
+        }
+        "score" => {
+            let text = score::run(&args[1..], &overrides)?;
+            std::io::stdout()
+                .write_all(text.as_bytes())
+                .map_err(|e| e.to_string())
         }
         _ => Err(USAGE.into()),
     }

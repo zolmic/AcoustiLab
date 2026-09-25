@@ -1,0 +1,23 @@
+{
+  "schema": "acoustilab-limits/0.1",
+  "description": "ITU-R BS.708 (1990, editorial amendments 2002), 'Determination of the electro-acoustical properties of studio monitor headphones': the tolerance mask of Annex 1, Figure 1, and the left-right limits of recommends 3. BS.708 applies the mask to the diffuse-field response of studio monitor headphones measured in third-octave bands on at least 16 subjects; this tool applies it to the error against the selected target, as an indicator, not as a conformance test.",
+  "source": "Rec. ITU-R BS.708, https://www.itu.int/rec/R-REC-BS.708/en (PDF R-REC-BS.708-0-199006-I, retrieved 2026-09-25). Free download; ITU copyright. Only the breakpoints and limits are recorded here.",
+  "mask": {
+    "breakpoints": [
+      {"f_Hz": 100, "tolerance_dB": 2.0},
+      {"f_Hz": 500, "tolerance_dB": 1.5},
+      {"f_Hz": 4000, "tolerance_dB": 1.5},
+      {"f_Hz": 16000, "tolerance_dB": 4.0}
+    ],
+    "interpolation": "linear in dB on log frequency between breakpoints; symmetric (+/- tolerance); undefined outside 100 Hz to 16 kHz",
+    "derivation": "Read from Figure 1, which gives the mask only as a drawing with the labels +/-2 dB, +/-1.5 dB and +/-4 dB. The mask lines were traced from the rendered PDF (page 2, 10x zoom) against the figure's octave grid (62.5 Hz to 16 kHz) and 2 dB grid: the upper line reads 1.91 dB at 140 Hz, 1.78 dB at 200 Hz and 1.70 dB at 255 Hz (log-linear 2 -> 1.5 dB over 100-500 Hz gives 1.90, 1.78, 1.71), 1.46-1.49 dB from 530 Hz to 3.7 kHz, and 2.75 dB at 8.1 kHz and 3.59 dB at 13.0 kHz (log-linear 1.5 -> 4 dB over 4-16 kHz gives 2.78 and 3.63). The +/-2 dB marker stands at the 100 Hz third-octave band and the +/-4 dB marker at 16 kHz; the drawn lines continue flat at 2 dB and 4 dB to about 88 Hz and 18 kHz, the outer edges of those third-octave bands, and the mask is applied between the band centres. Reading accuracy about +/-0.1 dB and 1/8 octave. The spec's 'plus or minus 2 dB below about 250 Hz' does not match the figure (erratum E47)."
+  },
+  "tracking": {
+    "limits": [
+      {"band_Hz": [100, 8000], "max_difference_dB": 1.0},
+      {"band_Hz": [10000, 16000], "max_difference_dB": 2.0}
+    ],
+    "text": "Recommends 3: 'that the difference of frequency response between left and right earphone should not exceed 1 dB in the frequency range 100 Hz-8 kHz and 2 dB in the frequency range 10 kHz-16 kHz.' Nothing is specified between 8 and 10 kHz or outside 100 Hz-16 kHz.",
+    "resolution": "Annex 2 measures with third-octave bands of pink noise, so tracking defaults to third-octave smoothing (docs/targets.md)."
+  }
+}

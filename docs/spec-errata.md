@@ -161,3 +161,45 @@ corrected statement. "p." is the PDF page.
 - **E43 — companion service.** Browsers have no LAN-discovery API, and Local
   Network Access, mixed-content and TLS rules apply. Use a paired or user-entered
   endpoint with token authentication.
+
+## Package targets
+
+- **E47 — ITU-R BS.708 mask (p. 42).** "Plus or minus 2 dB below about 250 Hz"
+  misreads Figure 1 of Rec. ITU-R BS.708 (1990). The figure's mask is ±2 dB
+  at 100 Hz and narrows linearly on a log axis to ±1.5 dB at 500 Hz. It is
+  ±1.5 dB from 500 Hz to 4 kHz and widens to ±4 dB at 16 kHz. It covers
+  the third-octave bands from 100 Hz to 16 kHz only (the lines run flat to
+  those bands' outer edges, about 88 Hz and 18 kHz).
+  - At 250 Hz the limit is 1.71 dB, not 2 dB.
+  - Traced from the rendered figure against its grid, the upper line reads
+    1.78 dB at 200 Hz and 2.75 dB at 8.1 kHz, against 1.785 dB and 2.78 dB
+    for the log-linear mask (`data/targets/bs708.json`).
+  - The tracking limits (1 dB 100 Hz–8 kHz, 2 dB 10–16 kHz) are quoted
+    correctly. BS.708 sets no limit between 8 and 10 kHz.
+- **E48 — over-ear model source (p. 42).** The coefficients
+  114.49/12.62/15.52 are not in Olive, Acoustics Today 18(1), 2022. That
+  article gives only r = 0.86 and an error of 6.7 points. The coefficients
+  are Eq. (5) of US patent application 2019/0087739 A1 (RMSE 6.705, Table
+  2), which also holds the in-ear set, and the model paper is AES 144th
+  Convention 2018, paper 9919.
+  - The patent defines SD and AS from 20 Hz to 10 kHz. The 50 Hz lower
+    bound of E7 comes from the implementation that reproduces Listen's
+    template, not from a publication that could be checked. The two
+    readings differ by about 10 points on smooth test curves, so the engine
+    keeps E7 as the default (`harman_oe_2018`) and also reports the 20 Hz
+    reading (`harman_oe_2018_20Hz`; docs/targets.md).
+  - The same article (p. 65) is the origin of the spec's "IEC 60318-1 ear
+    simulator with a custom pinna" (see E6).
+- **E49 — Ravizza et al. 2023 data (pp. 41, 48).** The Zenodo record
+  (10.5281/zenodo.8388242, CC-BY-4.0 confirmed on the record) holds 32 rated
+  curves, not one target curve.
+  - Each curve is given as 30 third-octave graphic-equaliser gains from
+    31 Hz to 25 kHz, so it has third-octave resolution and starts at 31 Hz.
+  - Scores that need 20 Hz (the in-ear models) cannot be fully evaluated
+    against it.
+  - The tool bundles the set and designates the top-rated curve
+    (APHarm2018v2, mean 62.7 of 100). That curve and the diffuse- and
+    free-field curves in the set are the depositors' adaptations of
+    third-party curves.
+  - AES Express Papers are reviewed on a summary, so the source is
+    classed as research, not peer-reviewed.

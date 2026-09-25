@@ -122,3 +122,79 @@ pub fn take_last_panic() -> String {
         .map(|mut s| std::mem::take(&mut *s))
         .unwrap_or_default()
 }
+
+// ---------------------------------------------------------------- targets
+//
+// Target curves, smoothing, response metrics and preference scores
+// (docs/targets.md, "Interfaces"). The logic is in `targets.rs`.
+
+pub mod targets;
+
+/// `{"targets": [..], "fixtures": [..], "models": [..], "smoothing_fractions": [..]}`.
+#[wasm_bindgen]
+pub fn targets_list() -> String {
+    install_panic_hook();
+    api::to_string(&targets::targets_list_value())
+}
+
+/// The full target object for a bundled name or a target object (JSON).
+#[wasm_bindgen]
+pub fn target(spec: &str) -> String {
+    install_panic_hook();
+    api::to_string(&targets::target_value(spec))
+}
+
+/// A target on the evaluation grid, normalised and personalised, with its
+/// preference band.
+#[wasm_bindgen]
+pub fn target_curve(spec: &str, options_json: &str) -> String {
+    install_panic_hook();
+    api::to_string(&targets::target_curve_value(spec, options_json))
+}
+
+/// Error metrics, BS.708 mask, preference band, tracking and preference
+/// scores of a result or curve against a target, with the flags to show.
+#[wasm_bindgen]
+pub fn target_metrics(input_json: &str, target_spec: &str, options_json: &str) -> String {
+    install_panic_hook();
+    api::to_string(&targets::target_metrics_value(
+        input_json,
+        target_spec,
+        options_json,
+    ))
+}
+
+/// Fractional-octave smoothing of a curve ("none", "N" or "1/N").
+#[wasm_bindgen]
+pub fn smooth(curve_json: &str, fraction: &str) -> String {
+    install_panic_hook();
+    api::to_string(&targets::smooth_value(curve_json, fraction))
+}
+
+/// Imports a fixture-tagged target CSV.
+#[wasm_bindgen]
+pub fn import_target_csv(text: &str, fixture: &str, name: &str) -> String {
+    install_panic_hook();
+    api::to_string(&targets::import_target_csv_value(text, fixture, name))
+}
+
+/// The fixture a probe of a netlist reads, inferred from its ear load.
+#[wasm_bindgen]
+pub fn probe_fixture(netlist_json: &str, overrides_json: &str, probe: &str) -> String {
+    install_panic_hook();
+    api::to_string(&targets::probe_fixture_value(
+        netlist_json,
+        overrides_json,
+        probe,
+    ))
+}
+
+/// Harman-style reconstruction of a target on a user-supplied baseline.
+#[wasm_bindgen]
+pub fn reconstruct_target(baseline_spec: &str, options_json: &str) -> String {
+    install_panic_hook();
+    api::to_string(&targets::reconstruct_target_value(
+        baseline_spec,
+        options_json,
+    ))
+}
