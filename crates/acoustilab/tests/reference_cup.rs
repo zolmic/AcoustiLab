@@ -513,6 +513,10 @@ fn missing_files_and_protocol_violations_are_reported() {
         v["drive"] = json!({"voltage_V": 1})
     });
     files.remove("cup_free_sealed_z_s2.zma.sidecar.json");
+    files.insert(
+        "cup_free_sealed_z_s3.zma.sidecar.json".into(),
+        b"{not json".to_vec(),
+    );
     files.insert("notes.txt".into(), b"bench notes".to_vec());
     let r = validate(&f, &files, false);
     assert!(!r.verdict.complete);
@@ -539,10 +543,19 @@ fn missing_files_and_protocol_violations_are_reported() {
     assert!(errs("iec_ref_p_s2.frd", "smoothing"));
     assert!(errs("iec_ref_p_s3.frd", "drive"));
     let z = r.measurement("cup_free_sealed_z").unwrap();
-    assert!(z
-        .issues
-        .iter()
-        .any(|i| i.field == "sidecar" && i.severity == Severity::Error));
+    assert_eq!(
+        z.seatings, 1,
+        "a missing and a broken sidecar leave one seating"
+    );
+    for file in ["cup_free_sealed_z_s2.zma", "cup_free_sealed_z_s3.zma"] {
+        assert!(
+            z.issues
+                .iter()
+                .any(|i| i.file == file && i.field == "sidecar" && i.severity == Severity::Error),
+            "{file}: {:?}",
+            z.issues
+        );
+    }
     assert!(r.unrecognised_files.contains(&"notes.txt".to_string()));
     let text = r.summary();
     assert!(

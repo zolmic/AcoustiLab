@@ -1090,7 +1090,8 @@ fn read_seatings(
                 {
                     Ok(sc) => Some(sc),
                     Err(e) => {
-                        issues.push(issue(s, Severity::Error, "sidecar", e));
+                        // Keyed to the curve file, which is left out.
+                        issues.push(issue(name, Severity::Error, "sidecar", format!("{s}: {e}")));
                         None
                     }
                 }
