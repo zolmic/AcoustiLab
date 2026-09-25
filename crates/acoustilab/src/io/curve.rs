@@ -22,9 +22,11 @@
 //! points per octave (spec Section 14) and anchored at 1 kHz, so curves
 //! from different sources share their points ([`exchange_grid`]).
 
-use super::sidecar::Sidecar;
+use super::sidecar::{self, Sidecar};
 use super::CurveError;
 use crate::air::P_REF;
+use crate::circuit::{Circuit, Probe, ProbeKind};
+use crate::solve::SolveResult;
 use crate::C64;
 use serde_json::{json, Map, Value};
 
@@ -88,6 +90,17 @@ impl Quantity {
         match self {
             Quantity::Pressure => P_REF,
             _ => 1.0,
+        }
+    }
+
+    /// What a probe of a compiled network reads.
+    pub fn of_probe(p: &Probe) -> Quantity {
+        match p.kind {
+            ProbeKind::Impedance { .. } => Quantity::Impedance,
+            _ if p.is_pressure => Quantity::Pressure,
+            ProbeKind::Displacement(_) => Quantity::Displacement,
+            ProbeKind::Node(_) if p.quantity == "velocity" => Quantity::Velocity,
+            _ => Quantity::Generic,
         }
     }
 
@@ -490,6 +503,31 @@ impl Curve {
         }
         Ok(c)
     }
+}
+
+/// Probe `probe` of a solved network as a curve (spec Section 14: "CSV of
+/// any probe with sidecar"), with the sidecar of [`sidecar::of_solve`].
+pub fn from_solve(
+    circuit: &Circuit,
+    result: &SolveResult,
+    probe: &str,
+) -> Result<Curve, CurveError> {
+    let p = circuit
+        .probes
+        .iter()
+        .find(|p| p.id == probe)
+        .ok_or_else(|| CurveError::new(format!("no probe '{probe}' in the network")))?;
+    let values = &result
+        .probe(probe)
+        .ok_or_else(|| CurveError::new(format!("no probe '{probe}' in the result")))?
+        .values;
+    let q = Quantity::of_probe(p);
+    let mut c = Curve::from_complex(q, &result.freqs_hz, values)?;
+    c.sidecar = sidecar::of_solve(circuit, result, q);
+    if q == Quantity::Generic && !p.unit.is_empty() {
+        c.sidecar.unit = Some(p.unit.to_string());
+    }
+    Ok(c)
 }
 
 /// Wraps an angle in degrees to (−180, 180].

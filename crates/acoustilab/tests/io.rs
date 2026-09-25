@@ -524,3 +524,46 @@ fn resampling_is_exact_for_levels_and_phases_linear_in_ln_f() {
         assert!((x - ph(fr)).abs() < 1e-9);
     }
 }
+
+// ----- Simulated curves -------------------------------------------------------------
+
+#[test]
+fn a_simulated_probe_is_a_curve_with_its_conditions() {
+    let path = format!(
+        "{}/../../examples/design_over_ear.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let c = acoustilab::Circuit::from_json(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let r = c.solve().unwrap();
+    let p = acoustilab::io::curve::from_solve(&c, &r, "p_drp").unwrap();
+    assert_eq!(p.quantity, Quantity::Pressure);
+    assert_eq!(p.freqs_hz, r.freqs_hz);
+    for (a, b) in p.magnitude.iter().zip(&r.probe("p_drp").unwrap().values) {
+        assert!((a / b.norm() - 1.0).abs() < 1e-15);
+    }
+    let sc = &p.sidecar;
+    assert_eq!(sc.calibrated, Some(true));
+    assert_eq!(
+        sc.drive.as_ref().unwrap().json,
+        json!({"power_mW": 1.0, "rated_ohm": 32.0})
+    );
+    assert_eq!(sc.source_impedance_ohm, Some(0.0));
+    assert_eq!(
+        sc.provenance.as_ref().unwrap().origin,
+        Some(sidecar::Origin::Simulated)
+    );
+    // A CSV with its sidecar round-trips exactly.
+    let text = export(&p, Format::Csv).unwrap();
+    let mut back = import(&text, Format::Csv, None).unwrap();
+    back.sidecar = Sidecar::parse(&p.sidecar.to_text()).unwrap();
+    assert_eq!(back.freqs_hz, p.freqs_hz);
+    assert_eq!(back.sidecar, p.sidecar);
+    let z = acoustilab::io::curve::from_solve(&c, &r, "zin").unwrap();
+    assert_eq!(z.quantity, Quantity::Impedance);
+    assert_eq!(z.sidecar.calibrated, None);
+    let x = acoustilab::io::curve::from_solve(&c, &r, "x").unwrap();
+    assert_eq!(x.quantity, Quantity::Displacement);
+    let u = acoustilab::io::curve::from_solve(&c, &r, "u_vent").unwrap();
+    assert_eq!(u.quantity, Quantity::Generic);
+    assert!(acoustilab::io::curve::from_solve(&c, &r, "nope").is_err());
+}

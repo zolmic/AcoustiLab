@@ -20,6 +20,10 @@
 //!   rig's JSON form plus an optional `"format"` for `text` (default: `zma`
 //!   for impedance, `frd` otherwise).
 //!
+//! * [`probe_curve_value`]`(netlist, overrides_json, probe)`: probe `probe`
+//!   of the solved netlist (its own sweep) as a curve document with a
+//!   `simulated` sidecar, ready for [`export_curve_value`].
+//!
 //! Errors are `{"error", "kind", ...}`: `curve` (with `line` when the input
 //! file has one), `fit_spec`, `fit_refused` (spec Section 12 refusals), or
 //! the engine kinds of [`crate::api::error_value`].
@@ -204,6 +208,26 @@ pub fn fit_value(netlist_json: &str, spec_json: &str) -> Value {
     match FitSpec::from_json(&v).and_then(|s| fit::fit(&p, &s)) {
         Ok(r) => r.to_json(),
         Err(e) => fit_error(&e),
+    }
+}
+
+/// A simulated probe as a curve document (module documentation).
+pub fn probe_curve_value(netlist_json: &str, overrides_json: &str, probe: &str) -> Value {
+    let overrides = match api::parse_overrides(overrides_json) {
+        Ok(o) => o,
+        Err(e) => return e,
+    };
+    let c = match acoustilab::Circuit::from_json_with(netlist_json, &overrides) {
+        Ok(c) => c,
+        Err(e) => return api::error_value(&e),
+    };
+    let r = match c.solve() {
+        Ok(r) => r,
+        Err(e) => return api::error_value(&e),
+    };
+    match acoustilab::io::curve::from_solve(&c, &r, probe) {
+        Ok(cv) => cv.to_json(),
+        Err(e) => curve_error(&e),
     }
 }
 

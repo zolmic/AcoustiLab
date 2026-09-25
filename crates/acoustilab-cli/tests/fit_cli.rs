@@ -170,6 +170,43 @@ fn convert_between_formats_keeps_the_sidecar() {
 }
 
 #[test]
+fn export_writes_a_simulated_probe() {
+    let out = scratch("p.frd");
+    let o = ok(&cli(&[
+        "export",
+        &bench(),
+        "--probe",
+        "p_box",
+        "--out",
+        out.to_str().unwrap(),
+        "--set",
+        "box_volume_cm3=20",
+        "--ppo",
+        "6",
+        "--band",
+        "20:2000",
+    ]));
+    assert!(o.contains("pressure"), "{o}");
+    let text = std::fs::read_to_string(&out).unwrap();
+    assert!(text.starts_with("* FRD"), "{text}");
+    let sc: Value = serde_json::from_str(
+        &std::fs::read_to_string(format!("{}.sidecar.json", out.display())).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(sc["provenance"]["origin"], "simulated");
+    assert_eq!(sc["drive"]["voltage_V"], 1.0);
+    let o = cli(&[
+        "export",
+        &bench(),
+        "--probe",
+        "nope",
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    assert!(String::from_utf8_lossy(&o.stderr).contains("no probe 'nope'"));
+}
+
+#[test]
 fn errors_name_what_is_wrong() {
     for (args, msg) in [
         (vec!["measure", "x.json"], "x.json"),

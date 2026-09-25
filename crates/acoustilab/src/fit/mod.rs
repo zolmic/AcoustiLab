@@ -911,20 +911,16 @@ fn lag1(e: &[f64]) -> f64 {
 
 fn probe_quantity(c: &Circuit, probe: &str) -> Option<(Quantity, DataKind, Option<String>)> {
     let pr = c.probes.iter().find(|p| p.id == probe)?;
-    Some(match pr.kind {
-        ProbeKind::Impedance { .. } => (Quantity::Impedance, DataKind::Impedance, None),
-        _ if pr.is_pressure => (Quantity::Pressure, DataKind::Pressure, None),
-        ProbeKind::Displacement(i) => (
-            Quantity::Displacement,
-            DataKind::Mechanical,
-            Some(c.nodes.name(i).to_string()),
-        ),
-        ProbeKind::Node(i) if pr.quantity == "velocity" => (
-            Quantity::Velocity,
-            DataKind::Mechanical,
-            Some(c.nodes.name(i).to_string()),
-        ),
-        _ => (Quantity::Generic, DataKind::Other, None),
+    let q = Quantity::of_probe(pr);
+    let node = match pr.kind {
+        ProbeKind::Displacement(i) | ProbeKind::Node(i) => Some(c.nodes.name(i).to_string()),
+        _ => None,
+    };
+    Some(match q {
+        Quantity::Impedance => (q, DataKind::Impedance, None),
+        Quantity::Pressure => (q, DataKind::Pressure, None),
+        Quantity::Displacement | Quantity::Velocity => (q, DataKind::Mechanical, node),
+        Quantity::Generic => (q, DataKind::Other, None),
     })
 }
 

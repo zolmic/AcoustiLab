@@ -9,8 +9,8 @@ of it on a virtual rig until a measurement rig exists.
 |---|---|
 | `acoustilab::io` | `Curve`, the metadata `Sidecar` with its uncertainty budget and compatibility check, FRD/ZMA/REW/CSV reading and writing, resampling |
 | `acoustilab::fit` | `fit()` (the identification), `lm` (Levenberg–Marquardt, shared with `ts::fit_impedance`), `jacobian`, `identify` (singular values and named directions), `roles` (the Section 12 rules), `rig` (virtual rig), `rng`, `dense` (small SVD) |
-| CLI | `acoustilab fit`, `measure`, `convert` |
-| wasm | `import_curve`, `export_curve`, `compare_curves`, `fit`, `virtual_measure` |
+| CLI | `acoustilab fit`, `measure`, `convert`, `export` |
+| wasm | `import_curve`, `export_curve`, `compare_curves`, `probe_curve`, `fit`, `virtual_measure` |
 
 **Status: theory-only.** No file here has come from a measurement rig.
 Everything is exercised with synthetic measurements from netlists with known
@@ -91,6 +91,13 @@ REW text follows REW's own export layout. CSV has a unit-suffixed header
 and every number in its shortest exact form, so a CSV plus its sidecar is a
 lossless archive. FRD refuses impedance and ZMA anything else. Every file
 has a sidecar next to it, `FILE.sidecar.json`.
+
+Simulated curves: `io::curve::from_solve(circuit, result, probe)` turns any
+probe of a solve into a curve whose sidecar states the quantity, absolute
+levels, the solve's drive (the netlist's `drive`, else its source voltage)
+and source impedance, and `simulated` provenance with the engine version
+(spec Section 14, "CSV of any probe with sidecar"); `acoustilab export` and
+the wasm `probe_curve` wrap it.
 
 Not provided: dedicated Klippel or DATS adapters. DATS exports impedance as
 three-column `.zma`/`.txt` files, which the ZMA reader accepts (not checked
@@ -445,6 +452,7 @@ acoustilab fit examples/driver_bench.json --curve zin=free.zma \
     --param Re_ohm --param Bl_Tm --param Mms_g --param Cms_mm_per_N --param Rms_Ns_per_m \
     --out report.json
 acoustilab convert free.zma free.csv --ppo 48
+acoustilab export examples/design_over_ear.json --probe p_drp --out drp.csv --set leak_gap_mm=0.12
 ```
 
 `measure` writes FILE and FILE.sidecar.json; `fit` reads each curve's
@@ -453,7 +461,9 @@ sidecar from FILE.sidecar.json (or `--curve PROBE=FILE:SIDECAR.json`), takes
 `--spec FIT.json` (the JSON form above), `--band F1:F2`, `--starts`,
 `--seed`, `--max-iter`, `--allow-spl-only`, and prints a summary (`--json`
 for the report); `--set` fixes parameters (for `measure`, the true values).
-The fit above prints, among others:
+`export` writes a simulated probe (on the netlist's sweep, or on the
+exchange grid with `--ppo`/`--band`) with its sidecar. The fit above prints,
+among others:
 
 ```text
   Bl_Tm      2.501629 Tm   95 % [2.493494, 2.509791]   Determined
@@ -474,6 +484,7 @@ Without `mass.zma` the same fit marks Bl, Mms, Cms and Rms scale-ambiguous.
 | `export_curve(curve_json, format)` | `{"format", "extension", "text", "sidecar"}` |
 | `compare_curves(a_json, b_json, allow_json)` | `{"ok", "blocking": [{field, a, b}], "notes": [...], "message"}` |
 | `fit(netlist, spec_json)` | the fit report |
+| `probe_curve(netlist, overrides_json, probe)` | a curve document of the solved probe with a `simulated` sidecar |
 | `virtual_measure(netlist, spec_json)` | `{"curve", "format", "extension", "text", "sidecar"}`; the rig spec may add `"format"` |
 
 `examples/driver_bench.json` is an identification bench: a driver in its

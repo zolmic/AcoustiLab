@@ -171,3 +171,11 @@ pub fn virtual_measure(netlist_json: &str, spec_json: &str) -> String {
     install_panic_hook();
     api::to_string(&fit::virtual_measure_value(netlist_json, spec_json))
 }
+
+/// Probe `probe` of the solved netlist (with parameter overrides, "" for
+/// none) as a curve document with a `simulated` sidecar.
+#[wasm_bindgen]
+pub fn probe_curve(netlist_json: &str, overrides_json: &str, probe: &str) -> String {
+    install_panic_hook();
+    api::to_string(&fit::probe_curve_value(netlist_json, overrides_json, probe))
+}

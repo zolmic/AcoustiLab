@@ -7,6 +7,7 @@
 //! acoustilab fit <netlist.json> --curve PROBE=FILE[:SIDECAR] --param NAME ...
 //! acoustilab measure <netlist.json> --probe ID --out FILE [--noise-db X --seed S]
 //! acoustilab convert IN OUT
+//! acoustilab export <netlist.json> --probe ID --out FILE
 //! acoustilab types
 //! acoustilab help | --help | -h
 //! acoustilab version | --version | -V
@@ -94,7 +95,7 @@ fn run(args: &[String]) -> Result<(), String> {
             println!("{USAGE}\n{}", fit_cmd::USAGE);
             Ok(())
         }
-        "fit" | "measure" | "convert" => fit_cmd::run(args, &overrides),
+        "fit" | "measure" | "convert" | "export" => fit_cmd::run(args, &overrides),
         "version" | "--version" | "-V" => {
             println!("{}", acoustilab::solve::ENGINE);
             Ok(())

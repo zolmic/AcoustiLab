@@ -40,9 +40,8 @@
 use super::rng::Rng;
 use super::{parse_overrides, spec_err, FitError};
 use crate::circuit::Circuit;
-use crate::drive::DriveSpec;
 use crate::io::curve::{exchange_grid, EXCHANGE_POINTS_PER_OCTAVE};
-use crate::io::sidecar::{Averaging, Drive, Origin, Profile, Provenance, Uncertainty};
+use crate::io::sidecar::{Averaging, Origin, Profile, Provenance, Uncertainty};
 use crate::io::{Curve, Quantity, Sidecar};
 use crate::params::{Overrides, Parametric};
 use crate::C64;
@@ -431,21 +430,13 @@ pub fn measure(p: &Parametric, spec: &RigSpec) -> Result<Curve, FitError> {
         })
         .collect();
     let mut curve = Curve::from_complex(q, &freqs, &measured)?;
-    // Sidecar.
+    // Sidecar: the template's fields over those of the solve.
+    let solved = crate::io::sidecar::of_solve(&c, &r, q);
     let mut sc = spec.sidecar.clone();
     sc.quantity = Some(q);
-    if q != Quantity::Impedance {
-        sc.calibrated = Some(true);
-    }
-    sc.drive = match &c.drive {
-        Some(d) => Some(Drive::from_spec(d)),
-        None => r
-            .meta
-            .drive
-            .source_voltage_v
-            .map(|v| Drive::from_spec(&DriveSpec::Voltage(v))),
-    };
-    sc.source_impedance_ohm = r.meta.drive.source_impedance_ohm;
+    sc.calibrated = solved.calibrated;
+    sc.drive = solved.drive;
+    sc.source_impedance_ohm = solved.source_impedance_ohm;
     sc.seatings = Some(n as u32);
     sc.averaging = Some(averaging);
     sc.smoothing = Some(crate::io::sidecar::Smoothing::None);

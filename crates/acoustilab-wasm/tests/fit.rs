@@ -209,6 +209,24 @@ fn refusals_and_errors_have_kinds() {
 }
 
 #[test]
+fn probe_curve_exports_a_simulated_probe() {
+    let c = api::probe_curve_value(&bench(), r#"{"box_volume_cm3": 20}"#, "p_box");
+    assert!(c.get("error").is_none(), "{c}");
+    assert_eq!(c["quantity"], "pressure");
+    assert_eq!(c["sidecar"]["provenance"]["origin"], "simulated");
+    let e = api::export_curve_value(&c.to_string(), "frd");
+    assert!(e["text"].as_str().unwrap().starts_with("* FRD"));
+    assert_eq!(
+        api::probe_curve_value(&bench(), "", "nope")["kind"],
+        "curve"
+    );
+    assert_eq!(
+        api::probe_curve_value(&bench(), r#"{"nope": 1}"#, "zin")["kind"],
+        "parameter"
+    );
+}
+
+#[test]
 fn compare_curves_names_the_differences() {
     let a = measure(json!({}), 41)["curve"].clone();
     let mut b = a.clone();

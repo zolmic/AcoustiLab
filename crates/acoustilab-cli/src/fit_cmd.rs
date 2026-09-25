@@ -10,6 +10,7 @@
 //!                [--noise-db X] [--noise-deg Y] [--seed S] [--seatings N]
 //!                [--averaging complex|magnitude|db] [--ppo N] [--band F1:F2]
 //! acoustilab convert IN OUT [--quantity Q] [--ppo N]
+//! acoustilab export <netlist> --probe ID --out FILE [--ppo N] [--band F1:F2]
 //! ```
 //!
 //! A curve file's sidecar is `FILE.sidecar.json` unless one is named after
@@ -24,8 +25,9 @@ use acoustilab::fit::rig::{self, Noise, RigSpec};
 use acoustilab::fit::{self, CurveSpec, FitParam, FitReport, FitSpec};
 use acoustilab::io::curve::exchange_grid;
 use acoustilab::io::sidecar::Averaging;
-use acoustilab::io::{text, Curve, Format, Quantity, Sidecar};
+use acoustilab::io::{curve, text, Curve, Format, Quantity, Sidecar};
 use acoustilab::params::{Overrides, Parametric};
+use acoustilab::Circuit;
 use std::path::Path;
 
 pub const USAGE: &str = "  acoustilab fit <netlist.json> --curve PROBE=FILE[:SIDECAR] [--condition NAME=VALUE]...
@@ -36,7 +38,9 @@ pub const USAGE: &str = "  acoustilab fit <netlist.json> --curve PROBE=FILE[:SID
       [--noise-db X] [--noise-deg Y] [--seed S] [--seatings N]
       [--averaging complex|magnitude|db] [--ppo N] [--band F1:F2]
                                                          virtual-rig measurement (+ FILE.sidecar.json)
-  acoustilab convert IN OUT [--quantity Q] [--ppo N]    convert curve files (sidecars follow)";
+  acoustilab convert IN OUT [--quantity Q] [--ppo N]    convert curve files (sidecars follow)
+  acoustilab export <netlist.json> --probe ID --out FILE [--ppo N] [--band F1:F2]
+                                                         a simulated probe as a curve file + sidecar";
 
 fn read(path: &str) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))
@@ -125,6 +129,7 @@ pub fn run(args: &[String], overrides: &Overrides) -> Result<(), String> {
         "fit" => fit_cmd(args, overrides),
         "measure" => measure_cmd(args, overrides),
         "convert" => convert_cmd(args),
+        "export" => export_cmd(args, overrides),
         _ => Err(USAGE.into()),
     }
 }
@@ -315,6 +320,44 @@ fn measure_cmd(args: &[String], overrides: &Overrides) -> Result<(), String> {
         "wrote {out} ({} points, {}) and {}",
         c.len(),
         c.quantity.name(),
+        sidecar_path(&out)
+    );
+    Ok(())
+}
+
+fn export_cmd(args: &[String], overrides: &Overrides) -> Result<(), String> {
+    let path = args.get(1).ok_or(USAGE)?;
+    let mut probe: Option<String> = None;
+    let mut out: Option<String> = None;
+    let mut ppo: Option<f64> = None;
+    let mut band_hz: Option<(f64, f64)> = None;
+    let mut it = args[2..].iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--probe" => probe = Some(it.next().ok_or("--probe needs an id")?.clone()),
+            "--out" => out = Some(it.next().ok_or("--out needs a file")?.clone()),
+            "--ppo" => ppo = Some(number(a, it.next())?),
+            "--band" => band_hz = Some(band(it.next())?),
+            other => return Err(format!("unknown option '{other}'\n{USAGE}")),
+        }
+    }
+    let probe = probe.ok_or("export needs --probe")?;
+    let out = out.ok_or("export needs --out FILE")?;
+    let mut c = Circuit::from_json_with(&read(path)?, overrides).map_err(|e| e.to_string())?;
+    if ppo.is_some() || band_hz.is_some() {
+        let (lo, hi) = band_hz.unwrap_or((10.0, 20_000.0));
+        c.freqs = exchange_grid(lo, hi, ppo.unwrap_or(48.0));
+    }
+    let r = c.solve().map_err(|e| e.to_string())?;
+    let mut cv = curve::from_solve(&c, &r, &probe).map_err(|e| e.to_string())?;
+    if let Some(p) = cv.sidecar.provenance.as_mut() {
+        p.source = Some(format!("{path}, probe '{probe}'"));
+    }
+    save_curve(&cv, &out)?;
+    println!(
+        "wrote {out} ({} points, {}) and {}",
+        cv.len(),
+        cv.quantity.name(),
         sidecar_path(&out)
     );
     Ok(())

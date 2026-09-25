@@ -31,7 +31,9 @@
 
 use super::curve::Quantity;
 use super::CurveError;
+use crate::circuit::Circuit;
 use crate::drive::DriveSpec;
+use crate::solve::SolveResult;
 use serde_json::{json, Map, Value};
 
 /// Schema tag of sidecar documents.
@@ -735,6 +737,35 @@ impl Sidecar {
     /// Pretty-printed JSON text, for a sidecar file.
     pub fn to_text(&self) -> String {
         format!("{:#}\n", self.to_json())
+    }
+}
+
+/// The sidecar of a simulated curve: the quantity, absolute levels (for
+/// anything but impedance), the solve's drive (the netlist's `drive`, else
+/// the voltage of its source) and source impedance, and `simulated`
+/// provenance naming the engine.
+pub fn of_solve(circuit: &Circuit, result: &SolveResult, quantity: Quantity) -> Sidecar {
+    Sidecar {
+        quantity: Some(quantity),
+        calibrated: (quantity != Quantity::Impedance).then_some(true),
+        drive: match &circuit.drive {
+            Some(d) => Some(Drive::from_spec(d)),
+            None => result
+                .meta
+                .drive
+                .source_voltage_v
+                .map(|v| Drive::from_spec(&DriveSpec::Voltage(v))),
+        },
+        source_impedance_ohm: result.meta.drive.source_impedance_ohm,
+        smoothing: Some(Smoothing::None),
+        provenance: Some(Provenance {
+            origin: Some(Origin::Simulated),
+            source: None,
+            url: None,
+            licence: None,
+            tool: Some(crate::solve::ENGINE.to_string()),
+        }),
+        ..Sidecar::default()
     }
 }
 
