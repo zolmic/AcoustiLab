@@ -656,8 +656,9 @@ test('screenshot for docs/img/web-ui.png', async ({ page }) => {
   const start = (await hook(page, (h) => h.cursor()))!;
   for (let k = start; k < target; k++) await page.keyboard.press('ArrowRight');
   await canvas.evaluate((c: HTMLElement) => c.blur());
-  // Point at a control so the sketch shows what it shapes.
-  await page.locator('.prow[data-param="vent_diameter_mm"] .plabel').hover();
+  // The geometry sections under the sketch, and a pointer on the cup radius
+  // so the sketch shows what it shapes.
+  await page.locator('.pgroup[data-group="Driver"] summary').click();
   await page.locator('.model-panel').evaluate((p: HTMLElement) => p.scrollTo(0, 0));
   await page.locator('.prow[data-param="front_radius_mm"] .plabel').hover();
   await page.screenshot({ path: `${repo}/docs/img/web-ui.png` });

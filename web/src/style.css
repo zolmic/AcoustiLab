@@ -441,7 +441,7 @@ button[aria-pressed='true'] {
 }
 
 .error-box {
-  margin-top: 10px;
+  margin: 10px 0;
   padding: 8px 12px;
   background: var(--error-bg);
   border: 1px solid var(--error-border);
@@ -893,10 +893,20 @@ svg.has-glow .sk-part:not(.glow) {
   gap: 2px 10px;
   padding: 8px 0 6px;
   cursor: pointer;
-  list-style-position: outside;
+  list-style: none;
 }
-.pgroup > summary::marker {
+.pgroup > summary::-webkit-details-marker {
+  display: none;
+}
+/* A flex summary loses the native marker: draw the disclosure triangle. */
+.pgroup > summary::before {
+  content: '▸' / '';
+  width: 0.8em;
+  margin-right: -4px;
   color: var(--ink-2);
+}
+.pgroup[open] > summary::before {
+  content: '▾' / '';
 }
 .pgroup-name {
   font-weight: 700;

@@ -557,6 +557,100 @@ test('the sketch is drawn to scale and linked to the controls', async ({ page })
   await expect(page.locator('#sketch-desc')).toContainText('no vents');
 });
 
+test('generic controls: switch, select, entry-only and ungrouped parameters', async ({ page }) => {
+  // A hand-written parametric netlist with the kinds the template lacks.
+  // Closed form: the source sees the resistor, |Z| = R.
+  const net = `{
+  "schema": "acoustilab-netlist/0.2",
+  "title": "Generic controls",
+  "parameters": {
+    "R_ohm": 8,
+    "wall_loss": {"value": true, "label": "Thermal wall loss", "group": "Cavity"},
+    "lossless": {"expr": "!wall_loss", "label": "Lossless walls", "group": "Cavity"},
+    "V_cm3": {"value": 2, "min": 0.5, "max": 20, "step": 0.5, "label": "Volume", "group": "Cavity"},
+    "resolution": {"value": "coarse", "label": "Frequency resolution", "group": "Sweep", "choices": [
+      {"value": "coarse", "label": "6 per octave"}, {"value": "medium", "label": "12 per octave"},
+      {"value": "fine", "label": "24 per octave"}, {"value": "finest", "label": "48 per octave"}]}
+  },
+  "sweep": {"f_min_Hz": 100, "f_max_Hz": 1000,
+            "points_per_octave": "=if(resolution == 'coarse', 6, if(resolution == 'medium', 12, if(resolution == 'fine', 24, 48)))"},
+  "level": 0,
+  "nodes": [{"id": "e1", "domain": "electrical"}, {"id": "a1", "domain": "acoustic"}],
+  "elements": [
+    {"id": "src", "type": "vsource", "node": "e1", "V_V": 1},
+    {"id": "r", "type": "resistor", "node": "e1", "R_ohm": "=R_ohm"},
+    {"id": "q", "type": "flow_source", "node": "a1", "U_m3_per_s": 1e-6},
+    {"id": "cav", "type": "cavity", "node": "a1", "volume_cm3": "=V_cm3", "wall_loss": "=wall_loss"}
+  ],
+  "probes": [{"id": "z", "quantity": "impedance", "element": "src"}, {"id": "p", "quantity": "pressure", "node": "a1"}]
+}`;
+  await open(page);
+  await page.getByRole('tab', { name: 'Netlist' }).click();
+  await page.locator('#netlist').fill(net);
+  await page.getByRole('tab', { name: 'Design' }).click();
+  await solved(page);
+  await expect(page.locator('.pgroup:visible .pgroup-name')).toHaveText(['Parameters', 'Cavity', 'Sweep']);
+  // No sketch binding, no sketch.
+  await expect(page.locator('#sketch')).toBeHidden();
+
+  // A shorthand number without bounds: a numeric entry, no slider; its
+  // label is its name, its unit its suffix. ArrowUp moves it by 1 %.
+  await expect(row(page, 'R_ohm').locator('input[type="range"]')).toHaveCount(0);
+  await expect(row(page, 'R_ohm').locator('.plabel')).toHaveText('R_ohm');
+  await expect(row(page, 'R_ohm').locator('.punit')).toHaveText('Ω');
+  await page.locator('#p-R_ohm').press('ArrowUp');
+  await solved(page);
+  expect(await text(page)).toBe(net.replace('"R_ohm": 8,', '"R_ohm": 8.08,'));
+  const z = (await hook(page, (h) => h.result()))!.probes[0] as unknown as { magnitude: number[] };
+  for (const m of z.magnitude) expect(Math.abs(m - 8.08)).toBeLessThan(1e-9);
+
+  // Boolean: a switch; the derived negation follows.
+  const sw = page.getByRole('switch', { name: 'Thermal wall loss' });
+  await expect(sw).toHaveAttribute('aria-checked', 'true');
+  await expect(row(page, 'lossless').locator('output')).toHaveText('off');
+  await sw.click();
+  await solved(page);
+  await expect(sw).toHaveAttribute('aria-checked', 'false');
+  expect(await text(page)).toContain('"wall_loss": {"value": false, "label"');
+  await expect(row(page, 'lossless').locator('output')).toHaveText('on');
+
+  // More than three choices: a select.
+  const sel = page.getByLabel('Frequency resolution', { exact: true });
+  await expect(sel).toHaveValue('coarse');
+  const n6 = (await hook(page, (h) => h.result()))!.frequencies_Hz.length;
+  await sel.selectOption('finest');
+  await solved(page);
+  expect(await text(page)).toContain('"resolution": {"value": "finest", "label"');
+  const n48 = (await hook(page, (h) => h.result()))!.frequencies_Hz.length;
+  // 100 Hz to 1 kHz is log2(10) = 3.32 octaves; the engine's grid has
+  // ceil(octaves × points per octave) + 1 points, both ends included.
+  expect(n6).toBe(Math.ceil(6 * Math.log2(10)) + 1);
+  expect(n48).toBe(Math.ceil(48 * Math.log2(10)) + 1);
+
+  // An engine error from a design change shows above the (dimmed) plots;
+  // "Show in editor" takes it to the Netlist tab, beside the editor.
+  await page.locator('#p-R_ohm').fill('-1');
+  await page.locator('#p-R_ohm').press('Enter');
+  await expect(page.locator('body')).toHaveAttribute('data-state', 'error');
+  await expect(page.locator('.plot-panel #error-box')).toBeVisible();
+  await expect(page.locator('#error-detail')).toContainText('element "r"');
+  await expect(page.locator('#plots')).toHaveClass(/stale/);
+  await page.getByRole('button', { name: 'Show in editor' }).click();
+  await expect(page.locator('.model-panel #error-box')).toBeVisible();
+  expect(await page.locator('#netlist').evaluate((t: HTMLTextAreaElement) => t.value.slice(t.selectionStart, t.selectionEnd))).toContain('"id": "r"');
+  await page.getByRole('tab', { name: 'Design' }).click();
+  await page.locator('#p-R_ohm').fill('8');
+  await page.locator('#p-R_ohm').press('Enter');
+  await solved(page);
+  await expect(page.locator('#error-box')).toBeHidden();
+
+  // A netlist without parameters: the Design tab says how to get controls.
+  await page.getByRole('tab', { name: 'Netlist' }).click();
+  await page.locator('#netlist').fill(JSON.stringify({ ...JSON.parse(net), parameters: undefined, sweep: { frequencies_Hz: [100] } }).replace(/"=[^"]*"/g, '1'));
+  await page.getByRole('tab', { name: 'Design' }).click();
+  await expect(page.locator('#design-message')).toContainText('This netlist declares no parameters');
+});
+
 test('section open state is remembered per viewer', async ({ page }) => {
   await open(page);
   const driver = page.locator('.pgroup[data-group="Driver"]');

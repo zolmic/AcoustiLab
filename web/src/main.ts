@@ -847,6 +847,10 @@ function selectTab(tab: Tab, focus = false, refresh = true): void {
   panelDesign.hidden = !isDesign;
   panelNetlist.hidden = isDesign;
   document.body.dataset.tab = tab;
+  // A solve error shows beside what the user is looking at: above the
+  // (dimmed) plots while designing, above the editor in the Netlist tab.
+  if (isDesign) $('result-title').after(errorBox);
+  else tabDesign.parentElement!.after(errorBox);
   if (focus) (isDesign ? tabDesign : tabNetlist).focus();
   if (isDesign && refresh) {
     // The design view is live: bring it and the plots up to the text.
