@@ -459,7 +459,11 @@ These flags are notices and do not grey a score:
 
 A greyed score keeps its value. In this tool today, every score of a
 simulated design is greyed, because no engine ear load is the training
-fixture.
+fixture. A score can only be un-greyed for a measured response on the
+training fixture, against a target the user holds the rights to. For the
+over-ear model that means a CSV tagged `# fixture: gras45ca_harman` and
+`# family: harman_ae_oe_2018`, scored with `measured: true` and
+`fixture: gras45ca_harman`.
 
 **Grid sensitivity.** On the synthetic test case (a response with a 7 dB
 notch 0.15 octave wide), evaluating on AutoEq's rounded R40 grid instead of
@@ -607,7 +611,7 @@ own score functions:
 
 **Closed forms.**
 
-- The score of an error exactly `a·ln(f/500)` (all three models, 1e-9).
+- The score of an error exactly `a·ln(f/500)` (all four models, 1e-9).
 - The shelves: G/2 at f_c for every Q, the asymptotes, and S = 1
   monotonicity.
 - Smoothing leaves constants and log-linear power unchanged, and complex

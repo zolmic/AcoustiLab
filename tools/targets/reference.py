@@ -15,7 +15,8 @@ checks:
 * the shelving filters, evaluated with scipy.signal.freqs from their
   numerator and denominator polynomials;
 * the metric set, the BS.708 mask, tracking, the preference band and the
-  three preference models (numpy statistics, scipy.stats.linregress);
+  preference models of data/targets/preference_models.json (numpy
+  statistics, scipy.stats.linregress);
 * the Harman-style reconstruction.
 
 Empirical numbers (model coefficients and bands, mask breakpoints, shelf
