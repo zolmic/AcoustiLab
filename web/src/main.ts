@@ -143,8 +143,13 @@ function earLoadText(r: SolveResult, doc: Record<string, unknown> | null): strin
   const v = name ? r.meta.parameters?.[name] : undefined;
   if (name && v !== undefined) {
     const p = paramsDoc?.parameters.find((q) => q.name === name);
-    return p?.choices?.find((c) => c.value === v)?.label ?? String(v);
+    const label = p?.choices?.find((c) => c.value === v)?.label;
+    if (label) return label;
   }
+  // The resolved netlist's own elements (exact, whatever the parameters).
+  const resolved = (r.meta.elements ?? []).filter((e) => e.type in EAR_TYPES);
+  if (resolved.length) return resolved.map((e) => `${EAR_TYPES[e.type]} (“${e.id}”)`).join(', ');
+  if (name && v !== undefined) return String(v);
   const els = Array.isArray(doc?.elements) ? (doc!.elements as Record<string, unknown>[]) : [];
   const ears = els.filter((e) => typeof e === 'object' && e !== null && String(e.type) in EAR_TYPES);
   const on = ears.filter((e) => e.enabled === undefined || e.enabled === true);
@@ -827,6 +832,8 @@ function onParams(text: string, reply: Reply): void {
   const doc = v as ParamsDoc;
   paramsDoc = doc;
   paramsText = text;
+  // A solve may have landed first: its strip then lacks the choice labels.
+  if (result && solvedText === text) renderStrip(result, parseDoc(solvedText));
   if (!doc.parameters.length) {
     design.update(doc, fresh);
     design.showMessage([
