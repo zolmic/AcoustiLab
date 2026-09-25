@@ -8,7 +8,7 @@
 //! acoustilab validate --session OUT_DIR [--predictions DIR]
 //! acoustilab validate --simulate OUT_DIR [--predictions DIR] [--seed S] [--ppo N]
 //!                     [--omit ID]... [--truth-netlist FILE] [--set NAME=VALUE]...
-//! acoustilab validate --predict --out DIR [--protocol FILE] [--runs N]
+//! acoustilab validate --predict --out DIR [--blind] [--protocol FILE] [--runs N] [--allow-dirty]
 //! acoustilab validate --verify [--predictions DIR]
 //! acoustilab validate --drift [--predictions DIR] [--netlist FILE]
 //! ```
@@ -17,6 +17,12 @@
 //! the predictions to the highest `v<N>` directory under the protocol's
 //! `predictions/`. `--set` changes the fitted model of a validation (e.g.
 //! `fidelity=0` for a quick lumped run) or the true device of a simulation.
+//!
+//! `--predict` records the checkout's commit and refuses a tree with
+//! uncommitted changes (`--allow-dirty` overrides that, for sets that are
+//! not committed); run it as `cargo run --release -p acoustilab-cli --
+//! validate --predict ...` so that the binary is built from that commit.
+//! Only `--blind` makes the manifest call the set blind.
 
 use acoustilab::params::Overrides;
 use acoustilab::validation::predict::{self, Frozen, PredictOptions};
@@ -32,8 +38,9 @@ pub const USAGE: &str = "  acoustilab validate <measurement dir> [--predictions 
   acoustilab validate --session OUT_DIR                  sidecar templates and the checklist of a session
   acoustilab validate --simulate OUT_DIR [--seed S] [--ppo N] [--omit ID]... [--truth-netlist FILE]
                                                          a synthetic session from the virtual rig
-  acoustilab validate --predict --out DIR [--protocol FILE] [--runs N]
-                                                         freeze blind predictions into a new version directory
+  acoustilab validate --predict --out DIR [--blind] [--protocol FILE] [--runs N] [--allow-dirty]
+                                                         freeze predictions into a new version directory
+                                                         (--blind declares that no measurement of the device exists)
   acoustilab validate --verify | --drift [--netlist FILE]
                                                          check the frozen files / report the engine's drift
     validate takes --protocol FILE (default validation/reference_cup/protocol.json) and
@@ -194,6 +201,8 @@ pub fn run(args: &[String], overrides: &Overrides) -> Result<(), String> {
     let mut max_evals: Option<usize> = None;
     let mut fit_ppo: Option<f64> = None;
     let mut runs: Option<usize> = None;
+    let mut blind = false;
+    let mut allow_dirty = false;
     let mut netlist: Option<String> = None;
     let mut truth_netlist: Option<String> = None;
     let mut sim = SimulateOptions::default();
@@ -223,6 +232,8 @@ pub fn run(args: &[String], overrides: &Overrides) -> Result<(), String> {
             "--max-evals" => max_evals = Some(number(a, it.next())?.max(1.0) as usize),
             "--fit-ppo" => fit_ppo = Some(number(a, it.next())?.max(1.0)),
             "--runs" => runs = Some(number(a, it.next())?.max(1.0) as usize),
+            "--blind" => blind = true,
+            "--allow-dirty" => allow_dirty = true,
             "--netlist" => netlist = Some(it.next().ok_or("--netlist needs a file")?.clone()),
             "--truth-netlist" => {
                 truth_netlist = Some(it.next().ok_or("--truth-netlist needs a file")?.clone())
@@ -251,6 +262,12 @@ pub fn run(args: &[String], overrides: &Overrides) -> Result<(), String> {
         let npath = normalise(&protocol.parent().unwrap_or(Path::new(".")).join(&p.netlist));
         let ntext = read(&npath)?;
         let (commit, dirty) = git_state();
+        if dirty == Some(true) && !allow_dirty {
+            return Err(
+                "the working tree has uncommitted changes: a frozen set must name the commit that produced it (commit first, or pass --allow-dirty for a set you will not commit)"
+                    .into(),
+            );
+        }
         let opts = PredictOptions {
             version: out
                 .file_name()
@@ -263,6 +280,7 @@ pub fn run(args: &[String], overrides: &Overrides) -> Result<(), String> {
             protocol_source: normalise(&protocol).display().to_string(),
             netlist_source: npath.display().to_string(),
             runs,
+            blind,
         };
         let t0 = std::time::Instant::now();
         let files = predict::predict(&ptext, &ntext, &opts, &mut |line| {

@@ -84,7 +84,12 @@ before it is measured.
   hole) and `mesh` (one 8.0 mm hole covered by Acoustex 260). Front, two of
   each: `sealed` and `mesh` (8.0 mm hole covered by Acoustex 260). The mesh
   is glued on the plug's outer face, the glue kept outside the hole. Plugs
-  can be swapped while the cup stays on the fixture.
+  can be swapped while the cup stays on the fixture, with care: the O-ring
+  takes a few newtons to pull or push, about the whole 5 N seating force,
+  so steady the cup while doing it (protocol.md, "Swapping plugs"). Only
+  the sealed plugs have an extraction feature (a pilot hole for an M3
+  screw); pull the hole and mesh plugs by a tab of polyimide tape stuck to
+  their rim, clear of the hole and the mesh.
 * **Leak.** The gasket seals on a flat plate; the defined leak is the front
   mesh plugs (resistive, as a pad leak is, and set by a data-sheet flow
   resistance rather than a gap). What is left, the residual leak under the
@@ -95,7 +100,7 @@ before it is measured.
 | item | quantity | specification |
 |---|---|---|
 | driver | 1 | Tymphany HPD-40N16PET00-32 (40 mm, PET diaphragm, NdFeB, 32 ohm); datasheet <https://media.digikey.com/pdf/Data%20Sheets/Tymphany/HPD-40N16PET00-32_Spec.pdf> |
-| acoustic mesh | 1 sheet, 3 discs of 13 mm | SAATI SAATIFIL ACOUSTEX 260: 260 MKS rayl, 18 um pores, 13 % open area, 60 um thick (SAATI technical data sheet, 2019). Cut all discs from one sheet (the model uses one flow resistance for all ports). |
+| acoustic mesh | 1 sheet, 3 discs of 13 mm | SAATI SAATIFIL ACOUSTEX 260: 260 MKS rayl, air permeability 800 L/(m2 s) at 20 mm water gauge, 18 um pores, 13 % open area, 60 um thick, 48 g/m2 (SAATI Acoustics technical data sheet ADS1200019EN V8, 2015-09-29, as distributed by Marian Inc. in 2019: <https://marianinc.com/wp-content/uploads/2019/09/2019-09-27-Saatifil-Acoustex-Precision-Woven-Mesh.pdf>; no tolerance is stated). Cut all discs from one sheet (the model uses one flow resistance for all ports). |
 | gasket | 1 | closed-cell silicone sponge sheet, 3 mm, medium firmness; annulus 66 x 90 mm, glued to the pad ring (or self-adhesive) |
 | driver seal | 1 | closed-cell foam tape 0.5 mm; ring 38 x 40 mm |
 | joint O-rings | 2 | 68 x 1.5 mm NBR 70 |
@@ -103,6 +108,7 @@ before it is measured.
 | joint screws | 6 | M3 x 18 socket head (ISO 4762) and 6 M3 heat-set inserts (5.7 mm, for a 4.0 mm hole) |
 | retainer screws | 3 | M2 x 6 and 3 M2 heat-set inserts (for a 3.2 mm hole) |
 | lead | 1 | two-core cable, 2 mm or thinner; non-hardening putty to seal the 2.5 mm exit |
+| ring weight | 1 | for the flat plate: 510 g minus the assembled cup's mass (about 280 g), with a bore of 40 mm or more so that the rear port stays open, e.g. a steel ring 40 x 74 mm, about 12 mm high |
 | printed parts | 1 set | baffle, retainer, pad ring, rear shell; rear plugs sealed, hole, mesh; front plugs 2 sealed, 2 mesh |
 
 ## Print notes

@@ -12,11 +12,12 @@
 //! the quantity; the configuration's fixture, ear simulator and pinna; the
 //! reference point; the drive of the frozen prediction; `compensation:
 //! "none"`; a calibrated level (pressure); a source impedance no higher
-//! than the protocol's limit; no smoothing coarser than 1/24 octave; an
+//! than the protocol's limit (pressure; for an impedance, which does not
+//! depend on it, a warning); no smoothing coarser than 1/24 octave; an
 //! origin of `measured` (or `virtual_rig`, which marks the session as
 //! synthetic). Missing date, device or temperature, a temperature more than
-//! 3 °C from the model's 23 °C, or files that are not single seatings are
-//! warnings.
+//! 3 °C from the model's 23 °C, files that are not single seatings, or
+//! points more than 1/12 octave apart above 20 Hz are warnings.
 //!
 //! **Averaging.** The seatings are resampled to the frozen grid within the
 //! band they share ([`crate::io::Curve::resample`]) and averaged in dB (and
@@ -37,8 +38,11 @@
 //! configurations marked `acceptance`, the protocol's fit parameters (the
 //! leak and the front volume) are fitted to the averaged curve with
 //! [`crate::fit::fit`] (no level offset, the weights from u_m), and the
-//! residual against the fitted model must stay within each band's bound;
-//! above the last band it is reported without a bound. With a
+//! residual against the fitted model, at the drive the sidecars state,
+//! must stay within each band's bound; above the last band it is reported
+//! without a bound. A band the data do not reach at both ends is not
+//! judged, and a curve that passes the bands it covers but misses one is
+//! "not evaluated" rather than failed. With a
 //! `driver_anchor` in the protocol, a second run first fits the driver to
 //! its own free-air impedance and repeats the test with those values. It is
 //! reported separately and is not the spec's criterion: it tells a driver
@@ -70,6 +74,13 @@ const Z95: f64 = 1.644_853_626_951_472_2;
 
 /// Smallest standard uncertainty used in a z score, dB.
 const MIN_U_DB: f64 = 1e-3;
+
+/// Point density below which a measured curve is flagged: its points are
+/// interpolated onto the 1/48-octave prediction grid.
+const MIN_POINTS_PER_OCTAVE: f64 = 12.0;
+/// The density is checked above this frequency (the acceptance band's
+/// lower end).
+const MIN_DENSE_HZ: f64 = 20.0;
 
 /// Options of [`validate`].
 #[derive(Debug, Clone)]
@@ -191,7 +202,12 @@ pub struct Acceptance {
     pub evaluations: usize,
     /// One entry per bound, then the unbounded band above.
     pub bands: Vec<BandStats>,
-    pub pass: bool,
+    /// `Some(false)` when a band the data cover exceeds its bound,
+    /// `Some(true)` when every bounded band is covered and within its
+    /// bound, `None` (not evaluated) when a bounded band is not covered and
+    /// none fails: a curve that stops short of a band neither meets nor
+    /// breaks its bound there.
+    pub pass: Option<bool>,
     pub residual: Residual,
 }
 
@@ -240,8 +256,9 @@ pub struct Verdict {
     pub sidecar_errors: usize,
     /// Some files are virtual-rig curves: not a validation.
     pub synthetic: bool,
-    /// Acceptance of the reference states (spec Section 17), when every one
-    /// of them could be evaluated.
+    /// Acceptance of the reference states (spec Section 17): false when one
+    /// of them fails, true when every one of them passes, None otherwise
+    /// (one is missing or does not cover an acceptance band).
     pub reference_pass: Option<bool>,
     pub text: Vec<String>,
 }
@@ -404,18 +421,26 @@ fn check_sidecar(
             "the level must be calibrated (absolute dB SPL at the stated drive)",
         ));
     }
+    // The source impedance sets the pressure at a given open-circuit drive,
+    // but not the impedance at the terminals of a linear driver: a
+    // series-resistor impedance jig is fine for an impedance-only file.
+    let impedance = expected.quantity == Some(Quantity::Impedance);
     match sc.source_impedance_ohm {
         None => out.push(issue(
             file,
-            Error,
+            if impedance { Warning } else { Error },
             "source_impedance_ohm",
             "not stated; measure the amplifier's output impedance and state it",
         )),
         Some(z) if z > zs_max => out.push(issue(
             file,
-            Error,
+            if impedance { Warning } else { Error },
             "source_impedance_ohm",
-            format!("{z} ohm exceeds the protocol's {zs_max} ohm"),
+            if impedance {
+                format!("{z} ohm exceeds the protocol's {zs_max} ohm; the impedance does not depend on it, but a pressure taken in the same sweep does")
+            } else {
+                format!("{z} ohm exceeds the protocol's {zs_max} ohm")
+            },
         )),
         _ => {}
     }
@@ -946,7 +971,12 @@ impl Ctx<'_> {
         let mut fo = o;
         fo.extend(fitted_overrides(&rep));
         let pg = netlist_on_grid(&self.frozen.netlist_text, &a.freqs)?;
-        let circuit = crate::Circuit::from_parametric(&pg, &fo)?;
+        let mut circuit = crate::Circuit::from_parametric(&pg, &fo)?;
+        // The fit simulated the curve at the drive its sidecar states
+        // (docs/fitting.md); the residual is taken at the same drive.
+        if let Some(d) = &a.sidecar.drive {
+            circuit.drive = Some(d.spec.clone());
+        }
         let r = circuit.solve()?;
         let model = r
             .probe(&m.probe)
@@ -980,7 +1010,13 @@ impl Ctx<'_> {
             })
             .collect();
         let bounded: Vec<&BandStats> = bands.iter().filter(|b| b.bound_db.is_some()).collect();
-        let pass = !bounded.is_empty() && bounded.iter().all(|b| b.pass == Some(true));
+        let pass = if bounded.iter().any(|b| b.pass == Some(false)) {
+            Some(false)
+        } else if !bounded.is_empty() && bounded.iter().all(|b| b.pass == Some(true)) {
+            Some(true)
+        } else {
+            None
+        };
         Ok(Acceptance {
             variant,
             fitted: fitted_of(&rep),
@@ -1000,20 +1036,17 @@ impl Ctx<'_> {
     }
 
     /// The driver fitted to its free-air impedance.
-    fn anchor(
-        &self,
-        c: &Configuration,
-        m: &Measurement,
-        a: &Averaged,
-        zs: Option<f64>,
-    ) -> VResult<Anchor> {
+    fn anchor(&self, c: &Configuration, m: &Measurement, a: &Averaged) -> VResult<Anchor> {
         let da = self
             .frozen
             .protocol
             .driver_anchor
             .as_ref()
             .expect("checked by the caller");
-        let o = self.base_overrides(c, zs, &Overrides::new())?;
+        // The impedance at the terminals does not depend on the source
+        // impedance, which may be a series-resistor jig's (above the
+        // netlist's range): the netlist's value stays.
+        let o = self.base_overrides(c, None, &Overrides::new())?;
         let q = Quantity::Impedance;
         let mag: Vec<f64> = a.level_db.iter().map(|l| 10f64.powf(l / 20.0)).collect();
         let mut curve = Curve::new(q, &a.freqs, &mag, a.phase_deg.as_deref())?;
@@ -1133,6 +1166,27 @@ fn read_seatings(
             curve.sidecar = sc;
             curve.sidecar.quantity = Some(q);
         }
+        // The seatings are interpolated onto the prediction grid: a sparse
+        // export (third-octave points, a short FFT at low frequency) fills
+        // in notches and peaks the model has.
+        let widest = curve
+            .freqs_hz
+            .windows(2)
+            .filter(|w| w[1] > MIN_DENSE_HZ)
+            .map(|w| (w[1] / w[0]).log2())
+            .fold(0.0, f64::max);
+        // (1 % of slack: exports round their frequencies.)
+        if widest > 1.01 / MIN_POINTS_PER_OCTAVE {
+            issues.push(issue(
+                name,
+                Severity::Warning,
+                "points",
+                format!(
+                    "points up to 1/{:.1} octave apart above {MIN_DENSE_HZ} Hz; the comparison interpolates between them (export 24 or more per octave)",
+                    1.0 / widest
+                ),
+            ));
+        }
         if q == Quantity::Impedance && curve.phase_deg.is_none() {
             issues.push(issue(
                 name,
@@ -1226,12 +1280,12 @@ pub fn validate(
     let mut anchor: Option<Anchor> = None;
     if opts.anchor_driver {
         if let Some(da) = &protocol.driver_anchor {
-            if let (Some((a, zs)), Some((c, m))) = (
+            if let (Some((a, _)), Some((c, m))) = (
                 averaged.get(&da.measurement),
                 protocol.measurement(&da.measurement),
             ) {
                 progress(format!("fitting the driver to '{}'", m.id));
-                match ctx.anchor(c, m, a, *zs) {
+                match ctx.anchor(c, m, a) {
                     Ok(x) => anchor = Some(x),
                     Err(e) => {
                         if let Some(r) = reports.iter_mut().find(|r| r.id == m.id) {
@@ -1297,6 +1351,8 @@ pub fn validate(
             "manifest_sha256": frozen.manifest_sha256,
             "created": frozen.manifest.get("created"),
             "git": frozen.manifest.get("git"),
+            "blind": frozen.blind(),
+            "status": frozen.status(),
         }),
         protocol: protocol.title.clone(),
         acceptance_source: protocol.acceptance.source.clone(),
@@ -1341,11 +1397,14 @@ fn verdict(protocol: &super::Protocol, reports: &[MeasurementReport], anchored: 
         r.acceptance
             .iter()
             .find(|a| a.variant == "spec")
-            .map(|a| a.pass)
+            .and_then(|a| a.pass)
     };
-    let reference_pass = if reference.iter().all(|r| spec_of(r).is_some()) && !reference.is_empty()
-    {
-        Some(reference.iter().all(|r| spec_of(r) == Some(true)))
+    // A failed reference state decides the verdict; otherwise every one of
+    // them must have been evaluated.
+    let reference_pass = if reference.iter().any(|r| spec_of(r) == Some(false)) {
+        Some(false)
+    } else if !reference.is_empty() && reference.iter().all(|r| spec_of(r) == Some(true)) {
+        Some(true)
     } else {
         None
     };
@@ -1391,9 +1450,17 @@ fn verdict(protocol: &super::Protocol, reports: &[MeasurementReport], anchored: 
                 failed.join(", ")
             )
         }
-        None => format!(
-            "Reference headphone acceptance (spec Section 17): not evaluated; it needs {names}."
-        ),
+        None => {
+            let open: Vec<&str> = reference
+                .iter()
+                .filter(|r| spec_of(r).is_none())
+                .map(|r| r.id.as_str())
+                .collect();
+            format!(
+                "Reference headphone acceptance (spec Section 17): not evaluated; it needs {names}, and {} could not be evaluated (missing, or not covering an acceptance band).",
+                open.join(", ")
+            )
+        }
     });
     if anchored {
         text.push("The driver-anchored runs use the driver's own free-air impedance; they are reported for diagnosis, not as the spec's criterion.".into());
@@ -1474,9 +1541,15 @@ impl Report {
                 self.unrecognised_files.join(", ")
             );
         }
+        let blind = self.frozen["blind"].as_bool() == Some(true);
         let _ = writeln!(
             s,
-            "\n2. AGAINST THE FROZEN BLIND PREDICTIONS (no fitting; r = measured - predicted, z = r / combined standard uncertainty)"
+            "\n2. AGAINST THE FROZEN {} (no fitting; r = measured - predicted, z = r / combined standard uncertainty)",
+            if blind {
+                "BLIND PREDICTIONS"
+            } else {
+                "PREDICTIONS, NOT BLIND (a model revision; the earliest blind version is the blind record)"
+            }
         );
         for m in &self.measurements {
             let Some(b) = &m.blind else { continue };
@@ -1525,7 +1598,11 @@ impl Report {
                     "  {} [{}]: {}  (fit: {}; reduced chi-square {}; {} evaluations{})",
                     m.id,
                     a.variant,
-                    if a.pass { "PASS" } else { "FAIL" },
+                    match a.pass {
+                        Some(true) => "PASS",
+                        Some(false) => "FAIL",
+                        None => "NOT EVALUATED",
+                    },
                     a.fitted
                         .iter()
                         .map(|f| format!("{} {:.4} (start {:.4})", f.name, f.value, f.start))
@@ -1583,6 +1660,11 @@ pub fn session_templates(frozen: &Frozen) -> BTreeMap<String, String> {
         "{}\nFrozen predictions {} (manifest SHA-256 {}).\n\nSave each export as <file stem>.<frd|zma|txt|csv> next to its sidecar template, fill in the template's date, device, temperature_C, source_impedance_ohm and analyser, and state the uncertainty budget you know (docs/fitting.md). Then run: acoustilab validate <this directory>\n",
         protocol.title, frozen.version, frozen.manifest_sha256
     );
+    // The protocol's own description names its written form, which
+    // completes the short instructions below.
+    if let Some(d) = &protocol.description {
+        let _ = writeln!(list, "\n{d}");
+    }
     for c in &protocol.configurations {
         let _ = writeln!(list, "\n[{}] {}  ({} seatings)", c.id, c.label, c.seatings);
         if let Some(i) = &c.instructions {

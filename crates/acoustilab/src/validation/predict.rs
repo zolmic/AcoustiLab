@@ -18,7 +18,9 @@
 //!
 //! It also copies the protocol and the netlist (`protocol.json`,
 //! `netlist.json`), so that a frozen set is self-contained, and writes
-//! `manifest.json` (`acoustilab-frozen-predictions/0.1`): the engine
+//! `manifest.json` (`acoustilab-frozen-predictions/0.1`): the status (blind
+//! only when the operator declares that no measurement of the device
+//! existed, [`PredictOptions::blind`]), the engine
 //! version, the git commit and whether the tree was clean, the date, the
 //! command, the SHA-256 of the netlist and protocol texts, the
 //! reproducibility hash of every configuration's expanded netlist
@@ -59,7 +61,10 @@ pub struct PredictOptions {
     pub version: String,
     /// UTC date and time, ISO 8601.
     pub created: String,
-    /// Commit of the engine that produced the files.
+    /// Commit of the engine that produced the files. The command line
+    /// records the checkout it runs in (`git rev-parse HEAD`), which is the
+    /// engine's only when the binary was built from that clean checkout
+    /// (`cargo run --release -p acoustilab-cli -- validate --predict ...`).
     pub git_commit: Option<String>,
     /// Whether the working tree had uncommitted changes.
     pub git_dirty: Option<bool>,
@@ -70,7 +75,17 @@ pub struct PredictOptions {
     pub netlist_source: String,
     /// Monte Carlo runs instead of the protocol's (tests).
     pub runs: Option<usize>,
+    /// The operator declares that no measurement of the device existed when
+    /// the set was generated. Only then does the manifest call the set
+    /// blind ([`STATUS_BLIND`]); a set generated after a measurement (a
+    /// model revision) is recorded as not blind ([`STATUS_NOT_BLIND`]).
+    pub blind: bool,
 }
+
+/// Manifest status of a set frozen before any measurement existed.
+pub const STATUS_BLIND: &str = "blind: frozen before any measurement of the device existed; never edit these files, write a new version directory instead";
+/// Manifest status of a set generated without that declaration.
+pub const STATUS_NOT_BLIND: &str = "not blind: generated without a declaration that no measurement of the device existed (a model revision); the earliest blind version stays the blind record; never edit these files, write a new version directory instead";
 
 /// Monte Carlo statistics of one measurement on the prediction grid.
 #[derive(Debug, Clone, PartialEq)]
@@ -526,7 +541,7 @@ pub fn predict(
     let manifest = json!({
         "schema": MANIFEST_SCHEMA,
         "version": opts.version,
-        "status": "blind: frozen before any measurement of the device existed; never edit these files, write a new version directory instead",
+        "status": if opts.blind { STATUS_BLIND } else { STATUS_NOT_BLIND },
         "created": opts.created,
         "engine": crate::solve::ENGINE,
         "git": {"commit": opts.git_commit, "dirty": opts.git_dirty},
@@ -719,6 +734,20 @@ impl Frozen {
             nominal,
             envelopes,
         })
+    }
+
+    /// The manifest's status line.
+    pub fn status(&self) -> &str {
+        self.manifest
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+    }
+
+    /// Whether the manifest declares the set blind (frozen before any
+    /// measurement of the device existed).
+    pub fn blind(&self) -> bool {
+        self.status().starts_with("blind:")
     }
 
     /// Frozen engine version.

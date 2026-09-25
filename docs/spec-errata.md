@@ -297,6 +297,7 @@ corrected statement. "p." is the PDF page.
   cup's notch near 5 kHz), and a free level offset absorbs a broadband
   error of any size. The engine applies the bounds to every point of the
   mean level of the seatings (in dB) from 20 Hz, fits no level offset, and
-  counts a band only when the data reach both of its ends
+  judges a band only when the data reach both of its ends, reporting a
+  curve that stops short of a band as not evaluated rather than failed
   (docs/reference-cup.md). Other readings can be computed from the report's
   residuals, which it lists at every frequency.

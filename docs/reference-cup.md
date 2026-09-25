@@ -137,14 +137,17 @@ the frozen predictions keep describing the cup.
 | pad compression dynamics, clamping force other than 5 N | the gasket's thickness (±0.2 mm estimated) | front volume, the 5 kHz notch |
 | the pinna and head on the Type 4.3 fixture | taken only as 10 cm³ of volume and a larger leak | `t43_ref_p` above about 1 kHz |
 | the damping of the damped IEC 60318-4 variant | the undamped model stands in, up to 10 kHz | above 8–10 kHz (not compared) |
-| the open hole's flow-dependent resistance | the model is linear; at 10 µW the hole's RMS velocity reaches 0.15 m/s on the fixture (116 Hz) and 0.6 m/s with the cup in free air (29 Hz), 1.5 and 6 m/s at 1 mW | `iec_rhole_hi_p` against `iec_rhole_p` near the vent's notch around 200 Hz; `cup_free_hole_z` below 50 Hz |
+| the open hole's flow-dependent resistance | the model is linear; at 10 µW the hole's RMS velocity reaches 0.15 m/s on the fixture (116 Hz) and 0.6 m/s with the cup in free air (29 Hz), 1.5 and 6 m/s at 1 mW. The engine's 1 m/s limit is not the whole story at low frequency: the peak particle displacement √2·u/ω is 0.3 mm on the fixture (a tenth of the 3 mm bore, mildly nonlinear) but 4.7 mm in free air at 29 Hz, one and a half bores, where jets form and the resistance grows even at 10 µW | `iec_rhole_hi_p` against `iec_rhole_p` near the vent's notch around 180 Hz; `cup_free_hole_z` below about 60 Hz is a nonlinearity check rather than a test of the model |
 | diaphragm break-up above ka = 1 | the rigid-piston limit is 3.06 kHz (erratum E28) | shaded from 3 kHz; the notch near 5 kHz |
 | a leak gap below about 4 µm at level 1 | the distributed slit's transfer matrix becomes too ill-conditioned for the solver (a 1 µm gap fails at 1.6 kHz) | the nominal leak is kept at 0.01 mm and the acceptance fit is bounded at 0.005 mm |
 
 ## Frozen blind predictions
 
 `acoustilab validate --predict --out validation/reference_cup/predictions/v1`
-was run once, on a clean tree at the commit recorded in its manifest. For
+was run once, on a clean tree at the commit recorded in its manifest. It
+has been reproduced: rebuilding the engine at that commit (c4ad65d) and
+running the command again gives all 78 data files byte for byte; only the
+manifest's date, git fields and command path differ. For
 every configuration of the protocol it solved the nominal netlist on the
 exchange grid (1 kHz·2^(k/48), 10 Hz to 19.9 kHz; the damped variant to
 10 kHz) and ran 200 Latin-hypercube Monte Carlo runs (seed 20260925) over
@@ -163,7 +166,8 @@ non-zero spread. Every measurement has:
   overrides;
 * `protocol.json` and `netlist.json`: the exact inputs, so the set is
   self-contained;
-* `manifest.json` (`acoustilab-frozen-predictions/0.1`): engine version, git
+* `manifest.json` (`acoustilab-frozen-predictions/0.1`): the status (blind
+  or not, below), engine version, git
   commit and whether the tree was clean, date, command, SHA-256 of the
   netlist and protocol texts, the reproducibility hash of every
   configuration's expanded netlist (docs/analysis.md), the Monte Carlo plan
@@ -176,8 +180,32 @@ changed, missing or not listed. `Frozen::load`, which every comparison uses,
 refuses a set that fails verification. The test
 `frozen_predictions_match_their_manifest` pins the SHA-256 of each version's
 manifest in its source, and fails for any prediction directory that is not
-pinned; a new version is a new directory (the command line refuses to
-write into one that exists) plus one reviewed line in that test.
+pinned, for a pinned version that is missing and for anything in a version
+directory that is not a file; a new version is a new directory (the command
+line refuses to write into one that exists) plus one reviewed line in that
+test. `validation/reference_cup/.gitattributes` turns off end-of-line
+conversion there, so that a checkout with `core.autocrlf` keeps the hashes.
+The pin lives in the repository, so a commit that edits a set and its pin
+together is caught only by review; an anchor outside the repository (a
+signed tag on the commit that froze the set, 2c81eec for v1, or the
+manifest hash published with the cup) makes that visible to anyone.
+
+**Blind or not.** Only a set generated before any measurement of the device
+existed is blind. `--predict` writes the blind status only with `--blind`,
+the operator's declaration; without it the manifest says "not blind" (a
+model revision after a session). v1 predates the flag and was frozen before
+any cup existed. The report of a session names the status of the set it
+compares with, and heads the comparison "not blind" for such a set; the
+command line compares with the newest version by default, so name v1 with
+`--predictions` for the blind record once a later version exists.
+
+**Commit.** `--predict` records the checkout it runs in (`git rev-parse
+HEAD`) and refuses a tree with uncommitted changes (`--allow-dirty`
+overrides this for a set that will not be committed). The recorded commit
+is the engine's only when the binary was built from that checkout, so run
+it as `cargo run --release -p acoustilab-cli -- validate --predict --blind
+--out validation/reference_cup/predictions/v<N>` (about a quarter of an
+hour for the whole protocol).
 
 **Drift.** `acoustilab validate --drift [--netlist examples/reference_cup.json]`
 (and the non-failing test `drift_from_the_frozen_predictions`, whose output
@@ -185,7 +213,10 @@ write into one that exists) plus one reviewed line in that test.
 current engine (engine drift) and, if given, the current netlist (model
 drift), and prints the largest level and phase change per measurement,
 overall and in the credible band. It never fails on the size of the drift:
-a model change shows up there, and the blind record stays what it was.
+a model change shows up there, and the blind record stays what it was. It
+does fail when the current engine cannot solve the frozen netlist at all,
+since the acceptance fit of a session could not run either. The drift
+covers the nominal curves only, not the envelopes.
 
 ### What v1 predicts
 
@@ -230,7 +261,9 @@ acoustilab validate DIR [--out report.json] [--json] [--no-anchor] [--max-evals 
 acoustilab validate --simulate DIR [--seed S] [--ppo N] [--omit ID] [--truth-netlist F] [--set NAME=VALUE]
 ```
 
-The steps (`acoustilab::validation::session`):
+The steps (`acoustilab::validation::session`; the measurement procedure
+itself is `validation/reference_cup/protocol.md`, which completes the frozen
+short instructions, see Limits):
 
 1. **Import.** Seating k of measurement `M` is `M_s<k>.<frd|zma|txt|csv>`
    with its sidecar (`M_s<k>.<ext>.sidecar.json` or the template's
@@ -238,12 +271,16 @@ The steps (`acoustilab::validation::session`):
 2. **Sidecar checks** against the protocol and the frozen sidecar. Errors
    exclude the file: a different quantity, fixture, ear simulator, pinna,
    reference point or drive; compensation other than none; an uncalibrated
-   pressure; a source impedance unstated or above 1 ohm; smoothing coarser
+   pressure; a pressure file's source impedance unstated or above 1 ohm (for
+   an impedance file a warning: the impedance at the terminals does not
+   depend on it, so a series-resistor jig is fine for the free-air steps,
+   and the driver anchor keeps the netlist's source); smoothing coarser
    than 1/24 octave; an origin other than measured or virtual rig; a
    missing sidecar; a second file for one seating. Warnings: missing date,
    device, temperature or origin, a temperature more than 3 °C from 23 °C,
    files that are not single seatings, finer smoothing, an impedance without
-   phase. `virtual_rig` curves mark the whole report as synthetic.
+   phase, points more than 1/12 octave apart above 20 Hz (interpolated onto
+   the 1/48-octave grid, they fill in notches). `virtual_rig` curves mark the whole report as synthetic.
 3. **Averaging.** The seatings are resampled to the frozen grid within
    their common band and averaged in dB (impedance phase: circular mean).
    Their sample standard deviation, pooled over ±1/6 octave because five
@@ -262,13 +299,20 @@ The steps (`acoustilab::validation::session`):
    protocol's fit parameters, `residual_leak_gap_mm` (0.005 to 0.5 mm, log
    scale) and `front_volume_factor` (0.5 to 1.5), are fitted to the mean
    curve from 20 Hz to 4 kHz with `fit::fit` (weights 1/u_m, no level
-   offset, the source impedance the sidecars state), and the residual
-   against the fitted model must be within 2 dB at every point from 20 Hz
-   to 1 kHz and within 4 dB from 1 to 4 kHz. A band counts only when the
-   data reach both of its ends (within 1/24 octave). Above 4 kHz the
-   residual is reported without a bound. The verdict is taken on the three
-   reference states (`iec_ref_p`, `iecd_ref_p`, `t43_ref_p`): pass, fail,
-   or not evaluated when one of them is missing.
+   offset, the drive and source impedance the sidecars state), and the
+   residual against the fitted model, at that drive, must be within 2 dB at
+   every point from 20 Hz to 1 kHz and within 4 dB from 1 to 4 kHz. A band
+   is judged only when the data reach both of its ends (within 1/24
+   octave): a measurement fails when a band it covers exceeds its bound,
+   and is "not evaluated" when a band is not covered and none fails. Above
+   4 kHz the residual is reported without a bound. The verdict is taken on
+   the three reference states (`iec_ref_p`, `iecd_ref_p`, `t43_ref_p`):
+   fail when one of them fails, pass when all three pass, otherwise not
+   evaluated (one missing or not covering a band). The fit minimises the
+   weighted squares, not the largest residual, so a model that could meet
+   the bounds with other values of the two parameters can still fail
+   where the weights are small (the vent's notch, where seatings spread);
+   the fitted values are in the report.
 6. **Driver anchor** (reported separately, not the spec's criterion): the
    driver's `Re`, compliance, Bl and damping factors are fitted to the bare
    driver's free-air impedance (Mms and Sd stay at the datasheet: an
@@ -302,22 +346,26 @@ plug states of that seating; per-point noise 0.05 dB and 0.3°):
 | `dimensions_scad_and_netlist_agree` | every model dimension is a netlist parameter with the same value and tolerance, CAD-only ones are not, every netlist geometry parameter is a dimension; `dimensions.scad` is exactly the generator's output; the netlist's rear and front volumes equal the closed forms from the dimensions to 1e-12 |
 | `the_written_protocol_names_every_measurement` | `protocol.md` names every configuration and measurement of `protocol.json` |
 | `every_configuration_solves_within_its_operating_limits` | the protocol matches the netlist (overrides, probes, fit parameters) and no configuration exceeds an operating limit at the protocol's drive |
-| `frozen_predictions_match_their_manifest` | every version verifies and its manifest hash is the pinned one |
+| `frozen_predictions_match_their_manifest` | every version verifies, holds files only and its manifest hash is the pinned one; every pinned version exists |
 | `verification_refuses_any_change` | one changed digit, an extra file or a missing file fails verification and loading |
-| `frozen_predictions_are_complete_and_consistent` | clean-tree commit, netlist hash, no failed Monte Carlo run, envelope nominal equal to the nominal curve, ordered percentiles, sidecars stating the protocol's conditions |
+| `frozen_predictions_are_complete_and_consistent` | for every version: clean-tree commit, netlist hash, no failed Monte Carlo run, envelope nominal equal to the nominal curve, ordered percentiles, sidecars stating the protocol's conditions; v1 declares itself blind |
 | `drift_from_the_frozen_predictions` | runs and prints the drift report (never fails on its size) |
 | `a_true_cup_within_its_tolerances_passes` | a cup with Bl +4 %, compliance +20 %, Rms −10 %, Mms 0.31 g, mesh 240 rayl and front volume +6 % passes on the IEC and Type 4.3 states (largest residual 0.7 dB below 1 kHz); the fitted front volume factor is within 0.03 of the true 1.06 (1.037 and 1.050: the driver error it cannot fit biases it); the driver anchor finds Bl within 2 % (1.023 for 1.04), after which the Type 4.3 leak comes out at 0.042 mm (true 0.05 with a seat spread) instead of running to its bound; the blind section carries no pass or fail |
 | `a_model_form_error_fails_and_a_small_one_passes` | an internal rear-hole mass of 350 kg/m⁴ with 2 cm³ behind the diaphragm fails: 9.9 dB at 595 Hz after the fit; 3 kg/m⁴ with 0.1 cm³ passes (0.7 dB) |
 | `missing_files_and_protocol_violations_are_reported` | a missing measurement, a lost seating, a wrong fixture, a coarse smoothing, a different drive, a missing and an unreadable sidecar are each reported, the bad files left out, the acceptance "not evaluated", and a stray file listed |
 | `session_templates_name_every_file` | a template for every seating file, parseable, with the conditions filled in |
-| `full_session_at_level_1` (ignored; release, about 3.5 minutes) | the whole protocol at level 1 from a synthetic session of the nominal cup: every acceptance run passes with residuals of at most 0.41 dB below 4 kHz (the open vent's notch) and 8–16 dB above, where seatings differing by 1 % in front volume smear the cup's notches in the mean; the blind comparison of `iec_ref_p` stays within 0.1 dB and inside the 5–95 % envelope below 4 kHz |
+| `acceptance_is_not_evaluated_where_the_data_stop_short_and_uses_the_stated_drive` | with `drive_mW` changed on the fitted model the residual is still taken at the sidecar's drive (it was 20 dB off before); curves starting at 30 Hz leave the 20 Hz–1 kHz band and the verdict "not evaluated", while the 1–4 kHz band is still judged |
+| `an_impedance_jig_with_a_series_resistor_is_accepted` | impedance files with a 100 ohm or unstated source impedance are kept with a warning and the driver anchor fits them; a pressure file with 100 ohm is refused |
+| `predictions_are_reproducible_and_blind_only_when_declared` | `predict` on a reduced protocol (level 0, 4 runs): the same bytes twice, a verifiable set with zero drift, "not blind" without the declaration (only the manifest differs) and a report that says so; v1 is blind |
+| `full_session_at_level_1` (ignored; release, about 3.5 minutes) | the whole protocol at level 1 from a synthetic session of the nominal cup: every acceptance run (both variants) passes with residuals of at most 0.41 dB below 4 kHz (the open vent's notch; asserted below 0.5 dB) and 8–19 dB above, where seatings differing by 1 % in front volume smear the cup's notches in the mean; the driver anchor recovers the nominal driver within 0.5 %; the blind comparison of `iec_ref_p` stays within 0.1 dB (asserted below 0.15 dB) and inside the 5–95 % envelope below 4 kHz |
 
 The end-to-end tests run the true cup and the fitted model at level 0 so
 that a debug `cargo test` stays short; the pipeline is the same at level 1.
 `crates/acoustilab-cli/tests/validate_cli.rs` checks the command line:
 `--verify` on the committed set, refusing to overwrite a version or to
-predict with `--set`, and a session made only of templates reported as
-incomplete and not evaluated.
+predict with `--set`, `--predict` on a reduced protocol writing a set that
+verifies and is blind only with `--blind`, and a session made only of
+templates reported as incomplete and not evaluated.
 
 ## Limits
 
@@ -336,3 +384,14 @@ incomplete and not evaluated.
 * The seating-to-seating variation of a real cup (and so the weights of the
   acceptance fit) is only known once measured; the synthetic sessions assume
   one.
+* **The frozen protocol's short instructions are incomplete.** v1's
+  `protocol.json` (and so `SESSION.txt`) says to put "510 g minus its mass
+  on the rear shell" without saying that the weight must leave the rear
+  port open: a flat weight on the back plate seals it, and the `mesh` and
+  `hole` states then measure as `sealed`. It also says the plugs are swapped
+  without lifting the cup, but an O-ring plug takes about as much force to
+  pull as the whole 5 N seating force. `protocol.md` gives the procedure (a
+  ring weight, steadying the cup, a closing `check_iec_ref_p` sweep per
+  seating), and `SESSION.txt` points to it. The predictions are not
+  affected: they model the open port and an undisturbed seating, which is
+  what the procedure delivers, so this needs no new version.

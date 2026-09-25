@@ -25,10 +25,18 @@ same measurements, and the v1 comparison stays the blind record.
 
 * Analyser with a logarithmic sweep and two channels (microphone, and the
   current through the driver for impedance), exporting FRD, ZMA, REW text or
-  CSV. A 2 s sweep at 48 kHz with an FFT of at least 65 536 points gives
-  more than 24 points per octave at 20 Hz.
+  CSV. Linear FFT bins give f·ln 2/Δf points per octave: at 48 kHz an FFT
+  of 131 072 points (Δf = 0.37 Hz, a sweep of at least 2.7 s) gives 38 per
+  octave at 20 Hz, one of 65 536 points only 19. Export at least 24 points
+  per octave above 20 Hz (or log-spaced at 1/48 octave): the tool
+  interpolates between exported points onto its 1/48-octave grid.
 * Amplifier whose output impedance is below 1 ohm; measure it and state it
-  in every sidecar (`source_impedance_ohm`).
+  in every sidecar (`source_impedance_ohm`). Sense the current with a shunt
+  of at most 0.5 ohm, so that amplifier and shunt together stay below
+  1 ohm: the pressure at a given open-circuit drive depends on the source
+  impedance. The impedance at the terminals does not, so the free-air steps
+  1 to 4 may use a series-resistor impedance jig; state its resistance as
+  `source_impedance_ohm` (the tool warns and keeps the file).
 * IEC 60318-4 ear simulator mounted flush in a flat plate at least 100 mm
   across (for example a headphone test fixture's flat plate).
 * A damped IEC 60318-4 variant in the same plate (for example GRAS
@@ -93,6 +101,18 @@ plugs without lifting it, restore the reference plugs, lift, and seat again.
 Swapping plugs inside a seating means that the six states share their leak
 and front volume, so their differences are the plugs' alone.
 
+**Swapping plugs.** An O-ring plug takes a few newtons to pull or push,
+about as much as the whole 5 N seating force: a plug pulled without holding
+the cup lifts it, and a front plug pushed in sideways can slide it. Steady
+the cup with a hand on the ring weight (below) without pressing it down,
+pull the sealed plugs by an M3 screw turned into their pilot hole and the
+hole and mesh plugs by a tab of polyimide tape stuck to their rim, clear of
+the hole and the mesh, and push plugs in until flush. As a check that the
+swaps left the seating alone, repeat the reference state at the end of the
+loop, before lifting, and save it as `check_iec_ref_p_s<k>.<ext>` (the tool
+lists it as not part of the protocol): below 1 kHz it should match
+`iec_ref_p_s<k>` within the spread between seatings.
+
 **Free air (steps 1 to 4).** Hang the driver, then the assembled cup with
 its gasket up, at least 30 cm from any surface; re-hang or handle it between
 repeats. The bare driver's impedance anchors the unit's own Thiele-Small
@@ -101,12 +121,19 @@ every fixture and from the leak.
 
 **Seating on the flat plate (steps 5 to 11).** Plate horizontal, the cup
 centred on the ear simulator's entrance, 5.0 N in total: weigh the assembled
-cup and put 510 g minus its mass on the rear shell. To reseat, lift the cup
-clear, wait five seconds, centre it again and put the weight back.
+cup and put 510 g minus its mass on the rear shell as a ring weight whose
+bore (40 mm or more) leaves the rear port open, for example a steel ring of
+40 mm bore and 74 mm outside diameter, about 12 mm high for the 280 g a cup
+of about 230 g needs. A flat weight over the back plate seals the rear port
+(the `mesh` state then measures as `sealed`, 7 dB lower at 20 Hz), and the
+ring lets the rear plug be swapped without lifting the weight. To reseat,
+lift the cup clear, wait five seconds, centre it again and put the weight
+back.
 
 **Head and torso simulator (step 12).** Centre the cup on the ear canal
 entrance as far as the pinna allows, with 5 N of clamping force (a headband
-or a calibrated spring). The model sees the pinna only as 10 cm3 taken from
+or a calibrated spring) applied to the rear shell's rim, clear of the rear
+port. The model sees the pinna only as 10 cm3 taken from
 the front cavity (an estimate) and a larger residual leak, so this is the
 comparison to expect least from above 1 kHz.
 

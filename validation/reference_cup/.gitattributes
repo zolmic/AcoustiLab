@@ -1,0 +1,6 @@
+# Files here are checked byte for byte: the frozen predictions against their
+# manifest's SHA-256 (pinned in crates/acoustilab/tests/reference_cup.rs),
+# the STL and SCAD sources against geometry/stl/SHA256SUMS, and
+# dimensions.scad against its generator. No end-of-line conversion on any
+# checkout (core.autocrlf would change every hash).
+* -text

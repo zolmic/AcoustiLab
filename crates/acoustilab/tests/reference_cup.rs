@@ -15,7 +15,7 @@
 
 use acoustilab::expr::PValue;
 use acoustilab::params::{Overrides, Parametric};
-use acoustilab::validation::predict::{self, Frozen};
+use acoustilab::validation::predict::{self, Frozen, PredictOptions};
 use acoustilab::validation::session::{self, Severity, ValidateOptions};
 use acoustilab::validation::simulate::{self, SimulateOptions};
 use acoustilab::validation::{Files, Protocol};
@@ -194,8 +194,8 @@ fn every_configuration_solves_within_its_operating_limits() {
 
 // ----- Frozen predictions ----------------------------------------------------
 
-#[test]
-fn frozen_predictions_match_their_manifest() {
+/// Every prediction version directory.
+fn versions() -> Vec<String> {
     let mut versions = Vec::new();
     for e in std::fs::read_dir(predictions_dir()).unwrap() {
         let e = e.unwrap();
@@ -204,8 +204,31 @@ fn frozen_predictions_match_their_manifest() {
         }
     }
     versions.sort();
+    versions
+}
+
+#[test]
+fn frozen_predictions_match_their_manifest() {
+    let versions = versions();
     assert!(versions.contains(&"v1".to_string()), "{versions:?}");
+    // A pinned version cannot disappear either.
+    for (name, _) in FROZEN {
+        assert!(
+            versions.iter().any(|v| v == name),
+            "pinned prediction version '{name}' is missing"
+        );
+    }
     for v in &versions {
+        // The comparison reads the files of the directory, not of
+        // subdirectories: a version holds files only.
+        for e in std::fs::read_dir(predictions_dir().join(v)).unwrap() {
+            let e = e.unwrap();
+            assert!(
+                e.path().is_file(),
+                "{v}: '{}' is not a file; a frozen set holds its manifest's files only",
+                e.file_name().to_string_lossy()
+            );
+        }
         let pinned = FROZEN
             .iter()
             .find(|(name, _)| name == v)
@@ -247,13 +270,21 @@ fn verification_refuses_any_change() {
 
 #[test]
 fn frozen_predictions_are_complete_and_consistent() {
-    let f = frozen_v1();
+    // v1 was frozen before any cup existed.
+    assert!(frozen_v1().blind(), "{}", frozen_v1().status());
+    for v in versions() {
+        frozen_set_is_complete_and_consistent(&v);
+    }
+}
+
+fn frozen_set_is_complete_and_consistent(version: &str) {
+    let f = Frozen::load(&read_dir(&predictions_dir().join(version))).expect(version);
     let m = &f.manifest;
-    assert_eq!(m["version"], "v1");
+    assert_eq!(m["version"], version);
     assert_eq!(
         m["git"]["dirty"],
         json!(false),
-        "v1 must come from a clean tree"
+        "{version} must come from a clean tree"
     );
     assert!(m["git"]["commit"].as_str().is_some_and(|c| c.len() == 40));
     assert_eq!(
@@ -360,7 +391,7 @@ fn validate(f: &Frozen, files: &Files, anchor: bool) -> session::Report {
     session::validate(f, files, &opts, &mut |_| {}).expect("validate")
 }
 
-fn spec_pass(r: &session::Report, id: &str) -> bool {
+fn spec_pass(r: &session::Report, id: &str) -> Option<bool> {
     let m = r.measurement(id).unwrap();
     assert!(m.errors.is_empty(), "{id}: {:?}", m.errors);
     m.acceptance
@@ -416,7 +447,7 @@ fn a_true_cup_within_its_tolerances_passes() {
     assert!(r.verdict.synthetic);
     assert_eq!(r.verdict.sidecar_errors, 0);
     for id in ["iec_ref_p", "t43_ref_p"] {
-        assert!(spec_pass(&r, id), "{}", r.summary());
+        assert_eq!(spec_pass(&r, id), Some(true), "{}", r.summary());
         let a = r.measurement(id).unwrap();
         let fitted = &a.acceptance[0].fitted;
         let volume = fitted
@@ -438,7 +469,7 @@ fn a_true_cup_within_its_tolerances_passes() {
         assert!(m
             .acceptance
             .iter()
-            .any(|a| a.variant == "driver_anchored" && a.pass));
+            .any(|a| a.variant == "driver_anchored" && a.pass == Some(true)));
     }
     // The blind comparison is reported apart from the acceptance: here the
     // true cup differs from the frozen nominal, so its residuals are not
@@ -462,7 +493,7 @@ fn a_model_form_error_fails_and_a_small_one_passes() {
     // that, and the bounds catch it.
     let large = with_internal_rear_path(&f.netlist_text, 350.0, 2.0);
     let r = validate(&f, &sim(&f, &[], Some(large), 3), false);
-    assert!(!spec_pass(&r, "iec_ref_p"), "{}", r.summary());
+    assert_eq!(spec_pass(&r, "iec_ref_p"), Some(false), "{}", r.summary());
     let a = &r.measurement("iec_ref_p").unwrap().acceptance[0];
     println!(
         "large: {:?}",
@@ -487,7 +518,7 @@ fn a_model_form_error_fails_and_a_small_one_passes() {
             .map(|b| (b.max_abs_db, b.at_hz))
             .collect::<Vec<_>>()
     );
-    assert!(spec_pass(&r, "iec_ref_p"), "{}", r.summary());
+    assert_eq!(spec_pass(&r, "iec_ref_p"), Some(true), "{}", r.summary());
 }
 
 #[test]
@@ -518,7 +549,32 @@ fn missing_files_and_protocol_violations_are_reported() {
         b"{not json".to_vec(),
     );
     files.insert("notes.txt".into(), b"bench notes".to_vec());
+    // A sparse export (every fourth point: 3 per octave) is kept, with a
+    // warning that it is interpolated.
+    let text = String::from_utf8(files["iec_ref_z_s2.zma"].clone()).unwrap();
+    let mut k = 0;
+    let sparse: String = text
+        .lines()
+        .filter(|l| {
+            let numeric = l
+                .split_whitespace()
+                .next()
+                .is_some_and(|x| x.parse::<f64>().is_ok());
+            k += usize::from(numeric);
+            !numeric || k % 4 == 1
+        })
+        .map(|l| format!("{l}\n"))
+        .collect();
+    files.insert("iec_ref_z_s2.zma".into(), sparse.into_bytes());
     let r = validate(&f, &files, false);
+    let zr = r.measurement("iec_ref_z").unwrap();
+    let sparse_warned = |file: &str| {
+        zr.issues
+            .iter()
+            .any(|i| i.file == file && i.field == "points" && i.severity == Severity::Warning)
+    };
+    assert!(sparse_warned("iec_ref_z_s2.zma"), "{:?}", zr.issues);
+    assert!(!sparse_warned("iec_ref_z_s1.zma"), "{:?}", zr.issues);
     assert!(!r.verdict.complete);
     assert_eq!(r.verdict.missing, vec!["t43_ref_p".to_string()]);
     assert!(
@@ -566,11 +622,168 @@ fn missing_files_and_protocol_violations_are_reported() {
     assert!(text.contains("not evaluated"), "{text}");
 }
 
+/// Drops the points below `f_min` from every curve file of `id` (a curve
+/// that stops short of the acceptance band's lower end).
+fn truncate_below(files: &mut Files, id: &str, f_min: f64) {
+    let names: Vec<String> = files
+        .keys()
+        .filter(|k| k.starts_with(&format!("{id}_s")) && !k.ends_with(".json"))
+        .cloned()
+        .collect();
+    for name in names {
+        let text = String::from_utf8(files[&name].clone()).unwrap();
+        let kept: String = text
+            .lines()
+            .filter(|l| {
+                l.split(|c: char| c.is_whitespace() || c == ',')
+                    .next()
+                    .and_then(|x| x.parse::<f64>().ok())
+                    .is_none_or(|f| f >= f_min)
+            })
+            .map(|l| format!("{l}\n"))
+            .collect();
+        files.insert(name, kept.into_bytes());
+    }
+}
+
+#[test]
+fn acceptance_is_not_evaluated_where_the_data_stop_short_and_uses_the_stated_drive() {
+    let f = restricted(&["iec_ref"]);
+    let files = sim(&f, &[], None, 13);
+    // A `--set drive_mW=1` on the fitted model: the fit simulates the
+    // curve at the drive its sidecar states (10 uW), and the residual must
+    // be taken at that drive too, not 20 dB higher.
+    let opts = ValidateOptions {
+        extra_overrides: Overrides::from([
+            ("fidelity".to_string(), PValue::Num(0.0)),
+            ("drive_mW".to_string(), PValue::Num(1.0)),
+        ]),
+        anchor_driver: false,
+        fit_points_per_octave: Some(12.0),
+        max_evaluations: 100,
+    };
+    let r = session::validate(&f, &files, &opts, &mut |_| {}).unwrap();
+    assert_eq!(spec_pass(&r, "iec_ref_p"), Some(true), "{}", r.summary());
+    // Curves that start at 30 Hz do not cover the 20 Hz - 1 kHz band: that
+    // band is neither met nor broken, the 1-4 kHz band is still judged, and
+    // the verdict is "not evaluated" rather than a fail.
+    let mut short = files;
+    truncate_below(&mut short, "iec_ref_p", 30.0);
+    let r = validate(&f, &short, false);
+    let a = &r.measurement("iec_ref_p").unwrap().acceptance[0];
+    assert_eq!(a.pass, None, "{}", r.summary());
+    assert_eq!(a.bands[0].pass, None);
+    assert_eq!(a.bands[1].pass, Some(true));
+    assert_eq!(r.verdict.reference_pass, None);
+    assert!(r.summary().contains("NOT EVALUATED"), "{}", r.summary());
+}
+
+#[test]
+fn an_impedance_jig_with_a_series_resistor_is_accepted() {
+    // The impedance at the terminals does not depend on the source
+    // impedance: a free-air impedance taken through a 100 ohm series
+    // resistor (above the netlist's 50 ohm range) or without a stated one
+    // is kept with a warning, and the driver anchor still fits it.
+    let f = restricted(&["driver_free", "iec_ref"]);
+    let mut files = sim(&f, &[], None, 17);
+    let edit = |files: &mut Files, name: &str, v: Value| {
+        let mut sc: Value = serde_json::from_slice(&files[name]).unwrap();
+        sc["source_impedance_ohm"] = v;
+        files.insert(name.into(), sc.to_string().into_bytes());
+    };
+    edit(&mut files, "driver_free_z_s1.zma.sidecar.json", json!(100));
+    edit(&mut files, "driver_free_z_s2.zma.sidecar.json", Value::Null);
+    // A pressure file with the same source impedance is refused: the
+    // pressure at a given open-circuit drive depends on it.
+    edit(&mut files, "iec_ref_p_s1.frd.sidecar.json", json!(100));
+    let r = validate(&f, &files, true);
+    let z = r.measurement("driver_free_z").unwrap();
+    assert_eq!(z.seatings, 3, "{:?}", z.issues);
+    assert!(z.errors.is_empty(), "{:?}", z.errors);
+    for file in ["driver_free_z_s1.zma", "driver_free_z_s2.zma"] {
+        assert!(
+            z.issues.iter().any(|i| i.file == file
+                && i.field == "source_impedance_ohm"
+                && i.severity == Severity::Warning),
+            "{file}: {:?}",
+            z.issues
+        );
+    }
+    assert!(r.driver_anchor.is_some());
+    let p = r.measurement("iec_ref_p").unwrap();
+    assert_eq!(p.seatings, 4);
+    assert!(p.issues.iter().any(|i| i.file == "iec_ref_p_s1.frd"
+        && i.field == "source_impedance_ohm"
+        && i.severity == Severity::Error));
+}
+
+/// The protocol reduced to two configurations on a coarse grid at level
+/// 0, with four Monte Carlo runs: the whole of `predict` in a debug test.
+fn tiny_protocol() -> String {
+    let mut p: Value =
+        serde_json::from_str(&read("validation/reference_cup/protocol.json")).unwrap();
+    p["grid"] = json!({"f_min_Hz": 100, "f_max_Hz": 1000, "points_per_octave": 3});
+    p["overrides"]["fidelity"] = json!(0);
+    p["monte_carlo"]["n"] = json!(4);
+    p["configurations"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|c| c["id"] == "driver_free" || c["id"] == "iec_ref");
+    p.to_string()
+}
+
+#[test]
+fn predictions_are_reproducible_and_blind_only_when_declared() {
+    let protocol = tiny_protocol();
+    let netlist = read("examples/reference_cup.json");
+    let mut opts = PredictOptions {
+        version: "v9".into(),
+        created: "2026-09-25T00:00:00Z".into(),
+        command: "test".into(),
+        blind: true,
+        ..PredictOptions::default()
+    };
+    let a = predict::predict(&protocol, &netlist, &opts, &mut |_| {}).unwrap();
+    let b = predict::predict(&protocol, &netlist, &opts, &mut |_| {}).unwrap();
+    assert_eq!(a, b, "the same inputs give the same bytes");
+    let files = files_of(a);
+    assert!(predict::verify(&files).ok);
+    let f = Frozen::load(&files).unwrap();
+    assert!(f.blind());
+    let d = predict::drift(&f, Some(&netlist)).unwrap();
+    for e in d.engine.iter().chain(d.model.as_ref().unwrap()) {
+        assert!(e.max_abs_db < 1e-9, "{e:?}");
+    }
+    // Without the declaration the same set is recorded as not blind, and a
+    // report against it says so.
+    opts.blind = false;
+    let c = files_of(predict::predict(&protocol, &netlist, &opts, &mut |_| {}).unwrap());
+    for (name, content) in &files {
+        if name != "manifest.json" {
+            assert_eq!(Some(content), c.get(name), "{name}");
+        }
+    }
+    let g = Frozen::load(&c).unwrap();
+    assert!(!g.blind() && g.status().starts_with("not blind"));
+    let opts = ValidateOptions {
+        anchor_driver: false,
+        ..ValidateOptions::default()
+    };
+    let r = session::validate(&g, &Files::new(), &opts, &mut |_| {}).unwrap();
+    assert_eq!(r.to_json()["frozen"]["blind"], json!(false));
+    assert!(r.summary().contains("NOT BLIND"), "{}", r.summary());
+    let r = session::validate(&f, &Files::new(), &opts, &mut |_| {}).unwrap();
+    assert!(r.summary().contains("AGAINST THE FROZEN BLIND PREDICTIONS"));
+}
+
 #[test]
 fn session_templates_name_every_file() {
     let f = frozen_v1();
     let t = session::session_templates(&f);
     let checklist = &t["SESSION.txt"];
+    // The checklist points at the written protocol, which completes the
+    // frozen short instructions (the ring weight, swapping plugs).
+    assert!(checklist.contains("protocol.md"), "{checklist}");
     for (c, m) in f.protocol.measurements() {
         assert!(checklist.contains(&m.id), "{}", m.id);
         for k in 1..=c.seatings {
@@ -607,4 +820,26 @@ fn full_session_at_level_1() {
     println!("{}", r.summary());
     assert!(r.verdict.complete);
     assert_eq!(r.verdict.reference_pass, Some(true));
+    // The numbers docs/reference-cup.md quotes: every acceptance run (both
+    // variants) passes with at most 0.41 dB below 4 kHz (0.5 here), the
+    // driver anchor recovers the nominal driver, and the blind comparison
+    // of the reference state stays within 0.1 dB (0.15 here) and inside
+    // the 5-95 % envelope below 4 kHz.
+    for m in &r.measurements {
+        for a in &m.acceptance {
+            assert_eq!(a.pass, Some(true), "{} {}", m.id, a.variant);
+            for b in a.bands.iter().filter(|b| b.bound_db.is_some()) {
+                assert!(b.max_abs_db < 0.5, "{} {}: {b:?}", m.id, a.variant);
+            }
+        }
+    }
+    for p in &r.driver_anchor.as_ref().unwrap().fitted {
+        let nominal = if p.name == "driver_Re_ohm" { 32.8 } else { 1.0 };
+        assert!((p.value / nominal - 1.0).abs() < 0.005, "{p:?}");
+    }
+    let b = r.measurement("iec_ref_p").unwrap().blind.as_ref().unwrap();
+    for band in b.bands.iter().filter(|x| x.f_max <= 4000.0) {
+        assert!(band.max_abs_db < 0.15, "{band:?}");
+        assert_eq!(band.within_envelope, Some(1.0), "{band:?}");
+    }
 }

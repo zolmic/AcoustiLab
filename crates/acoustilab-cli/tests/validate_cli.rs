@@ -104,3 +104,56 @@ fn session_templates_and_an_empty_session() {
     assert!(!o.status.success());
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn predict_writes_a_verifiable_set_blind_only_on_request() {
+    // The protocol on a coarse grid at level 0 with two configurations, so
+    // that the command runs in a debug test.
+    let mut p: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(repo("validation/reference_cup/protocol.json")).unwrap(),
+    )
+    .unwrap();
+    p["netlist"] = serde_json::json!(repo("examples/reference_cup.json"));
+    p["grid"] = serde_json::json!({"f_min_Hz": 100, "f_max_Hz": 1000, "points_per_octave": 3});
+    p["overrides"]["fidelity"] = serde_json::json!(0);
+    p["configurations"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|c| c["id"] == "driver_free" || c["id"] == "iec_ref");
+    let dir = scratch("predict");
+    std::fs::create_dir_all(&dir).unwrap();
+    let protocol = dir.join("protocol.json");
+    std::fs::write(&protocol, p.to_string()).unwrap();
+    for (name, blind) in [("v1", true), ("v2", false)] {
+        let out = dir.join(name);
+        let mut args = vec![
+            "validate",
+            "--predict",
+            "--protocol",
+            protocol.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+            "--runs",
+            "2",
+            "--allow-dirty",
+        ];
+        if blind {
+            args.push("--blind");
+        }
+        let o = cli(&args);
+        assert!(o.status.success(), "{}", text(&o));
+        let manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(out.join("manifest.json")).unwrap())
+                .unwrap();
+        let status = manifest["status"].as_str().unwrap();
+        assert_eq!(status.starts_with("blind:"), blind, "{status}");
+        let o = cli(&[
+            "validate",
+            "--verify",
+            "--predictions",
+            out.to_str().unwrap(),
+        ]);
+        assert!(o.status.success(), "{}", text(&o));
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
