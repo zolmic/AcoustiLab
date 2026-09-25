@@ -13,6 +13,7 @@ import {
   prettyUnit,
   superscript,
 } from './format';
+import { band as shadingBand } from './shading';
 import type { Shading } from './types';
 
 /** Internal frequency range of the engine (spec Section 2, rule 6). */
@@ -154,6 +155,7 @@ export class Plot {
     const label =
       `${this.group.title} ${this.group.symbol} ${this.unitEl.textContent ?? ''} against frequency: ${ids}` +
       (bands.length ? `; filled ranges: ${bands.map((b) => b.label).join(', ')}` : '') +
+      (this.group.fitUnshaded ? '; the value axis fits the unshaded frequencies, so values in the validity shading may run off it' : '') +
       (names.length ? `; frozen baselines, drawn as thin patterned lines: ${names.join(', ')}` : '') +
       '. Arrow keys move the crosshair; values are read out above the plots and listed in the data table.';
     if (this.canvas.getAttribute('aria-label') !== label) this.canvas.setAttribute('aria-label', label);
@@ -174,24 +176,34 @@ export class Plot {
     return Math.exp(Math.log(lo) + t * (Math.log(hi) - Math.log(lo)));
   }
 
-  private axis(visible: Series[], overlays: OverlaySeries[], bands: BandSeries[], freqs: number[], lo: number, hi: number): Axis {
+  private axis(visible: Series[], overlays: OverlaySeries[], bands: BandSeries[], freqs: number[], lo: number, hi: number, shading: Shading): Axis {
     const g = this.group;
     let vmin = Infinity;
     let vmax = -Infinity;
+    let unshadedOnly = !!g.fitUnshaded;
     const scan = (f: number[], values: (number | null)[]) => {
       for (let i = 0; i < f.length; i++) {
         if (f[i] < lo || f[i] > hi) continue;
+        if (unshadedOnly && shadingBand(shading, f[i]) !== 0) continue;
         const v = values[i];
         if (!finite(v) || (g.scale === 'log' && v <= 0)) continue;
         vmin = Math.min(vmin, v);
         vmax = Math.max(vmax, v);
       }
     };
-    for (const s of visible) scan(freqs, s.values);
-    for (const o of overlays) scan(o.freqs, o.values);
-    for (const b of bands) {
-      scan(freqs, b.lower);
-      scan(freqs, b.upper);
+    const scanAll = () => {
+      for (const s of visible) scan(freqs, s.values);
+      for (const o of overlays) scan(o.freqs, o.values);
+      for (const b of bands) {
+        scan(freqs, b.lower);
+        scan(freqs, b.upper);
+      }
+    };
+    scanAll();
+    // Nothing unshaded in view: fit everything after all.
+    if (unshadedOnly && !(vmax >= vmin)) {
+      unshadedOnly = false;
+      scanAll();
     }
     if (!(vmax >= vmin)) {
       vmin = g.scale === 'log' ? 1 : 0;
@@ -315,7 +327,7 @@ export class Plot {
     const visible = this.group.series.filter((s) => !hidden.has(s.id));
     const overlays = this.group.overlays.filter((o) => !hidden.has(o.id));
     const bands = (this.group.bands ?? []).filter((b) => !hidden.has(b.id));
-    const ax = this.axis(visible, overlays, bands, data.freqs, lo, hi);
+    const ax = this.axis(visible, overlays, bands, data.freqs, lo, hi, data.shading);
     if (this.unitEl.textContent !== `(${ax.unitText})`) this.unitEl.textContent = `(${ax.unitText})`;
     this.describe(visible, overlays, bands);
 

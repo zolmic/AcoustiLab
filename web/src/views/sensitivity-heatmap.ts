@@ -30,6 +30,36 @@ export interface HeatData {
 
 export type RangeMode = 'credible' | 'all';
 
+/**
+ * How a value maps to the colour's distance from grey: in proportion
+ * ('linear'), or to the square root of its share of the scale ('sqrt'), so
+ * that a sensitivity a hundredth of the largest shows at a tenth of the
+ * full colour instead of a hundredth. Both are symmetric about zero.
+ */
+export type Mapping = 'linear' | 'sqrt';
+
+/** Position on the colour scale, in [−1, 1], of a value `v` for a scale of ±`max`. */
+export function scalePosition(v: number, max: number, mapping: Mapping): number {
+  if (!(max > 0)) return 0;
+  const t = Math.min(1, Math.max(-1, v / max));
+  return mapping === 'sqrt' ? Math.sign(t) * Math.sqrt(Math.abs(t)) : t;
+}
+
+/** The value at position `u` in [−1, 1] of the colour scale (the inverse of `scalePosition`). */
+export function scaleValue(u: number, max: number, mapping: Mapping): number {
+  return mapping === 'sqrt' ? Math.sign(u) * u * u * max : u * max;
+}
+
+/** What the colours span, reported to the legend. */
+export interface Scale {
+  /** Largest |value| the colours span. */
+  max: number;
+  basis: RangeMode;
+  mapping: Mapping;
+  /** Some cells lie beyond ±max and show the end colours. */
+  saturated: boolean;
+}
+
 const ROW_H = 20;
 const GAP = 2;
 const STRIP_H = 18;
@@ -52,9 +82,11 @@ export class HeatMap {
   cursor: { row: number; col: number } | null = null;
   highlight: Highlight | null = null;
   range: RangeMode = 'credible';
+  mapping: Mapping = 'linear';
   /** Largest |value| the colours span, and over which columns (set by `render`). */
   scaleMax = 0;
   scaleBasis: RangeMode = 'credible';
+  scaleSaturated = false;
   private frame = 0;
   /** Cell colours, recomputed only when the data, the scale or the theme change (not on crosshair moves). */
   private colors: string[][] = [];
@@ -65,7 +97,7 @@ export class HeatMap {
 
   constructor(
     caption: HTMLElement,
-    private readonly onScale: (max: number, basis: RangeMode) => void,
+    private readonly onScale: (scale: Scale) => void,
   ) {
     this.canvas.tabIndex = 0;
     this.canvas.setAttribute('role', 'img');
@@ -103,11 +135,23 @@ export class HeatMap {
     this.render();
   }
 
+  setMapping(mapping: Mapping): void {
+    this.mapping = mapping;
+    this.render();
+  }
+
   /** Moves the crosshair cell (null hides it). */
   setCursor(c: { row: number; col: number } | null, fromKeyboard: boolean): void {
     this.cursor = c;
     this.readText(fromKeyboard);
     this.render();
+  }
+
+  /** Where the cells are, in CSS pixels (a test hook: tests read the drawn colours). */
+  geometry(): { x0: number; x1: number; y0: number; rowH: number; gap: number } | null {
+    if (!this.data || !this.cssW) return null;
+    const r = this.rect();
+    return { x0: r.x0, x1: r.x1, y0: r.y0, rowH: ROW_H, gap: GAP };
   }
 
   /** Value, frequency and parameter of a cell. */
@@ -234,7 +278,7 @@ export class HeatMap {
    * Largest |value| over the unshaded columns ('credible') or all of them,
    * and which it is: the whole sweep when nothing unshaded has a value.
    */
-  private computeScale(): { max: number; basis: RangeMode } {
+  private computeScale(): { max: number; basis: RangeMode; saturated: boolean } {
     const d = this.data!;
     let m = 0;
     let credible = 0;
@@ -245,7 +289,9 @@ export class HeatMap {
         m = Math.max(m, Math.abs(v));
       });
     }
-    return this.range === 'credible' && credible > 0 ? { max: credible, basis: 'credible' } : { max: m, basis: 'all' };
+    return this.range === 'credible' && credible > 0
+      ? { max: credible, basis: 'credible', saturated: m > credible }
+      : { max: m, basis: 'all', saturated: false };
   }
 
   draw(): void {
@@ -275,19 +321,23 @@ export class HeatMap {
     const widest = Math.max(...d.rows.map((r) => ctx.measureText(r.label).width));
     this.labelW = Math.round(Math.min(Math.max(90, widest + 12), w * 0.42));
     const r = this.rect();
-    const { max, basis } = this.computeScale();
+    const { max, basis, saturated } = this.computeScale();
+    const mapping = this.mapping;
     this.scaleMax = max;
     this.scaleBasis = basis;
-    if (`${max}|${basis}` !== this.scaleKey) {
-      this.scaleKey = `${max}|${basis}`;
-      this.onScale(max, basis);
+    this.scaleSaturated = saturated;
+    if (`${max}|${basis}|${mapping}|${saturated}` !== this.scaleKey) {
+      this.scaleKey = `${max}|${basis}|${mapping}|${saturated}`;
+      this.onScale({ max, basis, mapping, saturated });
     }
 
     // Cells.
-    const key = `${this.version}|${max}|${this.div.hex.neg}|${this.div.hex.mid}|${this.div.hex.pos}|${th.bg}`;
+    const key = `${this.version}|${max}|${mapping}|${this.div.hex.neg}|${this.div.hex.mid}|${this.div.hex.pos}|${th.bg}`;
     if (key !== this.colorKey) {
       this.colorKey = key;
-      this.colors = d.rows.map((row) => row.values.map((v) => (v === null || !Number.isFinite(v) ? th.bg : this.div.css(max > 0 ? v / max : 0))));
+      this.colors = d.rows.map((row) =>
+        row.values.map((v) => (v === null || !Number.isFinite(v) ? th.bg : this.div.css(scalePosition(v, max, mapping)))),
+      );
     }
     for (let i = 0; i < n; i++) {
       const y = r.y0 + i * (ROW_H + GAP);
@@ -428,7 +478,8 @@ export class HeatMap {
       ctx.moveTo(Math.round(x) + 0.5, r.y1);
       ctx.lineTo(Math.round(x) + 0.5, r.y1 + 4);
       ctx.stroke();
-      if (x - half < lastRight + 6 || x + half > w - 2 || x - half < r.x0 - 20) continue;
+      // Not under the "Hz" at the axis's left end, nor past the right edge.
+      if (x - half < lastRight + 6 || x + half > w - 2 || x - half < r.x0 - 2) continue;
       ctx.fillText(label, x, r.y1 + 6);
       lastRight = x + half;
     }
@@ -458,7 +509,8 @@ export class HeatMap {
     this.canvas.setAttribute(
       'aria-label',
       `Sensitivity map: ${n} parameters by ${d.freqs.length} frequencies from ${formatHz(lo)} to ${formatHz(hi)}, ` +
-        `dB per % on a diverging scale of ±${max.toPrecision(3)}; hatched columns lie in the validity shading. ` +
+        `dB per % on a diverging scale of ±${max.toPrecision(3)}${mapping === 'sqrt' ? ' (square-root mapping)' : ''}` +
+        `${saturated ? ', larger values at the end colours' : ''}; hatched columns lie in the validity shading. ` +
         'Arrow keys move the crosshair cell (up and down: parameter, left and right: frequency); values are read out below the map and listed in its data table.',
     );
   }

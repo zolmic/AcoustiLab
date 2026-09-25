@@ -484,7 +484,7 @@ class TargetView implements ResultView {
     ];
     const t2 = tableBlock(
       'Mask compliance',
-      'The share of grid points where the error lies inside the mask. BS.708: ±2 dB at 100 Hz to ±4 dB at 16 kHz (Rec. ITU-R BS.708 Figure 1, as traced in data/targets/bs708.json), applied here to the error against the selected target; preference band: the listener-class band around the target.',
+      'The share of grid points where the error lies inside the mask. BS.708: ±2 dB at 100 Hz, ±1.5 dB from 500 Hz to 4 kHz and ±4 dB at 16 kHz, linear in dB on log frequency between them (Rec. ITU-R BS.708 Figure 1, as traced in data/targets/bs708.json), applied here to the error against the selected target; preference band: the listener-class band around the target.',
       ['Mask', 'Band', 'Points within', 'Compliance', 'Worst excursion'],
       [mask('ITU-R BS.708', m.bs708_mask), mask('preference band', m.preference_band)],
     );
@@ -517,7 +517,12 @@ class TargetView implements ResultView {
     li.dataset.greyed = String(s.greyed);
     li.append(el('p', 'an-score-model', s.label));
     const head = el('p', 'an-score-head');
-    head.append('Score ', el('span', 'an-score-value', s.score === null ? '—' : s.score.toFixed(1)), ' · ', el('strong', undefined, s.greyed ? 'greyed' : 'applies'));
+    const value = el('span', 'an-score-value', s.score === null ? '—' : s.score.toFixed(1).replace('-', '−'));
+    // A greyed score keeps its value (docs/targets.md), but its state comes
+    // first and the value is not set in bold, so it does not read as a
+    // prediction.
+    if (s.greyed) head.append(el('strong', undefined, 'greyed'), ': not a valid prediction here; value ', value);
+    else head.append('Score ', value, ' · ', el('strong', undefined, 'applies'));
     li.append(head);
     const list = (flags: Flag[], title: string) => {
       if (!flags.length) return;

@@ -39,7 +39,7 @@ import {
   tableBlock,
 } from './analysis-ui';
 import type { Explanation, Jacobian, Tornado, TornadoMetric } from './analysis-types';
-import { HeatMap, type HeatData, type RangeMode } from './sensitivity-heatmap';
+import { HeatMap, scaleValue, type HeatData, type Mapping, type RangeMode, type Scale } from './sensitivity-heatmap';
 import { deltaUnit, rangeNote, tornadoLegend, tornadoSvg } from './sensitivity-tornado';
 import type { ParamDesc, ResultView, ViewHost } from './types';
 
@@ -129,6 +129,7 @@ class SensitivityView implements ResultView {
   private heatBody = el('div');
   private heat!: HeatMap;
   private rangeSel = el('select');
+  private mappingSel = el('select');
   private scaleLegend = el('div', 'an-scale');
   private heatTable!: ReturnType<typeof disclosure>;
   private tornadoHead = el('h3');
@@ -174,18 +175,27 @@ class SensitivityView implements ResultView {
       'credible',
     );
     this.rangeSel.addEventListener('change', () => this.heat.setRange(this.rangeSel.value as RangeMode));
+    setOptions(
+      this.mappingSel,
+      [
+        ['linear', 'linear'],
+        ['sqrt', 'square root (small values visible)'],
+      ],
+      'linear',
+    );
+    this.mappingSel.addEventListener('change', () => this.heat.setMapping(this.mappingSel.value as Mapping));
     const caption = el('figcaption', 'visually-hidden', 'Sensitivity map');
-    this.heat = new HeatMap(caption, (max, basis) => this.renderScale(max, basis));
+    this.heat = new HeatMap(caption, (scale) => this.renderScale(scale));
     this.heatTable = disclosure('data table', () => this.heatTableEl());
     onThemeChange(() => {
       this.div.read();
-      this.renderScale(this.heat.scaleMax, this.heat.scaleBasis);
+      this.renderScale({ max: this.heat.scaleMax, basis: this.heat.scaleBasis, mapping: this.heat.mapping, saturated: this.heat.scaleSaturated });
     });
     const heatSec = el('section', 'an-section');
     this.heatHead.id = nextId('an-h');
     heatSec.setAttribute('aria-labelledby', this.heatHead.id);
     const heatBar = el('div', 'an-controls');
-    heatBar.append(field('Colour scale', this.rangeSel), this.heatTable.button);
+    heatBar.append(field('Colour scale', this.rangeSel), field('Mapping', this.mappingSel), this.heatTable.button);
     heatSec.append(this.heatHead, heatBar, this.scaleLegend, this.heat.el, this.heatBody, this.heatTable.region);
 
     // Tornado.
@@ -273,6 +283,10 @@ class SensitivityView implements ResultView {
       this.renderParams();
     }
     const stale = this.res !== null && (!cur || cur.text !== this.res.text);
+    // A new design's solve has already replaced the band mark on the
+    // Response plots (with its own warnings'); the buttons and the map
+    // follow, so no button stays pressed for a mark that is gone.
+    if (stale && this.selected) this.select(null, '', 0, false);
     this.stale.set(stale, 'these results were');
     this.out.classList.toggle('is-stale', stale);
     this.syncControls();
@@ -617,12 +631,12 @@ class SensitivityView implements ResultView {
   }
 
   /** Marks an explain band (or clears it) on the map and the Response plots; the map's crosshair goes to its largest change. */
-  private select(sel: Selected | null, param: string, atHz: number): void {
+  private select(sel: Selected | null, param: string, atHz: number, toPlots = true): void {
     this.selected = sel;
     for (const b of this.explainBody.querySelectorAll<HTMLElement>('.an-band-btn')) b.setAttribute('aria-pressed', String(b.dataset.key === sel?.key));
     const h = sel ? { lo: sel.lo, hi: sel.hi, label: sel.label } : null;
     this.heat.setHighlight(h);
-    this.host.highlight(h);
+    if (toPlots) this.host.highlight(h);
     const jac = this.res?.jac;
     if (sel && jac) {
       const row = jac.parameters.findIndex((p) => p.name === param);
@@ -631,7 +645,7 @@ class SensitivityView implements ResultView {
       for (let k = 1; k < f.length; k++) if (Math.abs(Math.log(f[k] / atHz)) < Math.abs(Math.log(f[col] / atHz))) col = k;
       if (row >= 0) this.heat.setCursor({ row, col }, false);
     }
-    this.host.announce(sel ? `Marked ${sel.label}.` : 'Band mark cleared.');
+    if (toPlots) this.host.announce(sel ? `Marked ${sel.label}.` : 'Band mark cleared.');
   }
 
   private clearHighlight(): void {
@@ -679,7 +693,7 @@ class SensitivityView implements ResultView {
     if (notes.childElementCount) this.heatBody.append(notes);
   }
 
-  private renderScale(max: number, basis: RangeMode): void {
+  private renderScale({ max, basis, mapping, saturated }: Scale): void {
     const l = this.scaleLegend;
     l.replaceChildren();
     if (!(max > 0)) return;
@@ -689,12 +703,29 @@ class SensitivityView implements ResultView {
     bar.setAttribute('aria-hidden', 'true');
     const ticks = el('div', 'an-scale-ticks');
     ticks.setAttribute('aria-hidden', 'true');
-    const m = max.toPrecision(2);
-    ticks.append(el('span', undefined, `−${m}`), el('span', undefined, '0'), el('span', undefined, `+${m}`));
+    // Ticks at the ends, halfway and the middle of the bar, labelled with
+    // the values there under the chosen mapping; the ends say when cells
+    // lie beyond them.
+    const v = (u: number) => {
+      const x = scaleValue(u, max, mapping);
+      return x === 0 ? '0' : `${x < 0 ? '−' : '+'}${Math.abs(x).toPrecision(2)}`;
+    };
+    ticks.append(
+      el('span', undefined, `${saturated ? '≤ ' : ''}${v(-1)}`),
+      el('span', undefined, v(-0.5)),
+      el('span', undefined, '0'),
+      el('span', undefined, v(0.5)),
+      el('span', undefined, `${saturated ? '≥ ' : ''}${v(1)}`),
+    );
+    const m = max.toPrecision(3);
     const text = el(
       'p',
       'hint',
-      `Colour: dB per % (${`−${m}`} to +${m}, ${basis === 'credible' ? 'the largest magnitude in the unshaded band; larger values saturate' : 'the largest magnitude in the sweep'}). ` +
+      `Colour: dB per %, −${m} to +${m}: ${basis === 'credible' ? 'the largest magnitude in the unshaded band' : 'the largest magnitude in the sweep'}` +
+        `${saturated ? '; cells beyond it (in the shaded band) show the end colours' : ''}. ` +
+        (mapping === 'sqrt'
+          ? `Square-root mapping: the colour's distance from grey is the square root of the value's share of ${m}, so ±${scaleValue(0.5, max, mapping).toPrecision(2)} is half-way. `
+          : 'Linear mapping: the colour is proportional to the value. ') +
         'Positive (warm): the level rises as the parameter rises; negative (cool): it falls; grey: no change. Hatched columns: validity shading.',
     );
     l.append(bar, ticks, text);
@@ -793,6 +824,9 @@ class SensitivityView implements ResultView {
       map: this.heatData()?.rows.map((x) => x.values) ?? [],
       cursor: this.heat.cursor,
       scaleMax: this.heat.scaleMax,
+      scale: { basis: this.heat.scaleBasis, mapping: this.heat.mapping, saturated: this.heat.scaleSaturated },
+      geometry: this.heat.geometry(),
+      selected: this.selected?.key ?? null,
       highlight: this.heat.highlight,
       tornado: r?.tornado?.rows.map((x) => x.name) ?? [],
       sentences: r?.explain?.sentences.map((s) => s.text) ?? [],

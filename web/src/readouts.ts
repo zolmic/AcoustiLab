@@ -41,6 +41,14 @@ interface Value {
   extra?: string[];
   /** A state that makes the value unusable or suspect ("ambiguous", "fails"). */
   flag?: string;
+  /** Units of `nums` when they are not the cell's (another quantity). */
+  units?: string[];
+  /**
+   * Numbers of another quantity the Δ line falls back to when the two
+   * designs' `nums` are different quantities (the sensitivity in dB/V when
+   * one of them has no rated impedance, so no dB/mW), with their units.
+   */
+  alt?: { nums: (number | null)[]; units: string[] };
 }
 
 interface Cell {
@@ -51,6 +59,12 @@ interface Cell {
   methodKey: string;
   /** Units of `nums`, for the Δ line. */
   units: string[];
+  /**
+   * The readout can carry a flag ("ambiguous", "indicative", "fails"): it
+   * gets a line of its own, kept (empty) when there is none, so the flag is
+   * never cut and the block's height does not change with it.
+   */
+  flags?: true;
   /** The readout of a design, or null when the design has none. */
   value(d: Readouts): Value | null;
 }
@@ -58,7 +72,7 @@ interface Cell {
 const hz = (f: number) => formatHz(f);
 const ohm = (z: number) => `${formatParam(z, 4)} Ω`;
 const q3 = (x: number) => formatParam(x, 3);
-const shadeText = (s: number) => (s === 2 ? 'in the dark validity band' : s === 1 ? 'in the light validity band' : '');
+const shadeText = (s: number) => (s === 2 ? 'dark validity band' : s === 1 ? 'light validity band' : '');
 
 const CELLS: Cell[] = [
   {
@@ -67,6 +81,7 @@ const CELLS: Cell[] = [
     method: 'max |v/i|',
     methodKey: 'coupled_resonance',
     units: ['Hz'],
+    flags: true,
     value: (d) => {
       const c = d.response?.coupled_resonance;
       if (!c) return null;
@@ -99,11 +114,22 @@ const CELLS: Cell[] = [
     method: '√r0 (Small 1972)',
     methodKey: 'Q',
     units: ['', '', ''],
+    flags: true,
     value: (d) => {
       const z = d.impedance;
       if (!z) return null;
       if (!z.q) return { text: 'not estimated', nums: [null, null, null], flag: 'no Q', extra: ['the engine notes say why'] };
-      return { text: `${q3(z.q.Qms)} · ${q3(z.q.Qes)} · ${q3(z.q.Qts)}`, nums: [z.q.Qms, z.q.Qes, z.q.Qts] };
+      const text = `${q3(z.q.Qms)} · ${q3(z.q.Qes)} · ${q3(z.q.Qts)}`;
+      const nums = [z.q.Qms, z.q.Qes, z.q.Qts];
+      // The method assumes an isolated resonance; the engine notes when it
+      // is not (several |Z| peaks, or √(f1·f2) off the peak), and calls the
+      // values indicative.
+      const caveats = [
+        ...(z.peaks.length > 1 ? [`of the first of ${z.peaks.length} |Z| peaks (${hz(z.q.f_Hz)})`] : []),
+        ...(z.q.notes.length ? ['not a single lumped resonance'] : []),
+      ];
+      if (!caveats.length) return { text, nums };
+      return { text, nums, flag: 'indicative', extra: [`${caveats.join('; ')}; see the engine notes`] };
     },
   },
   {
@@ -123,6 +149,7 @@ const CELLS: Cell[] = [
     method: '≥ 80 % of rated',
     methodKey: 'rated_check',
     units: ['Ω'],
+    flags: true,
     value: (d) => {
       const c = d.impedance?.rated_check;
       if (!c) return null;
@@ -146,9 +173,12 @@ const CELLS: Cell[] = [
       const b = at(1000);
       if (!a || !b) return null;
       const perV = `${a.dB_per_V.toFixed(1)} · ${b.dB_per_V.toFixed(1)} dB/V`;
+      // The Δ compares like with like: dB/mW when both designs have a rated
+      // impedance, else dB/V (a baseline under another drive may have none).
+      const alt = { nums: [a.dB_per_V, b.dB_per_V], units: ['dB/V', 'dB/V'] };
       // dB/mW needs the rated impedance (erratum E32); without it, dB/V only.
-      if (a.dB_per_mW === null || b.dB_per_mW === null) return { text: perV, nums: [a.dB_per_V, b.dB_per_V], extra: ['dB/V only: no rated impedance'] };
-      return { text: `${a.dB_per_mW.toFixed(1)} · ${b.dB_per_mW.toFixed(1)} dB/mW`, nums: [a.dB_per_mW, b.dB_per_mW], extra: [perV] };
+      if (a.dB_per_mW === null || b.dB_per_mW === null) return { text: perV, nums: alt.nums, units: alt.units, extra: ['dB/V only: no rated impedance'], alt };
+      return { text: `${a.dB_per_mW.toFixed(1)} · ${b.dB_per_mW.toFixed(1)} dB/mW`, nums: [a.dB_per_mW, b.dB_per_mW], extra: [perV], alt };
     },
   },
   {
@@ -195,9 +225,22 @@ function deltaText(cur: (number | null)[], base: (number | null)[], units: strin
     const b = base[i];
     if (c === null || b === null || b === undefined) return 'n/a';
     const u = units[i] ? ` ${units[i]}` : '';
-    return `${units[i] === 'dB' ? signed(c - b, 2) : signedSig(c - b, 3)}${u}`;
+    return `${units[i].startsWith('dB') ? signed(c - b, 2) : signedSig(c - b, 3)}${u}`;
   });
   return parts.every((p) => p === 'n/a') ? 'n/a' : parts.join(' · ');
+}
+
+/**
+ * The Δ line of a cell between the current and the baseline value: of
+ * `nums` when both are the same quantity, else of `alt` (never a dB/mW
+ * against a dB/V).
+ */
+function cellDelta(c: Cell, v: Value, b: Value): string {
+  const vu = v.units ?? c.units;
+  const bu = b.units ?? c.units;
+  if (vu.join('|') === bu.join('|')) return deltaText(v.nums, b.nums, vu);
+  if (v.alt && b.alt && v.alt.units.join('|') === b.alt.units.join('|')) return deltaText(v.alt.nums, b.alt.nums, v.alt.units);
+  return 'n/a';
 }
 
 export class ReadoutsBlock {
@@ -217,6 +260,9 @@ export class ReadoutsBlock {
   private readonly notesSummary = el('summary');
   private readonly notes = el('ul', 'ro-notes');
   private readonly methods = el('details', 'ro-methods');
+  /** Every cell's whole text, unclamped (the cells clamp theirs to keep the block's height). */
+  private readonly full = el('details', 'ro-full');
+  private readonly fullList = el('dl');
   private readonly methodList = el('dl');
   private readonly error = el('p', 'ro-error');
 
@@ -243,8 +289,9 @@ export class ReadoutsBlock {
     head.append(h, this.status, toggle);
     this.notesBox.append(this.notesSummary, this.notes);
     this.methods.append(el('summary', undefined, 'Probes and methods (as the engine states them)'), this.methodList);
+    this.full.append(el('summary', undefined, 'All readouts in full'), this.fullList);
     const more = el('div', 'ro-more');
-    more.append(this.notesBox, this.methods);
+    more.append(this.full, this.notesBox, this.methods);
     this.error.hidden = true;
     body.append(this.error, this.grid, more);
     root.append(head, body);
@@ -309,6 +356,7 @@ export class ReadoutsBlock {
       this.grid.replaceChildren();
       this.notesBox.hidden = true;
       this.methods.hidden = true;
+      this.full.hidden = true;
       this.error.hidden = true;
       this.shownText = null;
       return;
@@ -341,12 +389,14 @@ export class ReadoutsBlock {
     this.setStatus(parts.join(' '));
 
     // The same cells every time: placeholders before the first readouts, a
-    // dash for a readout this design does not have.
+    // dash for a readout this design does not have (or when they failed).
+    const failed = !!entry && !entry.ok;
     this.grid.replaceChildren();
+    const full: Node[] = [el('dt', undefined, 'Status'), el('dd', undefined, this.status.textContent ?? '')];
     for (const c of CELLS) {
       const v: Value = d
         ? (c.value(d) ?? { text: '—', nums: c.units.map(() => null), extra: ['not reported for this design; see the engine notes'] })
-        : { text: '…', nums: c.units.map(() => null) };
+        : { text: failed ? '—' : '…', nums: c.units.map(() => null) };
       const wrap = el('div', 'ro-cell');
       wrap.dataset.readout = c.key;
       const dt = el('dt', undefined, c.label);
@@ -358,17 +408,19 @@ export class ReadoutsBlock {
       const val = el('span', 'ro-value', v.text);
       val.dataset.nums = JSON.stringify(v.nums);
       line.append(val);
+      dd.append(line);
+      const flagLine = el('span', 'ro-flagline');
       if (v.flag) {
         const f = el('span', 'ro-flag');
         const icon = el('span', undefined, '⚠ ');
         icon.setAttribute('aria-hidden', 'true');
         f.append(icon, v.flag);
-        line.append(' ', f);
+        flagLine.append(f);
       }
-      dd.append(line);
+      if (c.flags || v.flag) dd.append(flagLine);
       if (this.baseline) {
         const bv = baseDoc ? c.value(baseDoc) : null;
-        const delta = el('span', 'ro-delta', `Δ ${!baseDoc ? '…' : bv ? deltaText(v.nums, bv.nums, c.units) : 'n/a'}`);
+        const delta = el('span', 'ro-delta', `Δ ${!d ? (failed ? 'n/a' : '…') : !baseDoc ? (base ? 'n/a' : '…') : bv ? cellDelta(c, v, bv) : 'n/a'}`);
         delta.title = delta.textContent ?? '';
         dd.append(delta);
       }
@@ -378,6 +430,8 @@ export class ReadoutsBlock {
       dd.append(ex);
       wrap.append(dt, dd);
       this.grid.append(wrap);
+      const whole = [v.text + (v.flag ? ` (${v.flag})` : ''), dd.querySelector('.ro-delta')?.textContent, extra].filter(Boolean).join('; ');
+      full.push(el('dt', undefined, `${c.label} (${c.method})`), el('dd', undefined, whole));
     }
 
     const notes = d
@@ -393,6 +447,8 @@ export class ReadoutsBlock {
     this.notes.replaceChildren(...notes.map((n) => el('li', undefined, n)));
     this.notesBox.hidden = false;
     this.methods.hidden = false;
+    this.full.hidden = false;
+    this.fullList.replaceChildren(...full);
     this.methodList.replaceChildren();
     if (!d) return;
     if (d.response) this.methodList.append(el('dt', undefined, 'response probe'), el('dd', undefined, `${d.response.probe} (${d.response.probe_source})`));

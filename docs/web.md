@@ -324,7 +324,9 @@ The text alternative lists every dimension the drawing shows.
   (marked "ambiguous" when another |v/i| peak lies within 3 dB, "not robust"
   when it is not prominent, with the competing peak and any validity band
   named), the in-situ |Z| peak (and the highest, when there are several),
-  Qms · Qes · Qts in situ ("not estimated" when the resonances overlap),
+  Qms · Qes · Qts in situ ("not estimated" when the resonances overlap,
+  "indicative" when the engine notes that the resonance is not isolated:
+  several |Z| peaks, or √(f1·f2) off the peak),
   |Z| at 1 kHz, the minimum |Z| with the rated-impedance check (pass, or
   the ranges below 80 % of rated), the sensitivity in dB/mW at 500 Hz and
   1 kHz with dB/V beside it (dB/V only without a rated impedance, erratum
@@ -336,7 +338,10 @@ The text alternative lists every dimension the drawing shows.
   With a baseline as the Δ reference, every readout shows its change
   against the baseline's readouts, computed from the baseline's netlist
   text ("n/a" where either side has no value, e.g. an ambiguous
-  resonance). The block has its own worker, and its calls are coalesced
+  resonance). A Δ compares like with like: when either design has no
+  rated impedance (a baseline frozen under another drive), the
+  sensitivity's Δ is of dB/V, never a dB/V against a dB/mW (that would
+  add 10·log10(1000/Z_rated), 15 dB at 32 Ω). The block has its own worker, and its calls are coalesced
   like the solves: at most one in flight, only the newest text queued, so
   a drag never queues readouts. Until the readouts of the plotted text
   arrive, the previous numbers stay in the secondary ink under "Updating
@@ -345,12 +350,17 @@ The text alternative lists every dimension the drawing shows.
   The block sits above the plots and its readouts land after them, so its
   height depends only on the width and on whether a baseline is the Δ
   reference, never on the design: the same eight cells every time (a dash,
-  pointing to the notes, where a design has no such readout, placeholders
-  before the first readouts), a one-line status, and a qualifier line per
-  cell clamped to two lines on screen (the whole text stays in the page,
-  for screen readers, and in a tooltip). The plots below never move when
-  readouts land. "Hide" folds the block (remembered per browser); it is
-  open by default.
+  pointing to the notes, where a design has no such readout or the
+  readouts failed, placeholders before the first readouts), a status of
+  one line (two, on a row of its own, below 600 px), a line for the flag
+  in the three readouts that can carry one (coupled resonance, Q, rated
+  check), kept empty otherwise, and a qualifier line per cell clamped to
+  two lines on screen. "All readouts in full" lists every cell's whole
+  text, unclamped (the clamped text also stays in the page, for screen
+  readers, and in a tooltip). The plots below never move when readouts
+  land. When a run fails, the readouts of the last result are dimmed with
+  the plots. "Hide" folds the block (remembered per browser); it is open
+  by default.
 - **Crosshair.** Pointer or keyboard; it snaps to the nearest computed
   frequency (no interpolation) and reads every visible curve, with the phase
   for impedances, the dB difference between pressure curves and against the
@@ -456,7 +466,8 @@ link to its parameter's control ("Go to …", `focusParameter`) and a button
 per band the sentence states (the others under "n more bands"). A band
 button marks the band on the map and, through `ViewHost.highlight`, on the
 Response plots, and puts the map's crosshair on the parameter's row at the
-band's largest change; pressing it again clears the mark. Parameters below
+band's largest change; pressing it again clears the mark, and so does a new
+design (its solve replaces the mark on the Response plots). Parameters below
 the threshold or beyond the top five are listed with their largest change,
 and skipped parameters with the engine's reason.
 
@@ -464,11 +475,17 @@ The map has a row per parameter (its label) and a column per grid
 frequency on a log axis. The colour is dB per % on a diverging scale: warm
 for a level that rises as the parameter rises, cool for one that falls,
 neutral grey at zero (two arms of equal OKLab lightness through a grey
-midpoint, own tokens `--div-neg`, `--div-mid`, `--div-pos` per theme). By
-default the scale spans the largest magnitude in the unshaded band and
-larger values saturate (sensitivities next to a lightly damped resonance in
-the shaded band would otherwise wash out the rest); "fit the whole sweep"
-spans them all. The validity shading is marked as on the plots: the strip
+midpoint, own tokens `--div-neg`, `--div-mid`, `--div-pos` per theme),
+symmetric about zero. By default the scale spans the largest magnitude in
+the unshaded band and larger values saturate (sensitivities next to a
+lightly damped resonance in the shaded band would otherwise wash out the
+rest); the legend's ends then read "≤" and "≥" and its text says so. "Fit
+the whole sweep" spans them all. The mapping is linear by default; "square
+root" sets the colour's distance from grey to the square root of the
+value's share of the scale, so small sensitivities show (on the template,
+the coil resistance's −0.043 dB/% is 8 % of the way to the end colour
+linearly, 28 % with the square root). The legend's five ticks give the
+values at the ends, half-way and zero under the chosen mapping. The validity shading is marked as on the plots: the strip
 above the map has the plots' fills and labels, the band edges are dashed
 through the map, and shaded columns are hatched (denser in the dark band)
 rather than tinted, so their colours stay readable. A marked band has solid
@@ -495,7 +512,16 @@ gives the same runs on every platform (docs/analysis.md). The view shows:
 - the envelopes of the chosen probe around the nominal curve (the plotted
   design): median (dashed), 10–90 % (solid edges), 5–95 % (dashed edges)
   and min–max (dotted edges), as filled bands on a `PlotPanel`, with a
-  legend, crosshair readout, the validity shading and a data table;
+  legend, crosshair readout, the validity shading and a data table. A
+  spread of a few dB is invisible on a level axis of 80 dB, so a second
+  plot draws the same statistics minus the nominal (dB; for an impedance,
+  relative to it in %: a percentile of the runs minus a fixed value is
+  that value's percentile minus it, so the engine's statistics transform
+  exactly), with its axis fitted to the unshaded band (`PlotGroup.
+  fitUnshaded`): on the template a sharp resonance near 11 kHz, in the
+  dark shading, spreads by tens of dB and runs off it, as the plot says.
+  The probe choice lists the probes of the runs on screen (after a run of
+  another netlist, that run's);
 - the runs, failures, the plan, the clipped-sample count and the
   percentile method;
 - the varied parameters: nominal, distribution (normal and log-normal at
@@ -532,7 +558,8 @@ and `target_metrics` with the solve result, and shows:
   whether it is partial, and BS.708 and preference-band compliance with
   the worst excursion;
 - the preference scores, each with its value and state: "applies", or
-  "greyed" with the greying flags in a few words followed by the engine's
+  "greyed: not a valid prediction here" before the value, which is then
+  not set in bold, with the greying flags in a few words followed by the engine's
   message ("fixture differs from the model's training fixture: the
   response is on 'iec60318_4'; …"), then the notices (simulated,
   coupler-extrapolated, outside the 0–100 scale); formula, variables, fit
@@ -779,8 +806,12 @@ Node on the same wasm build, with the same inputs:
    engine's notes and method texts. With the template frozen as the Δ
    reference and a 1 mm leak, the coupled resonance is marked ambiguous
    with its competing peak and has no Δ, and the sensitivity Δ equals the
-   difference of the two exports; with a 0.3 mm leak Q is "not estimated"
-   and the engine's notes are shown. The block's height is the same for
+   difference of the two exports; Q is marked indicative (two |Z| peaks)
+   and "All readouts in full" holds the clamped text whole; with a 0.3 mm
+   leak Q is "not estimated" and the engine's notes are shown. With the
+   template frozen and the same design under a voltage drive, the
+   sensitivity's Δ is the dB/V difference of the exports (zero), not
+   dB/V − dB/mW. The block's height is the same for
    the template, a 1 mm leak, an open back and `sealed_cup` (no driver, no
    rated impedance). 41 slider events in one task cause at most two
    readouts calls, and the last text is the one shown.
@@ -802,22 +833,31 @@ Node on the same wasm build, with the same inputs:
    button marks exactly the band's range on the map and the Response plots,
    and the parameter link focuses the control. A design change marks the
    results stale and Recompute updates them; Cancel keeps the previous ones.
+   The colour scale spans the export's largest magnitude in the credible
+   band, or in the sweep, with the legend's ticks and saturation marks; the
+   coil resistance's drawn colour moves at least 2.5 times further from
+   grey with the square-root mapping; no kink warning for it; a design
+   change clears a band mark.
 5. Tolerance: N = 40, seed 7 in calls of 20 gives the envelope and readout
    statistics of one `mc_run` call of 40 through `mc_envelope`, exactly; the
    nominal curve lies inside min–max everywhere; the data table, the varied
    parameters (the plan's, with sources) and the histogram's run count
-   agree; the CSV has 40 rows with the runs' hashes. Cancel mid-run keeps
-   the previous runs; a design change marks them stale.
+   agree; the CSV has 40 rows with the runs' hashes; the spread about the
+   nominal is read out from the same statistics. Cancel mid-run keeps
+   the previous runs; a design change marks them stale. After a run of the
+   driver bench, the probe choice offers that run's probes.
 6. Target: the report equals `target_metrics` of the page's result with the
    inferred fixture, with and without third-octave smoothing; the fixture
    box names both fixtures and the engine's mismatch message, and becomes
    "Same ear simulator …" for the Type 4.3 ear; metric cells and every
-   score, greyed state and flag message match; a CSV without a fixture is
+   score, greyed state and flag message match (a greyed value states its
+   state first and is not bold); a CSV without a fixture is
    refused with the engine's message, and with one it is imported, chosen
    and scored ("Same fixture").
 7. axe-core in light and dark themes with each view open, filled and every
-   disclosure open; nothing scrolls sideways at 390 px; every new control
-   is operated from the keyboard.
+   disclosure open; nothing scrolls sideways at 390 px, where the readouts'
+   status with a Δ reference is not cut off; every new control is operated
+   from the keyboard.
 
 The Rust side (`cargo test -p acoustilab-wasm`) tests the JSON API natively.
 

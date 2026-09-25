@@ -64,6 +64,13 @@ export interface PlotGroup {
   overlays: OverlaySeries[];
   /** Filled ranges drawn under every curve (envelopes, tolerance bands). */
   bands?: BandSeries[];
+  /**
+   * Fit the value axis to the unshaded frequencies in view, when there are
+   * any: values in the validity shading may then run off the plot (it says
+   * so). For spreads that a lightly damped resonance in the shaded band
+   * would otherwise flatten.
+   */
+  fitUnshaded?: boolean;
   /** Relative height of the plot. */
   height: 'main' | 'small';
 }

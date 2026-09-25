@@ -263,12 +263,36 @@
   border: 1px solid var(--control-border);
   border-radius: 2px;
 }
+/* Five ticks at 0, 25, 50, 75 and 100 % of the bar, the ends flush with it. */
 .an-scale-ticks {
-  display: flex;
-  justify-content: space-between;
+  position: relative;
+  height: 1.5em;
   font-size: 11.5px;
   font-variant-numeric: tabular-nums;
   color: var(--ink-2);
+}
+.an-scale-ticks span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.an-scale-ticks span:nth-child(1) {
+  left: 0;
+  transform: none;
+}
+.an-scale-ticks span:nth-child(2) {
+  left: 25%;
+}
+.an-scale-ticks span:nth-child(3) {
+  left: 50%;
+}
+.an-scale-ticks span:nth-child(4) {
+  left: 75%;
+}
+.an-scale-ticks span:nth-child(5) {
+  right: 0;
+  transform: none;
 }
 .an-scale .hint {
   margin-top: 2px;
@@ -445,6 +469,8 @@ rect.an-t-high,
 }
 .an-score-greyed .an-score-value {
   color: var(--ink-2);
+  font-size: inherit;
+  font-weight: 400;
 }
 .an-score-sub {
   color: var(--ink-2);
@@ -549,12 +575,30 @@ rect.an-t-high,
 .ro-value {
   font-weight: 700;
 }
-.readouts.ro-updating .ro-value {
+/* A readout that can be flagged keeps a line for the flag, empty or not. */
+.ro-flagline {
+  display: flex;
+  align-items: center;
+  height: 1.4em;
+}
+.readouts.ro-updating .ro-value,
+.readouts.ro-updating .ro-delta {
   color: var(--ink-2);
   font-weight: 400;
 }
+/* The last run failed: the plots below show the last result dimmed, and so
+   do the readouts of it (by colour: the text keeps its contrast). */
+.readouts:has(~ .plots.stale) .ro-value,
+.readouts:has(~ .plots.stale) .ro-delta {
+  color: var(--ink-2);
+  font-weight: 400;
+}
+.readouts:has(~ .plots.stale) {
+  border-style: dashed;
+}
 .ro-flag {
   padding: 0 5px;
+  line-height: 14px;
   border: 1px solid var(--badge-border);
   border-radius: 8px;
   background: var(--badge-bg);
@@ -594,6 +638,9 @@ rect.an-t-high,
   font-size: 12px;
 }
 .ro-more summary {
+  /* 24 px targets (WCAG 2.5.8), stacked when open. */
+  min-height: 24px;
+  line-height: 24px;
   cursor: pointer;
   color: var(--ink-2);
 }
@@ -602,7 +649,8 @@ rect.an-t-high,
   padding-left: 18px;
   color: var(--ink-2);
 }
-.ro-methods dl {
+.ro-methods dl,
+.ro-full dl {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   gap: 2px 10px;
@@ -611,12 +659,47 @@ rect.an-t-high,
 .ro-methods dt {
   font-family: var(--font-mono);
 }
-.ro-methods dd {
+.ro-full dt {
+  color: var(--ink-2);
+}
+.ro-more details[open] {
+  flex-basis: 100%;
+}
+.ro-methods dd,
+.ro-full dd {
   margin: 0;
   color: var(--ink-2);
   overflow-wrap: anywhere;
 }
+.ro-full dd {
+  color: var(--ink);
+}
 .ro-error {
   margin: 4px 0;
   color: var(--error-ink);
+}
+
+/* Narrow screens: the status gets a row of its own, two lines high (the
+   height still depends only on the width), clamped like the cells. */
+@media (max-width: 600px) {
+  .ro-head {
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+  .ro-status {
+    display: -webkit-box;
+    order: 3;
+    flex: 1 1 100%;
+    min-height: calc(2 * 1.4em);
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+  .ro-full dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ro-full dd {
+    margin-bottom: 4px;
+  }
 }

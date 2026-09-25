@@ -29,6 +29,7 @@ import {
   primaryProbeOf,
   RunBar,
   setOptions,
+  signed,
   StaleBanner,
   download,
 } from './analysis-ui';
@@ -61,6 +62,21 @@ function curveStats(env: Envelope, id: string): { stats: CurveStats; dB: boolean
   if (p.dB) return { stats: p.dB, dB: true };
   if (p.magnitude) return { stats: p.magnitude, dB: false };
   return null;
+}
+
+/**
+ * A curve of the runs about the nominal: minus the nominal in dB for a
+ * level, the ratio to it as a change in % for a magnitude. A percentile
+ * of the runs minus (or over) a fixed value is that value's percentile
+ * minus (or over) it, so the engine's statistics transform exactly.
+ */
+function aboutNominal(values: Num[], nominal: Num[], dB: boolean): Num[] {
+  return values.map((x, i) => {
+    const n = nominal[i];
+    if (x === null || n === null) return null;
+    if (dB) return x - n;
+    return n > 0 ? 100 * (x / n - 1) : null;
+  });
 }
 
 /** Probes a run records: the pressures and impedances (the rest would only grow the data). */
@@ -169,9 +185,11 @@ class ToleranceView implements ResultView {
     const cur = this.host.current();
     const doc = this.host.parameters();
     if (doc) this.params = doc.parameters;
-    if (!this.runBar.running && !this.res) {
-      const ids = cur ? runProbes(cur.result).map((p) => p.id) : [];
-      setOptions(this.probeSel, ids.map((p) => [p, p]), this.probeSel.value || primaryProbeOf(cur?.text) || ids[0] || null);
+    if (!this.runBar.running) {
+      // The probes of the runs on screen, else those the next run records.
+      const ids = this.res ? [...this.res.nominal.keys()] : cur ? runProbes(cur.result).map((p) => p.id) : [];
+      const keep = [this.probeSel.value, primaryProbeOf(this.res?.text ?? cur?.text)].find((k) => !!k && ids.includes(k)) ?? ids[0] ?? null;
+      setOptions(this.probeSel, ids.map((p) => [p, p]), keep);
     }
     const stale = this.res !== null && (!cur || cur.text !== this.res.text);
     this.stale.set(stale, 'these runs were');
@@ -234,9 +252,8 @@ class ToleranceView implements ResultView {
       const failed = samples.filter((s) => !s.ok).length;
       this.runBar.finish(`Done: ${n} runs${failed ? `, ${failed} failed` : ''}, seed ${seed}.`);
       this.host.announce('Monte Carlo run finished.');
-      if (![...this.probeSel.options].some((o) => o.value === this.probeSel.value)) this.probeSel.value = probes[0]?.id ?? '';
-      this.render();
       this.refresh();
+      this.render();
     } catch (e) {
       if (e instanceof Cancelled) {
         this.runBar.finish(this.res ? 'Cancelled; the results below are from the previous run.' : 'Cancelled.');
@@ -315,7 +332,29 @@ class ToleranceView implements ResultView {
       height: 'main',
     };
     if (!cs.dB) g.scale = chooseScale([{ probe: 0, id: 'x', values: [...s.min, ...s.max] }]);
-    this.panel.setGroups([g], { freqs: r.freqs, shading: r.shading, highlight: null });
+    // The spread is a few dB on a curve that spans tens: drawn again about
+    // the nominal, on an axis of its own fitted to the unshaded band (a
+    // sharp resonance in the shading can spread by tens of dB), so it can
+    // be read.
+    const about = (v: Num[]) => aboutNominal(v, nom.values, cs.dB);
+    const dev: PlotGroup = {
+      key: 'mc-about',
+      kind: 'delta',
+      title: cs.dB ? 'Runs minus the nominal' : 'Runs relative to the nominal',
+      symbol: 'Δ',
+      unit: '',
+      axisUnit: cs.dB ? 'dB' : '%',
+      scale: 'linear',
+      series: [
+        { probe: 0, id: 'nominal', values: nom.values.map((x) => (x === null ? null : 0)), primary: true },
+        { probe: 1, id: 'median', values: about(s.median) },
+      ],
+      overlays: [],
+      bands: bands.map((b) => ({ ...b, lower: about(b.lower), upper: about(b.upper) })),
+      fitUnshaded: true,
+      height: 'small',
+    };
+    this.panel.setGroups([g, dev], { freqs: r.freqs, shading: r.shading, highlight: null });
     this.panel.setView(this.panel.lo, this.panel.hi);
 
     const item = (key: Node, text: string) => {
@@ -336,6 +375,11 @@ class ToleranceView implements ResultView {
       item(swatch(0.24, 'solid'), '10–90 %'),
       item(swatch(0.14, 'dashed'), '5–95 %'),
       item(swatch(0.08, 'dotted'), 'min–max'),
+      el(
+        'span',
+        'an-legend-item',
+        `lower plot: the same ${cs.dB ? 'in dB about' : 'in % of'} the nominal, its axis fitted to the unshaded band (larger spreads in the validity shading run off it)`,
+      ),
     );
     this.renderReadout(this.panel.cursor, false);
     this.plotTable.refresh();
@@ -353,9 +397,14 @@ class ToleranceView implements ResultView {
     const f = r.freqs[i];
     const s = cs.stats;
     const v = (x: Num) => (x === null ? 'n/a' : cs.dB ? `${x.toFixed(2)} dB` : `${formatNumber(x, 4)} ${prettyUnit(nom.unit)}`);
+    const d = (x: Num) => {
+      const y = aboutNominal([x], [nom.values[i]], cs.dB)[0];
+      return y === null ? 'n/a' : `${signed(y, 2)}${cs.dB ? ' dB' : ' %'}`;
+    };
     const text =
       `${formatHz(f)}: nominal ${v(nom.values[i])}, median ${v(s.median[i])}, 10–90 % ${v(s.p10[i])} to ${v(s.p90[i])}, ` +
-      `5–95 % ${v(s.p5[i])} to ${v(s.p95[i])}, min–max ${v(s.min[i])} to ${v(s.max[i])} (${s.n[i]} runs); ${bandNote(r.shading, f)}.`;
+      `5–95 % ${v(s.p5[i])} to ${v(s.p95[i])}, min–max ${v(s.min[i])} to ${v(s.max[i])} (${s.n[i]} runs); ` +
+      `about the nominal: 5–95 % ${d(s.p5[i])} to ${d(s.p95[i])}; ${bandNote(r.shading, f)}.`;
     this.readout.textContent = text;
     if (fromKeyboard) this.spoken.textContent = text;
   }
@@ -474,7 +523,7 @@ class ToleranceView implements ResultView {
       return;
     }
     if (w === 0) return;
-    const unit = /_Hz$/.test(k) ? 'Hz' : /_dB/.test(k) ? 'dB' : /_ohm$/.test(k) ? 'Ω' : '';
+    const unit = /_Hz$/.test(k) ? 'Hz' : /_dB_per_V$/.test(k) ? 'dB/V' : /_dB_per_mW$/.test(k) ? 'dB/mW' : /_dB$/.test(k) ? 'dB SPL' : /_ohm$/.test(k) ? 'Ω' : '';
     this.hist.append(histogramSvg(bins, stats, unit, w, k));
     this.hist.append(el('p', 'hint', `${vals.length} of ${r.envelope.runs} runs have ${k}. Solid line: median; dashed: 5 and 95 % (the engine’s percentiles).`));
   }
