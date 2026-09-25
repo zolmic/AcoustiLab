@@ -1,13 +1,8 @@
-//! Levenberg–Marquardt least squares with smooth box bounds.
+//! Levenberg–Marquardt least squares with box bounds.
 //!
 //! Minimises the cost Σ r_i(u)² over the fitting variables u (the natural
 //! logarithms of positive parameters, or scaled parameters on a linear
-//! scale). The iterate lives in an unconstrained variable z with u = T(z)
-//! ([`Bound`]), so every trial point satisfies the bounds:
-//!
-//! * two bounds a < u < b: u = a + (b − a)·σ(z), σ the logistic function;
-//! * a lower bound only: u = a + ln(1 + e^z);
-//! * an upper bound only: u = b − ln(1 + e^(−z)).
+//! scale) within bounds a ≤ u ≤ b ([`Bound`]).
 //!
 //! Each iteration takes the Jacobian J = ∂r/∂u, its singular value
 //! decomposition J = U·Σ·Vᵀ, and solves the Marquardt-damped normal
@@ -21,14 +16,17 @@
 //! stay where they started instead of wandering on noise. With every
 //! direction kept this is the ordinary Marquardt step.
 //!
-//! The step is carried to z to first order, δz_k = δu_k/T'(z_k), and the
-//! trial point is T(z + δz): away from the bounds this is the step itself;
-//! towards a bound it saturates smoothly instead of crossing it. This
-//! rather than projecting onto the box: projection makes the cost
-//! non-smooth at the faces and pins a variable there. Working in u rather
-//! than z keeps the step and the flatness test independent of how close a
-//! variable is to its bound (dT/dz vanishes there); a variable whose
-//! optimum lies beyond a bound ends next to it, and the fit reports that.
+//! Bounds are kept by the fraction-to-the-boundary rule of interior-point
+//! methods, per variable: a component of the step that would cross a bound
+//! goes 90 % of the way to it instead ([`Bound::step`]). Trial points
+//! therefore never reach a bound, so the model is never evaluated on it
+//! and a variable is never pinned there, unlike projection onto the box;
+//! a variable whose optimum lies beyond a bound approaches it geometrically
+//! while the cost keeps falling, and the fit reports it as at the bound.
+//! A start on a bound is allowed: steps away from it are taken in full.
+//! (A smooth change of variable, such as a logistic map, was not used: its
+//! derivative vanishes at the bounds, which freezes a variable that starts
+//! on one and distorts the flatness test near them.)
 //!
 //! A trial point that lowers the cost is accepted and μ divided by 3;
 //! otherwise μ is multiplied by 4 (by 10 when the damped system is
@@ -38,6 +36,10 @@
 use super::dense::{self, Mat};
 use super::jacobian;
 use serde::Serialize;
+
+/// Fraction of the distance to a bound that a crossing step component
+/// covers.
+pub const TO_BOUNDARY: f64 = 0.9;
 
 /// Bound of one fitting variable u (see the module documentation).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -49,32 +51,8 @@ pub enum Bound {
     Both(f64, f64),
 }
 
-fn logistic(z: f64) -> f64 {
-    1.0 / (1.0 + (-z).exp())
-}
-
-/// ln(1 + e^x) without overflow.
-fn softplus(x: f64) -> f64 {
-    if x > 30.0 {
-        x + (-x).exp()
-    } else {
-        x.exp().ln_1p()
-    }
-}
-
-/// Inverse of [`softplus`] for y > 0: ln(e^y − 1).
-fn softplus_inv(y: f64) -> f64 {
-    let y = y.max(1e-12);
-    if y > 30.0 {
-        y + (-(-y).exp()).ln_1p()
-    } else {
-        y.exp_m1().ln()
-    }
-}
-
 impl Bound {
-    /// From optional bounds; equal bounds are not a bound (fix the
-    /// parameter instead).
+    /// From optional bounds.
     pub fn new(lo: Option<f64>, hi: Option<f64>) -> Bound {
         match (lo, hi) {
             (Some(a), Some(b)) => Bound::Both(a, b),
@@ -84,60 +62,45 @@ impl Bound {
         }
     }
 
-    /// u = T(z).
-    pub fn u(&self, z: f64) -> f64 {
+    fn lower(&self) -> Option<f64> {
         match *self {
-            Bound::Free => z,
-            Bound::Lower(a) => a + softplus(z),
-            Bound::Upper(b) => b - softplus(-z),
-            Bound::Both(a, b) => a + (b - a) * logistic(z),
+            Bound::Lower(a) | Bound::Both(a, _) => Some(a),
+            _ => None,
         }
     }
 
-    /// du/dz at z.
-    pub fn du_dz(&self, z: f64) -> f64 {
+    fn upper(&self) -> Option<f64> {
         match *self {
-            Bound::Free => 1.0,
-            Bound::Lower(_) => logistic(z),
-            Bound::Upper(_) => logistic(-z),
-            Bound::Both(a, b) => {
-                let s = logistic(z);
-                (b - a) * s * (1.0 - s)
-            }
-        }
-    }
-
-    /// z = T⁻¹(u); a u on or outside a bound maps to a point just inside.
-    pub fn z(&self, u: f64) -> f64 {
-        match *self {
-            Bound::Free => u,
-            Bound::Lower(a) => softplus_inv(u - a),
-            Bound::Upper(b) => -softplus_inv(b - u),
-            Bound::Both(a, b) => {
-                let t = ((u - a) / (b - a)).clamp(1e-12, 1.0 - 1e-12);
-                (t / (1.0 - t)).ln()
-            }
+            Bound::Upper(b) | Bound::Both(_, b) => Some(b),
+            _ => None,
         }
     }
 
     /// True if u satisfies the bounds.
     pub fn contains(&self, u: f64) -> bool {
-        match *self {
-            Bound::Free => true,
-            Bound::Lower(a) => u >= a,
-            Bound::Upper(b) => u <= b,
-            Bound::Both(a, b) => u >= a && u <= b,
+        self.lower().is_none_or(|a| u >= a) && self.upper().is_none_or(|b| u <= b)
+    }
+
+    /// u clamped into the bounds.
+    pub fn clamp(&self, u: f64) -> f64 {
+        let u = self.lower().map_or(u, |a| u.max(a));
+        self.upper().map_or(u, |b| u.min(b))
+    }
+
+    /// u + δ, or [`TO_BOUNDARY`] of the way to the bound that u + δ would
+    /// reach or cross.
+    pub fn step(&self, u: f64, delta: f64) -> f64 {
+        let t = u + delta;
+        match (self.lower(), self.upper()) {
+            (Some(a), _) if t <= a => u + TO_BOUNDARY * (a - u),
+            (_, Some(b)) if t >= b => u + TO_BOUNDARY * (b - u),
+            _ => t,
         }
     }
 
     /// True if u lies within `tol` of a bound (in u).
     pub fn near_bound(&self, u: f64, tol: f64) -> bool {
-        match *self {
-            Bound::Free => false,
-            Bound::Lower(a) => u - a <= tol,
-            Bound::Upper(b) => b - u <= tol,
-            Bound::Both(a, b) => u - a <= tol || b - u <= tol,
-        }
+        self.lower().is_some_and(|a| u - a <= tol) || self.upper().is_some_and(|b| b - u <= tol)
     }
 }
 
@@ -282,9 +245,7 @@ pub fn minimize(
 ) -> Result<LmResult, String> {
     let n = u0.len();
     assert_eq!(bounds.len(), n, "one bound per variable");
-    let to_u = |z: &[f64]| -> Vec<f64> { z.iter().zip(bounds).map(|(z, b)| b.u(*z)).collect() };
-    let mut z: Vec<f64> = u0.iter().zip(bounds).map(|(u, b)| b.z(*u)).collect();
-    let mut u = to_u(&z);
+    let mut u: Vec<f64> = u0.iter().zip(bounds).map(|(u, b)| b.clamp(*u)).collect();
     let mut evaluations = 1;
     let mut r = problem
         .residuals(&u)
@@ -365,13 +326,12 @@ pub fn minimize(
             let delta: Vec<f64> = (0..n)
                 .map(|k| keep.iter().zip(&y).map(|(&i, y)| d.v.get(k, i) * y).sum())
                 .collect();
-            let zt: Vec<f64> = z
+            let ut: Vec<f64> = u
                 .iter()
                 .zip(&delta)
                 .zip(bounds)
-                .map(|((z, d), b)| z + (d / b.du_dz(*z).max(1e-300)).clamp(-60.0, 60.0))
+                .map(|((u, d), b)| b.step(*u, *d))
                 .collect();
-            let ut = to_u(&zt);
             evaluations += 1;
             match problem.residuals(&ut) {
                 Ok(rt) => {
@@ -379,7 +339,6 @@ pub fn minimize(
                     if ct.is_finite() && ct < c {
                         let rel = (c - ct) / c.max(1e-300);
                         let small = delta.iter().all(|d| d.abs() < o.xtol);
-                        z = zt;
                         u = ut;
                         r = rt;
                         c = ct;
@@ -429,24 +388,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn transforms_invert_and_stay_inside() {
-        for b in [
-            Bound::Free,
-            Bound::Lower(-1.0),
-            Bound::Upper(2.0),
-            Bound::Both(-1.0, 2.0),
-        ] {
-            for u in [-0.9, 0.0, 0.5, 1.9] {
-                let z = b.z(u);
-                assert!((b.u(z) - u).abs() < 1e-12, "{b:?} {u}");
-                let h = 1e-6;
-                let fd = (b.u(z + h) - b.u(z - h)) / (2.0 * h);
-                assert!((fd - b.du_dz(z)).abs() < 1e-8);
-            }
-            for z in [-50.0, -5.0, 0.0, 5.0, 50.0] {
-                assert!(b.contains(b.u(z)), "{b:?} {z}");
-            }
-        }
+    fn steps_stop_short_of_the_bounds() {
+        let b = Bound::Both(-1.0, 2.0);
+        assert_eq!(b.step(0.0, 0.5), 0.5);
+        assert!((b.step(0.0, 5.0) - 1.8).abs() < 1e-15);
+        assert!((b.step(0.0, -5.0) + 0.9).abs() < 1e-15);
+        assert_eq!(b.step(-1.0, 0.3), -0.7, "away from a bound: in full");
+        assert_eq!(b.step(-1.0, -0.3), -1.0, "into a bound it sits on: no move");
+        assert_eq!(Bound::Lower(1.0).step(1.5, -2.0), 1.05);
+        assert_eq!(Bound::Upper(1.0).step(0.0, 3.0), 0.9);
+        assert_eq!(Bound::Free.step(0.0, 1e9), 1e9);
+        assert_eq!(b.clamp(7.0), 2.0);
+        assert!(b.near_bound(1.9995, 1e-3) && !b.near_bound(0.0, 1e-3));
     }
 
     #[test]

@@ -27,9 +27,9 @@
 //!   gets a free level offset (a nuisance parameter, reported).
 //!
 //! The optimiser is Levenberg–Marquardt ([`lm`]) in log-parameter space
-//! (linear for parameters that may be zero or negative) with the bounds of
-//! the parameter declarations mapped by a smooth transform, the Jacobian by
-//! central differences of full solves ([`jacobian`]), and optional
+//! (linear for parameters that may be zero or negative) within the bounds
+//! of the parameter declarations, the Jacobian by central differences of
+//! full solves ([`jacobian`]), and optional
 //! multi-start from a Latin hypercube. The report ([`FitReport`]) gives
 //! fitted values with 95 % intervals from the Jacobian covariance, the
 //! correlation matrix, residual statistics per curve, the singular values
@@ -1028,7 +1028,7 @@ pub fn fit(p: &Parametric, spec: &FitSpec) -> Result<FitReport, FitError> {
             }
         };
         let step = 1e-4;
-        let mut var = Var {
+        let var = Var {
             name: name.clone(),
             scale,
             unit_u,
@@ -1040,14 +1040,6 @@ pub fn fit(p: &Parametric, spec: &FitSpec) -> Result<FitReport, FitError> {
             unit: def.display_unit(),
             label: def.label.clone(),
         };
-        let u0 = var.u(start);
-        if let Some(u) = nudge_inside(bound, u0, 1.0) {
-            var.start = var.value(u);
-            warnings.push(format!(
-                "'{name}' starts at a bound ({start}), where the fit cannot move it; it starts at {} instead",
-                var.start
-            ));
-        }
         vars.push(var);
     }
     let starts_ov: Overrides = vars
@@ -1398,27 +1390,6 @@ pub fn fit(p: &Parametric, spec: &FitSpec) -> Result<FitReport, FitError> {
         rules,
         warnings,
     )
-}
-
-/// A start on a bound, or within 1 % of the range (or of `scale` for a
-/// one-sided bound) from it, where the smooth transform's derivative
-/// vanishes and the optimiser could not move it: the point 1 % inside.
-fn nudge_inside(bound: Bound, u: f64, scale: f64) -> Option<f64> {
-    match bound {
-        Bound::Both(a, b) => {
-            let d = 0.01 * (b - a);
-            if u - a < d {
-                Some(a + d)
-            } else if b - u < d {
-                Some(b - d)
-            } else {
-                None
-            }
-        }
-        Bound::Lower(a) => (u - a < 0.01 * scale).then_some(a + 0.01 * scale),
-        Bound::Upper(b) => (b - u < 0.01 * scale).then_some(b - 0.01 * scale),
-        Bound::Free => None,
-    }
 }
 
 fn source_impedance(c: &Circuit) -> Option<f64> {

@@ -883,17 +883,20 @@ fn multi_start_escapes_a_local_minimum() {
     ];
     let grid = exchange_grid(10.0, 20_000.0, 6.0);
     let z = measure(&p, "zin", &truth, &[], &grid, impedance_noise(3));
+    // From a resonance at 300 Hz with a hump too small to see (Qes at 9,
+    // near its maximum of 10), the magnitude alone leads the optimiser to
+    // flatten the hump further, into the bounds of Qms and Qes.
     let start = vec![
         FitParam {
-            start: Some(350.0),
+            start: Some(300.0),
             ..FitParam::new("fs_Hz")
         },
         FitParam {
-            start: Some(10.0),
+            start: Some(14.0),
             ..FitParam::new("Qms")
         },
         FitParam {
-            start: Some(0.15),
+            start: Some(9.0),
             ..FitParam::new("Qes")
         },
         FitParam::new("Re_ohm"),
@@ -901,6 +904,7 @@ fn multi_start_escapes_a_local_minimum() {
     let mut cs = CurveSpec::new("zin", z);
     cs.use_phase = Some(false);
     let mut spec = FitSpec::new(start, vec![cs]);
+    spec.max_iterations = 30;
     let one = fit::fit(&p, &spec).unwrap();
     assert!(
         one.reduced_chi2.unwrap() > 100.0,

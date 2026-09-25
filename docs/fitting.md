@@ -230,23 +230,25 @@ the model is outside its validity (dark shading).
 
 **Optimiser** (`fit::lm`). Levenberg–Marquardt on u = ln p (log scale) or
 u = p/unit (linear scale; unit is the bounded range, else max(|start|, 1)).
-The parameters' `min`/`max` become bounds on u, enforced by a smooth change
-of variable u = T(z): logistic for two bounds, softplus for one. A smooth
-transform rather than projection because projection makes the cost
-non-smooth at the faces and pins parameters there. Each step solves the
-Marquardt-damped normal equations in u within the directions the Jacobian
-resolves: right singular vectors with σ above 1e-7·σ_max and above 1 (in
-units of the weighted residuals, σ < 1 means moving e-fold changes χ² by less
-than 1). Directions the data do not determine are never stepped along, so
-those combinations stay at their start instead of drifting on noise to a
-bound. The step is carried to z to first order (δz = δu/T'(z)), so it
-saturates smoothly at a bound. A trial point where the network cannot be
-built or solved (a singular system, a value an element rejects) is a
-rejected step, not an error. A start on a bound, where T' vanishes, is moved
-1 % of the range inside (with a warning). Convergence: a relative cost
-reduction below 1e-10, a step below 1e-9, no descending step, or three
-accepted steps lowering χ² by less than 1e-3 in total (a change far below
-the Δχ² = 1 of one standard deviation).
+Each step solves the Marquardt-damped normal equations in u within the
+directions the Jacobian resolves: right singular vectors with σ above
+1e-7·σ_max and above 1 (in units of the weighted residuals, σ < 1 means
+moving e-fold changes χ² by less than 1). Directions the data do not
+determine are never stepped along, so those combinations stay at their
+start instead of drifting on noise to a bound. The parameters' `min`/`max`
+become bounds on u, kept by the fraction-to-the-boundary rule of
+interior-point methods: a step component that would cross a bound goes 90 %
+of the way to it. Trial points never reach a bound, so a parameter is never
+pinned there as by projection onto the box, and one whose optimum lies
+beyond a bound approaches it geometrically and is reported at the bound. A
+start on a bound is allowed. (A smooth change of variable such as a logistic
+map was tried first: its derivative vanishes at the bounds, which froze
+parameters that started on one, such as a coil inductance starting at 0.) A
+trial point where the network cannot be built or solved (a singular system,
+a value an element rejects) is a rejected step, not an error. Convergence:
+a relative cost reduction below 1e-10, a step below 1e-9, no descending
+step, or three accepted steps lowering χ² by less than 1e-3 in total (a
+change far below the Δχ² = 1 of one standard deviation).
 
 **Jacobian.** Central differences of full solves, step 1e-4 in u, one-sided
 at a bound or where one side cannot be evaluated
@@ -501,9 +503,9 @@ module, `crates/acoustilab-wasm/tests/fit.rs` and
 | case study (over-ear template, impedance + drum, 5 seatings, calibration and coupler errors) | leak gap, front depth, Re within 99 %; the fs–Qms–Qes direction named; Qes/fs within 2 %, Qms/fs within 5 % | — |
 
 Cost of the case-study fit (6 parameters, impedance and drum response,
-native release build, `fit_cost`): 0.8 s for 72 points per curve, 2.2 s
-for 215 and 4.4 s for 430 (160 evaluations; about 0.06 ms per frequency
-point and solve).
+native release build, `fit_cost`): 0.8–0.9 s for 72 points per curve,
+2.2–2.5 s for 215 and 4.3–4.4 s for 430 (160 evaluations, 11 iterations;
+about 0.06 ms per frequency point and solve; the ranges are two runs).
 
 ## Limitations
 
