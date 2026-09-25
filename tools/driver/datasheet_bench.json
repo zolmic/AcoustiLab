@@ -1,0 +1,48 @@
+{
+  "schema": "acoustilab-netlist/0.2",
+  "title": "Datasheet bench: free-air impedance and on-axis half-space SPL (theory-only)",
+  "description": "A moving-coil driver parameterised by its primary set (fs, Qms, Qes, Re, Mms, Sd), for fitting a datasheet's plotted impedance and on-axis SPL together (docs/fitting.md, 'calibrated SPL'). Both faces open to ambient: Mms, Cms and Rms include the air load of free air, as the driver records' do. The pressure probe p_1m reads the on-axis far-field pressure of the front face in half space at distance_m: the series inertance rho/(2 pi r) (rho of dry air at 23 C, the netlist's air) carries the front volume velocity U, and its pressure drop j w rho U/(2 pi r) is that pressure, exact on axis for a rigid baffled piston at any ka. Its load on the driver, Sd^2 rho/(2 pi r) = 0.19 mg at 10 cm2 and 1 m, is negligible. baffle_air_mg adds the air mass an infinite baffle puts on the diaphragm beyond free air, for a curve measured in a baffle (docs/spec-errata.md E5). Unlike examples/driver_bench.json (the physical set, no SPL read-out), the primary-set parameters keep the impedance's fs, Qms, Qes and Re as fitted quantities, and the SPL level then fixes Mms (docs/fitting.md, 'spl_known_load'). Used by tools/driver/digitize_hpd40_2016.py.",
+  "ui": {"primary_probe": "zin"},
+  "parameters": {
+    "fs_Hz": {"value": 81.8, "min": 10, "max": 2000, "log": true, "step": 0.1,
+      "label": "Resonance fs (free air)", "group": "Driver"},
+    "Qms": {"value": 2.71, "min": 0.05, "max": 50, "log": true, "step": 0.01,
+      "label": "Mechanical Q (Qms)", "group": "Driver"},
+    "Qes": {"value": 1.01, "min": 0.05, "max": 50, "log": true, "step": 0.01,
+      "label": "Electrical Q (Qes)", "group": "Driver"},
+    "Re_ohm": {"value": 32.8, "min": 1, "max": 1000, "log": true, "step": 0.1,
+      "label": "Coil resistance Re", "group": "Driver"},
+    "Mms_g": {"value": 0.3, "min": 0.005, "max": 10, "log": true, "step": 0.001,
+      "label": "Moving mass Mms (free-air load included)", "group": "Driver"},
+    "Sd_cm2": {"value": 10, "min": 0.5, "max": 100, "log": true, "step": 0.1,
+      "label": "Effective area Sd", "group": "Driver"},
+    "Le_uH": {"value": 0, "min": 0, "max": 2000, "step": 1,
+      "label": "Coil inductance Le", "group": "Driver", "advanced": true},
+    "baffle_air_mg": {"value": 0, "min": 0, "max": 1000, "step": 0.01,
+      "label": "Air mass added by an infinite baffle (0 = free air)", "group": "Bench",
+      "description": "For a rigid disc of radius a the air load is (8/3) rho a^3 in free air and (8/3) rho a^3 per face in an infinite baffle, so the baffle adds (8/3) rho a^3: 18.05 mg for Sd = 10 cm2."},
+    "distance_m": {"value": 1, "min": 0.01, "max": 10, "log": true, "step": 0.01,
+      "label": "Measurement distance", "group": "Bench"}
+  },
+  "air": {"preset": "standard_23C"},
+  "sweep": {"f_min_Hz": 10, "f_max_Hz": 20000, "points_per_octave": 24},
+  "level": 0,
+  "nodes": [
+    {"id": "e_in", "domain": "electrical"},
+    {"id": "a_front", "domain": "acoustic"}
+  ],
+  "elements": [
+    {"id": "amp", "type": "vsource", "node": "e_in", "V_V": 1, "Zs_ohm": 0},
+    {"id": "drv", "type": "driver", "model": "D1", "nodes": ["e_in", "gnd", "a_front", "ambient"],
+     "fs_Hz": "=fs_Hz", "Qms": "=Qms", "Qes": "=Qes", "Re_ohm": "=Re_ohm", "Mms_g": "=Mms_g",
+     "Sd_cm2": "=Sd_cm2", "Le_uH": "=Le_uH"},
+    {"id": "far_field", "type": "acoustic_inertance", "nodes": ["a_front", "ambient"],
+     "M_kg_per_m4": "=1.19192 / (2 * pi * distance_m)"},
+    {"id": "baffle_air", "type": "mass", "node": "drv.m", "M_mg": "=baffle_air_mg",
+     "enabled": "=baffle_air_mg > 0"}
+  ],
+  "probes": [
+    {"id": "zin", "quantity": "impedance", "element": "amp"},
+    {"id": "p_1m", "quantity": "pressure", "node": "a_front"}
+  ]
+}

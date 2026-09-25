@@ -432,6 +432,33 @@ Qms/fs (Bl and Rms, given Mms) are determined: over five seeds about
 the truth, while fs itself ended anywhere from 34 to 123 Hz (truth 90 Hz)
 and is reported as undetermined.
 
+A worked case of the calibrated-SPL method on published curves: the chart
+of the 2016 revision of the Tymphany HPD-40N16PET00-32 sheet (erratum E5).
+
+- **Curves.** `tools/driver/digitize_hpd40_2016.py` digitises its free-air
+  impedance and its on-axis SPL at 2.83 V, 1 m, into the untracked
+  `private/` directory. Each curve has a sidecar. The impedance has
+  `noise_dB` 0.1. The SPL is `calibrated` at `voltage_V` 2.83, with the
+  sheet's ±1 dB level tolerance as `microphone_calibration_dB` 0.5 (two
+  standard deviations).
+- **Model.** `tools/driver/datasheet_bench.json` is a free-air driver in
+  its primary set. Its `p_1m` probe reads the half-space on-axis pressure
+  through a series inertance ρ/(2πr), which is exact on axis for a rigid
+  baffled piston.
+- **Fit.** The script writes the spec: fs, Qms, Qes, Re and Mms from the
+  printed values, the impedance from 20 Hz to 2 kHz and the SPL from
+  250 Hz to 1.2 kHz, 8 starts. The fit gives `scale_resolved`
+  (`spl_known_load`): fs 111.3 Hz, Qms 1.15, Qes 1.04, Re 32.1 Ω and
+  Mms 0.075 g, with a zero level offset.
+- **Why Mms is reported undetermined.** Both curves' residuals are
+  structured, because the digitised chart has features the D0 model lacks.
+  The fit inflates the intervals by 31 and 14, the calibration prior's
+  included. The Mms–offset direction is then fixed only within a factor of
+  24, so Mms is reported undetermined. Taken at its stated tolerance, the
+  level alone would fix Mms to ±26 % per ±1 dB.
+- **Result.** Record `tymphany_hpd_40n16pet00_32_curves_2016` keeps the
+  result, with those caveats in its notes.
+
 ## Virtual rig (`fit::rig`)
 
 `rig::measure(p, spec)` solves the netlist under the true overrides on the
@@ -537,7 +564,10 @@ Without `mass.zma` the same fit marks Bl, Mms, Cms and Rms scale-ambiguous.
 physical set (Re, Bl, Mms, Cms, Rms, Sd, creep, Le and an external LR-2
 branch) with a test mass (`added_mass_mg`) and a sealed box
 (`box_volume_cm3`) as parameters, and impedance, displacement and box
-pressure probes.
+pressure probes. `tools/driver/datasheet_bench.json` is a datasheet bench:
+a driver in its primary set (fs, Qms, Qes, Re, Mms, Sd) in free air, with
+impedance and half-space on-axis SPL probes, for fitting a sheet's plotted
+curves together (above).
 
 ## Verification
 

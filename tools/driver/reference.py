@@ -20,7 +20,12 @@ Air is the spec reference (rho 1.204 kg/m3, c 343 m/s), used only for the
 lumped front and rear compliances V/(rho c^2).
 
 Also computes the Tymphany HPD-40N16PET00-32 identity values quoted in
-erratum E5 from the datasheet numbers.
+erratum E5 from the datasheet numbers, and the values the driver records'
+`plotted` checks compare with the 2016 sheet's chart. For those, the
+impedance maximum is found by a numerical search of |Z(f)|, not from the
+closed form Re (1 + Qms/Qes), and the half-space band level is an adaptive
+quadrature over ln f of the on-axis level |p| = rho w |U|/(2 pi r) (the
+engine uses a trapezoid rule).
 
 Writes crates/acoustilab/tests/data/driver_reference.json.
 """
@@ -33,6 +38,7 @@ mp.mp.dps = 40
 
 RHO, C0 = mp.mpf("1.204"), mp.mpf(343)
 K0 = RHO * C0 * C0
+P_REF = mp.mpf("20e-6")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "..", "..", "crates", "acoustilab", "tests", "data",
@@ -229,6 +235,94 @@ def tymphany_identities():
     return {k: float(v) for k, v in out.items()}
 
 
+def tymphany_sensitivity_routes():
+    """Half-space level at 2.83 V, 1 m in the mass-controlled range implied
+    by the printed values, three ways (erratum E5):
+    * from the reference efficiency eta0 = 4 pi^2 fs^3 Vas/(c^3 Qes) with the
+      printed Vas, p^2 = rho c eta0 (V^2/Re)/(2 pi r^2);
+    * from the mass line p = rho Sd Bl V/(2 pi r Mms Re) with the printed Bl;
+    * from the same mass line with Bl derived from the primary set.
+    Also the impedance implied by the 2016 sheet's pair of sensitivities."""
+    fs, qes, re, mms, sd = (mp.mpf(x) for x in ("81.8", "1.01", "32.8", "0.3e-3", "10e-4"))
+    v, r = mp.mpf("2.83"), mp.mpf(1)
+    eta0 = 4 * mp.pi ** 2 * fs ** 3 * mp.mpf("1.64e-3") / (C0 ** 3 * qes)
+    p_vas = mp.sqrt(RHO * C0 * eta0 * v * v / re / (2 * mp.pi * r * r))
+
+    def mass_line(bl):
+        return RHO * sd * bl * v / (2 * mp.pi * r * mms * re)
+
+    bl_primary = mp.sqrt(2 * mp.pi * fs * mms * re / qes)
+    out = {
+        "vas_route_2p83V_dB": 20 * mp.log10(p_vas / P_REF),
+        "printed_bl_route_2p83V_dB": 20 * mp.log10(mass_line(mp.mpf("2.42")) / P_REF),
+        "primary_route_2p83V_dB": 20 * mp.log10(mass_line(bl_primary) / P_REF),
+        "sensitivity_implied_2016_ohm": mp.mpf("2.83") ** 2 * mp.power(10, (mp.mpf("89.6") - mp.mpf("83.5")) / 10),
+    }
+    return {k: float(v) for k, v in out.items()}
+
+
+# Primary sets of the embedded records (data/drivers/), and the values
+# their `plotted` blocks quote from the chart of the 2016 revision of the
+# sheet (digitised by tools/driver/digitize_hpd40_2016.py).
+RECORDS = {
+    "tymphany_hpd_40n16pet00_32": TYMPHANY,
+    "tymphany_hpd_40n16pet00_32_curves_2016": {
+        "fs_Hz": 111.3, "Qms": 1.15, "Qes": 1.04, "Re_ohm": 32.1,
+        "Mms_kg": 0.075e-3, "Sd_m2": 10e-4},
+}
+PLOTTED_2016 = {"max_ohm": 66.1, "f_max_Hz": 109.0, "drive_V": 2.83,
+                "distance_m": 1.0, "f1_Hz": 300.0, "f2_Hz": 1000.0,
+                "level_dB": 82.55}
+
+
+def plotted_checks(primary, plotted):
+    """The unloaded D0 driver, solved from Kirchhoff's voltage law on the coil
+    (Re i + Bl v = V) and Newton's law on the diaphragm (Bl i = Zm v)."""
+    ph = primary_to_physical(primary)
+    drive, r = mp.mpf(plotted["drive_V"]), mp.mpf(plotted["distance_m"])
+
+    def solve(f):
+        w = 2 * mp.pi * f
+        zm = J * w * ph["mms"] + ph["rms"] + 1 / (J * w * ph["cms"])
+        det = ph["re"] * zm + ph["bl"] ** 2
+        return w, zm / det, ph["bl"] / det  # current and velocity per volt
+
+    def zabs(f):
+        _, i, _ = solve(f)
+        return abs(1 / i)
+
+    # Golden-section search for the |Z| maximum within an octave of fs.
+    g = (mp.sqrt(5) - 1) / 2
+    a, b = ph["fs"] / mp.sqrt(2), ph["fs"] * mp.sqrt(2)
+    for _ in range(200):
+        c, d = b - g * (b - a), a + g * (b - a)
+        if zabs(c) > zabs(d):
+            b = d
+        else:
+            a = c
+    f_peak = (a + b) / 2
+
+    def level(ln_f):
+        w, _, v = solve(mp.e ** ln_f)
+        p = RHO * w * ph["sd"] * abs(v) * drive / (2 * mp.pi * r)
+        return 20 * mp.log10(p / P_REF)
+
+    lo, hi = mp.log(plotted["f1_Hz"]), mp.log(plotted["f2_Hz"])
+    band = mp.quad(level, [lo, hi]) / (hi - lo)
+    mass_line = RHO * ph["sd"] * ph["bl"] * drive / (2 * mp.pi * r * ph["mms"] * ph["re"])
+    out = {
+        "f_peak_Hz": f_peak,
+        "peak_ohm": zabs(f_peak),
+        "resonance_deviation": ph["fs"] / plotted["f_max_Hz"] - 1,
+        "peak_deviation": zabs(f_peak) / plotted["max_ohm"] - 1,
+        "band_level_dB": band,
+        "band_level_deviation_dB": band - plotted["level_dB"],
+        "mass_line_dB": 20 * mp.log10(mass_line / P_REF),
+        "level_1kHz_dB": level(mp.log(1000)),
+    }
+    return {k: float(v) for k, v in out.items()}
+
+
 def main():
     freqs = sorted(set(log_freqs(10.0, 40000.0, 37) + [81.8, 1000.0, 1500.0, 2000.0, 3000.0]))
     data = {
@@ -236,6 +330,9 @@ def main():
                        "Complex values are [re, im] RMS phasors; SI units.",
         "air": {"rho_kg_per_m3": 1.204, "c_m_per_s": 343.0},
         "tymphany_identities": tymphany_identities(),
+        "tymphany_sensitivity": tymphany_sensitivity_routes(),
+        "plotted_2016": {"plotted": PLOTTED_2016,
+                         **{name: plotted_checks(p, PLOTTED_2016) for name, p in RECORDS.items()}},
         "cases": {},
     }
     for name, case in CASES.items():

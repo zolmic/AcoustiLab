@@ -44,12 +44,23 @@
     "Le_mH": 0
   },
   "estimated": [],
+  "plotted": {
+    "source": "Peerless by Tymphany, Driver Specification Sheet, Model HPD-40N16PET00-32, Rev 1, last update 2016-12-09 01:00:59, chart 'Frequency and Impedance Response' (the 2018 sheet's chart is empty)",
+    "url": "https://www.toutlehautparleur.com/media/catalog/product/datasheet/peerless/HPD-40N16PET00-32.pdf",
+    "retrieved": "2026-09-25",
+    "method": "Digitised from the chart image with tools/driver/digitize_hpd40_2016.py, calibrated on the chart's gridlines: about +/- 0.4 % in frequency, +/- 0.5 ohm and +/- 0.1 dB. The digitised curves stay in private/.",
+    "impedance": {"condition": "free air (not stated on the sheet)", "max_ohm": 66.1, "f_max_Hz": 109.0},
+    "spl": {"condition": "on axis, 'SPL (dB) @ 2.83V/1m', half space as the sheet labels its sensitivity; tolerance +/- 1.0 dB as the sheet states for its sensitivity", "drive_V": 2.83, "distance_m": 1, "f1_Hz": 300, "f2_Hz": 1000, "level_dB": 82.55, "tolerance_dB": 1.0}
+  },
   "notes": [
     "Values are exactly as printed on the sheet, including the Cms unit (um/N). Only mm/N is consistent with fs, Mms and Vas (spec p. 16, erratum E5); the governance report flags it.",
     "Bl, Re, Mms and fs give Qes = 0.864 and Qts = 0.655, not the printed 1.01 and 0.74 (erratum E5). The engine uses the primary set, which derives Bl = 2.24 T m, Cms = 12.6 mm/N and Rms = 0.0569 N s/m.",
     "Rated impedance 32 ohm is the nominal value from the product description ('32 ohm'); the sheet has no separate rated-impedance field.",
     "Rated power is the sheet's 'Rated Noise Power' of 0.01 W over a 20 Hz-20 kHz test spectrum.",
     "The 2.83 V and 1 W sensitivities differ by 6.22 dB, which is 1 W into 33.5 ohm (the listed Zmin), not into Re or into the 32 ohm nominal.",
-    "Printed but not used: EBP (given as the formula fs/Qes), Fs/Qts 110.99 Hz, motor efficiency factor 0.2 (T m)^2/ohm, effective cone diameter 3.56 cm, voice-coil inner diameter 16.36 mm, gap height 1 mm, driver mass 0.01 kg, test spectrum 20 Hz-20 kHz."
+    "Printed but not used: EBP (given as the formula fs/Qes), Fs/Qts 110.99 Hz, motor efficiency factor 0.2 (T m)^2/ohm, effective cone diameter 3.56 cm, voice-coil inner diameter 16.36 mm, gap height 1 mm, driver mass 0.01 kg, test spectrum 20 Hz-20 kHz.",
+    "The earlier revision of the sheet ('plotted', 2016-12-09) prints the same Thiele-Small values and differs in four fields: Zmin 32.9 ohm (2018: 33.53), half-space sensitivity 83.5 dB at 2.83 V/1 m and 89.6 dB at 1 W/1 m (2018: 74.18 and 80.4), and rated noise power 10 W (2018: 0.01 W, the value this record uses). Only the 2016 revision fills the 'Frequency and Impedance Response' chart.",
+    "The 2016 chart contradicts the primary set (governance 'plotted_*', erratum E5): the free-air impedance peaks at about 66 ohm near 109 Hz, where the primary set gives 121 ohm at 81.8 Hz, and the plotted on-axis SPL is about 6.7 dB above what the primary set gives in half space from 300 Hz to 1 kHz. The 2016 printed sensitivities match the chart; the 2018 ones are 1.2-2.3 dB below what the printed Thiele-Small values imply (74.18 dB against 75.4-76.5 dB at 2.83 V, depending on whether Vas, the printed Bl or the primary set is used).",
+    "This record keeps the printed primary set, which the spec names as its reference (p. 16). Record tymphany_hpd_40n16pet00_32_curves_2016 holds a set fitted to the 2016 curves."
   ]
 }

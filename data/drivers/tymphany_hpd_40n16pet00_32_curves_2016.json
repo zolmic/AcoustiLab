@@ -1,0 +1,67 @@
+{
+  "schema": "acoustilab-driver/0.1",
+  "name": "tymphany_hpd_40n16pet00_32_curves_2016",
+  "title": "Tymphany HPD-40N16PET00-32, primary set fitted to the curves plotted in the 2016 revision of its sheet",
+  "provenance": {
+    "origin": "fitted",
+    "source": "acoustilab fit of tools/driver/datasheet_bench.json (the driver in its primary set with Le = 0, Sd fixed at the printed 10 cm2, standard air at 23 C, 8 starts) to the free-air impedance (20 Hz-2 kHz) and the on-axis SPL at 2.83 V, 1 m (250 Hz-1.2 kHz, with a 0.5 dB calibration prior) plotted in Peerless by Tymphany, Driver Specification Sheet, Model HPD-40N16PET00-32, Rev 1, last update 2016-12-09 01:00:59, and digitised by tools/driver/digitize_hpd40_2016.py. The printed values under 'datasheet' are from the same sheet unless a note says otherwise.",
+    "url": "https://www.toutlehautparleur.com/media/catalog/product/datasheet/peerless/HPD-40N16PET00-32.pdf",
+    "date": "2016-12-09",
+    "retrieved": "2026-09-25",
+    "licence": "Derived from a public manufacturer datasheet: parameters fitted to its plotted curves and values it prints, recorded as facts with attribution. Neither the document nor the digitised curves are redistributed.",
+    "condition": "Impedance: as plotted, taken as free air (the sheet does not state it). SPL: on axis at 1 m, read as half space as the sheet labels its sensitivity, with the free-air moving mass (no air load added for a baffle).",
+    "air_load": "free air (as the impedance curve's)"
+  },
+  "primary": {
+    "fs_Hz": 111.3,
+    "Qms": 1.15,
+    "Qes": 1.04,
+    "Re_ohm": 32.1,
+    "Mms_g": 0.075,
+    "Sd_cm2": 10
+  },
+  "datasheet": {
+    "Le_mH": 0,
+    "Zmin_ohm": 32.9,
+    "Xmax_mm": 0.8,
+    "rated_impedance_ohm": 32,
+    "rated_power_mW": 10,
+    "sensitivity": [
+      {"level_dB": 83.5, "drive_V": 2.83, "distance_m": 1, "condition": "half space, +/- 1.0 dB"},
+      {"level_dB": 89.6, "drive_W": 1, "distance_m": 1, "condition": "half space, +/- 1.0 dB"}
+    ]
+  },
+  "tolerances": {
+    "fs": 0.11,
+    "Qms": 0.37,
+    "Qes": 0.32,
+    "Re": 0.07,
+    "Mms": 0.5
+  },
+  "model": {
+    "Le_mH": 0
+  },
+  "estimated": [],
+  "plotted": {
+    "source": "Peerless by Tymphany, Driver Specification Sheet, Model HPD-40N16PET00-32, Rev 1, last update 2016-12-09 01:00:59, chart 'Frequency and Impedance Response'",
+    "url": "https://www.toutlehautparleur.com/media/catalog/product/datasheet/peerless/HPD-40N16PET00-32.pdf",
+    "retrieved": "2026-09-25",
+    "method": "Digitised from the chart image with tools/driver/digitize_hpd40_2016.py, calibrated on the chart's gridlines: about +/- 0.4 % in frequency, +/- 0.5 ohm and +/- 0.1 dB. The digitised curves stay in private/.",
+    "impedance": {"condition": "free air (not stated on the sheet)", "max_ohm": 66.1, "f_max_Hz": 109.0},
+    "spl": {"condition": "on axis, 'SPL (dB) @ 2.83V/1m', half space as the sheet labels its sensitivity; tolerance +/- 1.0 dB as the sheet states for its sensitivity", "drive_V": 2.83, "distance_m": 1, "f1_Hz": 300, "f2_Hz": 1000, "level_dB": 82.55, "tolerance_dB": 1.0}
+  },
+  "notes": [
+    "Not the spec's reference driver: record tymphany_hpd_40n16pet00_32 keeps the printed Thiele-Small set, which the 2016 curves contradict (erratum E5). This record describes the driver the curves show.",
+    "Fit result (reduced chi-square 10.0; residual RMS 0.17 dB = 0.80 ohm on the impedance, 0.54 dB on the SPL, both structured): fs 111.33 Hz [100.0, 123.9], Qms 1.150 [0.840, 1.576], Qes 1.036 [0.783, 1.371], Re 32.10 ohm [29.97, 34.38] (95 %, inflated for the correlated residuals); Mms 0.0747 g, which the fit reports as undetermined because the same inflation applies to it. The primary set rounds these values; 'tolerances' are the half-widths of those intervals.",
+    "The impedance alone gives the same fs, Qms, Qes and Re (111.3 Hz, 1.15, 1.03, 32.1 ohm); it cannot give Mms (the Bl-Mms-Cms-Rms scale, erratum E50). Mms comes from the absolute SPL level through Bl/Mms, and it rests on three readings:",
+    "(1) The level is taken as stated, within its +/- 1.0 dB. Mms scales as 10^(-2 dL/20), so +/- 1 dB alone is +/- 26 %; 'tolerances' states +/- 50 % for the readings below.",
+    "(2) The curve is read as half space at 1 m, as the sheet's sensitivity label says. A smaller baffle would radiate less below its baffle step and imply an even lighter diaphragm.",
+    "(3) The moving mass in the SPL condition is the free-air one. An infinite baffle adds up to (8/3) rho a^3 = 18 mg (a free disc against a disc baffled on both faces; baffle_air_mg on the bench). With 9 mg added under the SPL condition the fit keeps Mms at 0.075 g with a 0.8 dB level offset. With 18 mg it moves to 0.092 g with a 2.2 dB offset, beyond the sheet's +/- 1 dB: about 0.04 g would meet the level without an offset, but it lowers the resonance under the SPL condition to about 90 Hz and fits the curve's shape worse. The free-air reading fits best (reduced chi-square 10.02, against 10.12 with 9 mg and 10.45 with 18 mg).",
+    "With Re fixed at the printed 32.8 ohm the fit gives fs 111.3 Hz, Qms 1.19, Qes 1.12 and Mms 0.069 g, with a larger impedance residual (0.20 dB). The plotted curve reads 32.5 ohm at 20 Hz, which bounds Re from above.",
+    "Derived: Bl = 1.27 T m, Cms = 27.3 mm/N, Rms = 0.0456 N s/m, Vas = 3.86 L. The sheet prints Bl 2.42 T m, Cms '11.7 um/N' and Vas 1.64 L; the fit replaces them, so they are not kept here.",
+    "The half-space level this set implies at 2.83 V and 1 m in the mass-controlled range is 83.1 dB, and its mean from 300 Hz to 1 kHz is 82.8 dB (the spec's reference air, as governance uses; 0.09 dB less in the fit's 23 C air). The sheet prints a sensitivity of 83.5 dB and plots a 300 Hz-1 kHz mean of 82.55 dB.",
+    "Values as printed on the 2016 sheet: Zmin 32.9 ohm, sensitivity 83.5 dB at 2.83 V/1 m and 89.6 dB at 1 W/1 m, Le 0 mH, Xmax 0.8 mm.",
+    "Rated noise power: the 2016 sheet prints 10 W, a slip for the 0.01 W (10 mW) of the 2018 sheet, which is used here. Rated impedance 32 ohm is the product description's.",
+    "Not modelled: the plotted impedance rises from 32.9 ohm at 2 kHz to 36.4 ohm at 20 kHz (coil inductance, left at the printed Le = 0 because the fit could not identify it through the curve's small peaks), and the SPL rises above 1.2 kHz by up to 15 dB (diaphragm modes and directivity, outside the rigid-piston model)."
+  ]
+}

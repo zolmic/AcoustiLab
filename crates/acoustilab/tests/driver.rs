@@ -5,18 +5,28 @@
 //! Oracles: closed forms (Appendix C2, C5), an independent mpmath solution
 //! of the same driver models written as Newton's law per mass
 //! (tools/driver/reference.py → tests/data/driver_reference.json), the
-//! Tymphany HPD-40N16PET00-32 datasheet numbers, and a numerical
-//! Kramers–Kronig transform of the solver's own output.
+//! Tymphany HPD-40N16PET00-32 datasheet numbers and the curves plotted in
+//! the sheet's 2016 revision, and a numerical Kramers–Kronig transform of
+//! the solver's own output.
 
 use acoustilab::elements::driver::{
-    self, governance, parse_record, CheckStatus, Driver, DriverLevel,
+    self, governance, half_space_band_level, parse_record, CheckStatus, Driver, DriverLevel,
+    DriverRecord, Origin,
 };
+use acoustilab::expr::PValue;
+use acoustilab::params::{Overrides, Parametric};
 use acoustilab::ts::{self, Creep, FitOptions, ImpedanceModel};
 use acoustilab::{AirState, Circuit, C64};
 use serde_json::{json, Value};
 use std::f64::consts::{LN_10, PI};
+use std::path::Path;
 
 const TYMPHANY: &str = "tymphany_hpd_40n16pet00_32";
+/// The primary set fitted to the curves of the 2016 sheet (erratum E5).
+const CURVES_2016: &str = "tymphany_hpd_40n16pet00_32_curves_2016";
+/// Free-air impedance and on-axis half-space SPL bench, primary-set
+/// parameters (the netlist the 2016 fit used).
+const BENCH: &str = include_str!("../../../tools/driver/datasheet_bench.json");
 
 fn reference() -> Value {
     serde_json::from_str(include_str!("data/driver_reference.json")).unwrap()
@@ -161,6 +171,346 @@ fn tymphany_record_holds_the_datasheet_values() {
         .as_deref()
         .unwrap()
         .starts_with("https://"));
+    assert_eq!(rec.provenance.origin, Origin::Datasheet);
+    // The chart of the sheet's 2016 revision, which the 2018 sheet leaves
+    // empty (erratum E5), as tools/driver/digitize_hpd40_2016.py reads it.
+    let pl = rec.plotted.as_ref().unwrap();
+    assert!(pl.source.contains("2016-12-09"), "{}", pl.source);
+    assert!(pl.url.as_deref().unwrap().starts_with("https://"));
+    assert!(pl.method.contains("digitize_hpd40_2016.py"));
+    let z = pl.impedance.as_ref().unwrap();
+    assert_eq!((z.max, z.f_max), (66.1, 109.0));
+    let s = pl.spl.as_ref().unwrap();
+    assert_eq!(
+        (s.drive, s.distance, s.f1, s.f2, s.level_db, s.tolerance_db),
+        (2.83, 1.0, 300.0, 1000.0, 82.55, 1.0)
+    );
+}
+
+#[test]
+fn tymphany_primary_set_contradicts_the_curves_of_the_2016_sheet() {
+    // Erratum E5: the 2016 revision prints the same primary set but plots a
+    // free-air impedance peaking at 66.1 ohm near 109 Hz, where the set
+    // puts 121 ohm at 81.8 Hz, and an on-axis SPL 6.7 dB above what the set
+    // radiates into half space from 300 Hz to 1 kHz.
+    let refs = &reference()["plotted_2016"][TYMPHANY];
+    let r = |k: &str| refs[k].as_f64().unwrap();
+    let rep = governance(&driver::record(TYMPHANY).unwrap());
+
+    let fs = rep.check("plotted_resonance").unwrap();
+    assert_eq!(fs.status, CheckStatus::Fail);
+    assert_eq!((fs.value, fs.reference), (Some(81.8), Some(109.0)));
+    assert!((fs.deviation.unwrap() - r("resonance_deviation")).abs() < 1e-12);
+    // The independent search finds the |Z| maximum at fs itself.
+    assert!((r("f_peak_Hz") / 81.8 - 1.0).abs() < 1e-9);
+
+    let pk = rep.check("plotted_peak_impedance").unwrap();
+    assert_eq!(pk.status, CheckStatus::Fail);
+    assert!((pk.value.unwrap() / r("peak_ohm") - 1.0).abs() < 1e-12);
+    assert!((pk.value.unwrap() - 120.81).abs() < 0.005);
+    assert!((pk.deviation.unwrap() - r("peak_deviation")).abs() < 1e-12);
+
+    let sp = rep.check("plotted_sensitivity").unwrap();
+    assert_eq!(sp.status, CheckStatus::Fail);
+    // Trapezoid rule (engine) against adaptive quadrature (mpmath).
+    assert!((sp.value.unwrap() - r("band_level_dB")).abs() < 1e-4);
+    assert!((sp.deviation.unwrap() - r("band_level_deviation_dB")).abs() < 1e-4);
+    assert!((sp.deviation.unwrap() + 6.74).abs() < 0.005);
+    assert_eq!(sp.tolerance, Some(1.0));
+
+    // The element builds from the record and reports each failure as a
+    // consistency note; the network keeps the printed primary set.
+    let c = Circuit::from_json(
+        &json!({
+            "schema": "acoustilab-netlist/0.1",
+            "air": {"preset": "spec_reference"},
+            "sweep": {"f_min_Hz": 20, "f_max_Hz": 20000, "points_per_octave": 3},
+            "nodes": [{"id": "e1", "domain": "electrical"}],
+            "elements": [source(0.0), {"id": "drv", "type": "driver", "record": TYMPHANY,
+                         "nodes": ["e1", "gnd", "ambient", "ambient"]}],
+            "probes": [{"id": "zin", "quantity": "impedance", "element": "amp"}]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let notes: Vec<String> = c
+        .solve()
+        .unwrap()
+        .warnings
+        .iter()
+        .filter(|w| w.code == "record_consistency")
+        .map(|w| w.message.clone())
+        .collect();
+    for id in [
+        "plotted_resonance",
+        "plotted_peak_impedance",
+        "plotted_sensitivity",
+    ] {
+        assert!(
+            notes.iter().any(|m| m.contains(&format!("the {id} check"))),
+            "{id}: {notes:?}"
+        );
+    }
+}
+
+#[test]
+fn curves_2016_record_matches_the_plotted_curves() {
+    // The separate record fitted to the 2016 curves: the same chart summary,
+    // no printed identities to check, and all three plotted checks pass.
+    let rec = driver::record(CURVES_2016).unwrap();
+    let sheet = driver::record(TYMPHANY).unwrap();
+    assert_eq!(rec.provenance.origin, Origin::Fitted);
+    let p = rec.primary;
+    assert_eq!(
+        (p.fs, p.qms, p.qes, p.re),
+        (111.3, 1.15, 1.04, 32.1),
+        "primary set"
+    );
+    assert!((p.mms - 0.075e-3).abs() < 1e-15 && (p.sd - 10e-4).abs() < 1e-15);
+    let (a, b) = (
+        rec.plotted.as_ref().unwrap(),
+        sheet.plotted.as_ref().unwrap(),
+    );
+    assert_eq!(a.impedance, b.impedance);
+    assert_eq!(a.spl, b.spl);
+    assert_eq!(a.url, b.url);
+    assert_eq!(rec.datasheet.z_min, Some(32.9), "2016 sheet");
+    assert!((rec.datasheet.rated_power.unwrap() - 0.01).abs() < 1e-15);
+
+    let refs = &reference()["plotted_2016"][CURVES_2016];
+    let r = |k: &str| refs[k].as_f64().unwrap();
+    let rep = governance(&rec);
+    for id in ["resonance", "electrical_q", "equivalent_volume", "total_q"] {
+        assert_eq!(
+            rep.check(id).unwrap().status,
+            CheckStatus::NotAvailable,
+            "{id}: the record prints no Bl, Cms, Vas or Qts"
+        );
+    }
+    for id in ["identifiability", "rated_impedance"] {
+        assert_eq!(rep.check(id).unwrap().status, CheckStatus::Pass, "{id}");
+    }
+    let sens = rep.check("sensitivity_conversion").unwrap();
+    let implied = reference()["tymphany_sensitivity"]["sensitivity_implied_2016_ohm"]
+        .as_f64()
+        .unwrap();
+    assert!((sens.value.unwrap() / implied - 1.0).abs() < 1e-12);
+
+    let fs = rep.check("plotted_resonance").unwrap();
+    assert_eq!(fs.status, CheckStatus::Pass);
+    assert!((fs.deviation.unwrap() - r("resonance_deviation")).abs() < 1e-12);
+    let pk = rep.check("plotted_peak_impedance").unwrap();
+    assert_eq!(pk.status, CheckStatus::Pass);
+    assert!((pk.value.unwrap() / r("peak_ohm") - 1.0).abs() < 1e-12);
+    let sp = rep.check("plotted_sensitivity").unwrap();
+    assert_eq!(sp.status, CheckStatus::Pass);
+    assert!((sp.value.unwrap() - r("band_level_dB")).abs() < 1e-4);
+    assert!(sp.deviation.unwrap().abs() < 0.3, "{:?}", sp.deviation);
+
+    // Derived values quoted in the record's notes.
+    let d = rep.derived;
+    assert!((d.bl - 1.27).abs() < 0.005, "Bl {}", d.bl);
+    assert!((d.cms * 1e3 - 27.3).abs() < 0.05, "Cms {}", d.cms);
+    assert!((d.rms - 0.0456).abs() < 5e-5, "Rms {}", d.rms);
+    let vas = ts::vas(&AirState::spec_reference(), d.sd, d.cms);
+    assert!((vas * 1e3 - 3.86).abs() < 0.005, "Vas {vas}");
+
+    // Built as an element, the network's free-air impedance maximum is the
+    // plotted one within 5 %.
+    let c = free_air(json!({"record": CURVES_2016, "model": "D1"}), 0.0);
+    let (fpk, zpk) = golden_max(|f| probe(&c, "zin", f).norm(), 50.0, 250.0);
+    let z = a.impedance.as_ref().unwrap();
+    assert!((fpk / z.f_max - 1.0).abs() < 0.05, "{fpk}");
+    assert!((zpk / z.max - 1.0).abs() < 0.05, "{zpk}");
+}
+
+/// The datasheet bench with a record's primary set.
+fn bench(rec: &DriverRecord) -> Circuit {
+    let p = &rec.primary;
+    let ov: Overrides = [
+        ("fs_Hz", p.fs),
+        ("Qms", p.qms),
+        ("Qes", p.qes),
+        ("Re_ohm", p.re),
+        ("Mms_g", p.mms * 1e3),
+        ("Sd_cm2", p.sd * 1e4),
+    ]
+    .iter()
+    .map(|(k, v)| (k.to_string(), PValue::Num(*v)))
+    .collect();
+    Circuit::from_parametric(&Parametric::parse(BENCH).unwrap(), &ov).unwrap()
+}
+
+/// Mean over ln f of `level(f)` from `f1` to `f2` (trapezoid, `n` intervals).
+fn log_mean(level: impl Fn(f64) -> f64, f1: f64, f2: f64, n: usize) -> f64 {
+    let h = (f2 / f1).ln() / n as f64;
+    let y: Vec<f64> = (0..=n).map(|k| level(f1 * (k as f64 * h).exp())).collect();
+    (y.iter().sum::<f64>() - 0.5 * (y[0] + y[n])) / n as f64
+}
+
+#[test]
+fn datasheet_bench_reads_the_half_space_level_governance_uses() {
+    // tools/driver/datasheet_bench.json reads the on-axis far-field pressure
+    // through a series inertance rho/(2 pi r) on the front face. Its level at
+    // the plotted drive, averaged over the plotted band, is the level the
+    // plotted_sensitivity check computes in closed form for the same air,
+    // less the inertance's own load on the diaphragm (Sd^2 rho/(2 pi r) =
+    // 0.19 mg against Mms, at most 0.03 dB).
+    for name in [TYMPHANY, CURVES_2016] {
+        let rec = driver::record(name).unwrap();
+        let c = bench(&rec);
+        // The bench's inertance hard-codes the density of its own air.
+        let doc: Value = serde_json::from_str(BENCH).unwrap();
+        let far = doc["elements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["id"] == "far_field")
+            .unwrap();
+        let expr = far["M_kg_per_m4"].as_str().unwrap();
+        let rho: f64 = expr[1..].split('/').next().unwrap().trim().parse().unwrap();
+        assert!(
+            (rho / c.air.rho - 1.0).abs() < 1e-5,
+            "{expr} vs {}",
+            c.air.rho
+        );
+        let s = rec.plotted.as_ref().unwrap().spl.clone().unwrap();
+        let phys = rec.primary.to_physical();
+        // The netlist source is 1 V.
+        let level = |f: f64| {
+            let p = probe(&c, "p_1m", f).norm() * s.drive;
+            20.0 * (p / 20e-6).log10()
+        };
+        let bench_level = log_mean(level, s.f1, s.f2, 64);
+        let closed = half_space_band_level(&phys, &c.air, &s);
+        assert!(
+            (bench_level - closed).abs() < 0.03,
+            "{name}: bench {bench_level} dB against {closed} dB"
+        );
+        // The inertance is reactive: the impedance maximum stays Re + Bl²/Rms.
+        let (_, zpk) = golden_max(
+            |f| probe(&c, "zin", f).norm(),
+            rec.primary.fs / 2.0,
+            2.0 * rec.primary.fs,
+        );
+        let expect = phys.re + phys.bl * phys.bl / phys.rms;
+        assert!(
+            (zpk / expect - 1.0).abs() < 1e-9,
+            "{name}: {zpk} vs {expect}"
+        );
+    }
+    // Against the independent solution: the level at 1 kHz with the spec's
+    // reference air, where the reference has no inertance load.
+    for name in [TYMPHANY, CURVES_2016] {
+        let rec = driver::record(name).unwrap();
+        let refs = &reference()["plotted_2016"][name];
+        let air = AirState::spec_reference();
+        let mut d = drv(json!({"record": name, "model": "D0"}));
+        d["nodes"] = json!(["e1", "gnd", "af", "ambient"]);
+        let c = circuit(
+            json!([
+                {"id": "amp", "type": "vsource", "node": "e1", "V_V": 2.83, "Zs_ohm": 0.0},
+                d,
+                {"id": "far", "type": "acoustic_inertance", "nodes": ["af", "ambient"],
+                 "M_kg_per_m4": air.rho / (2.0 * PI)}
+            ]),
+            zin_probe(),
+        );
+        let level = 20.0 * (probe(&c, "p", 1000.0).norm() / 20e-6).log10();
+        let want = refs["level_1kHz_dB"].as_f64().unwrap();
+        let load = 20.0 * (1.0 + 1e-6 * air.rho / (2.0 * PI) / rec.primary.mms).log10();
+        assert!(
+            (level + load - want).abs() < 2e-3,
+            "{name}: {level} dB (+{load} for the inertance) vs {want} dB"
+        );
+    }
+}
+
+fn read_csv(path: &Path) -> Option<Vec<(f64, f64)>> {
+    let text = std::fs::read_to_string(path).ok()?;
+    Some(
+        text.lines()
+            .skip(1)
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| {
+                let mut it = l.split(',').map(|x| x.trim().parse::<f64>().unwrap());
+                (it.next().unwrap(), it.next().unwrap())
+            })
+            .collect(),
+    )
+}
+
+/// Linear interpolation in ln f.
+fn interp_log(curve: &[(f64, f64)], f: f64) -> f64 {
+    let k = curve
+        .partition_point(|(fk, _)| *fk < f)
+        .clamp(1, curve.len() - 1);
+    let ((f0, y0), (f1, y1)) = (curve[k - 1], curve[k]);
+    y0 + (y1 - y0) * (f / f0).ln() / (f1 / f0).ln()
+}
+
+/// The curves of the 2016 sheet as tools/driver/digitize_hpd40_2016.py
+/// writes them into the untracked private/ directory (12 points per
+/// octave). Runs only when they are present: the curves are the
+/// manufacturer's and are never committed.
+#[test]
+fn curves_2016_record_follows_the_digitised_curves_when_available() {
+    let dir =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../private/drivers/hpd_40n16pet00_32_2016");
+    let (Some(zc), Some(spl)) = (
+        read_csv(&dir.join("impedance.csv")),
+        read_csv(&dir.join("spl.csv")),
+    ) else {
+        eprintln!(
+            "skipping: digitised curves not present in {}",
+            dir.display()
+        );
+        return;
+    };
+    let rec = driver::record(CURVES_2016).unwrap();
+    let pl = rec.plotted.as_ref().unwrap();
+
+    // The record quotes the curves' summary values (the grid here is coarser
+    // than the chart's pixel columns the record's values come from).
+    let z = pl.impedance.as_ref().unwrap();
+    let (f_pk, z_pk) = zc
+        .iter()
+        .copied()
+        .fold((0.0, 0.0), |a, b| if b.1 > a.1 { b } else { a });
+    assert!((f_pk / z.f_max).log2().abs() < 1.0 / 12.0, "{f_pk} Hz");
+    assert!((z_pk - z.max).abs() < 1.0, "{z_pk} ohm");
+    let s = pl.spl.as_ref().unwrap();
+    let band = log_mean(|f| interp_log(&spl, f), s.f1, s.f2, 256);
+    assert!((band - s.level_db).abs() < 0.1, "{band} dB");
+
+    // The fitted set against the curves it was fitted to, on the bench the
+    // fit used: 20 Hz to 2 kHz for the impedance, 250 Hz to 1.2 kHz for the
+    // SPL (the fit's residuals were 0.80 ohm and 0.54 dB RMS).
+    let c = bench(&rec);
+    let rms = |e: &[f64]| (e.iter().map(|x| x * x).sum::<f64>() / e.len() as f64).sqrt();
+    let ez: Vec<f64> = zc
+        .iter()
+        .filter(|(f, _)| (20.0..=2000.0).contains(f))
+        .map(|(f, v)| probe(&c, "zin", *f).norm() - v)
+        .collect();
+    assert!(ez.len() > 70);
+    assert!(rms(&ez) < 1.0, "impedance residual {} ohm RMS", rms(&ez));
+    let ep: Vec<f64> = spl
+        .iter()
+        .filter(|(f, _)| (250.0..=1200.0).contains(f))
+        .map(|(f, v)| 20.0 * (probe(&c, "p_1m", *f).norm() * s.drive / 20e-6).log10() - v)
+        .collect();
+    assert!(ep.len() > 25);
+    assert!(rms(&ep) < 0.75, "SPL residual {} dB RMS", rms(&ep));
+
+    // The printed set misses both curves by far more.
+    let c = bench(&driver::record(TYMPHANY).unwrap());
+    let ez: Vec<f64> = zc
+        .iter()
+        .filter(|(f, _)| (20.0..=2000.0).contains(f))
+        .map(|(f, v)| probe(&c, "zin", *f).norm() - v)
+        .collect();
+    assert!(rms(&ez) > 5.0, "{}", rms(&ez));
 }
 
 #[test]
@@ -356,6 +706,74 @@ fn records_are_validated() {
     .unwrap();
     v["provenance"]["licence"] = json!(" ");
     assert!(parse_record(&v.to_string()).is_err(), "empty licence");
+}
+
+#[test]
+fn plotted_blocks_are_validated() {
+    // A consistent plotted block for the synthetic Tymphany primary set:
+    // peak Re (1 + Qms/Qes) = 120.8 ohm at 81.8 Hz, 75.8 dB from 300 Hz to
+    // 1 kHz at 2.83 V and 1 m in half space.
+    let ok = json!({
+        "source": "test sheet", "method": "read off the chart",
+        "impedance": {"condition": "free air", "max_ohm": 120.8, "f_max_Hz": 81.8},
+        "spl": {"condition": "half space", "drive_V": 2.83, "distance_m": 1,
+                "f1_Hz": 300, "f2_Hz": 1000, "level_dB": 75.8, "tolerance_dB": 1}
+    });
+    let with = |plotted: Value| {
+        let mut v: Value = serde_json::from_str(&synthetic_record(
+            json!({"fs_Hz": 81.8, "Qms": 2.71, "Qes": 1.01, "Re_ohm": 32.8, "Mms_g": 0.3, "Sd_cm2": 10}),
+            json!({}),
+        ))
+        .unwrap();
+        v["plotted"] = plotted;
+        parse_record(&v.to_string())
+    };
+    let rep = governance(&with(ok.clone()).unwrap());
+    for id in [
+        "plotted_resonance",
+        "plotted_peak_impedance",
+        "plotted_sensitivity",
+    ] {
+        assert_eq!(rep.check(id).unwrap().status, CheckStatus::Pass, "{id}");
+    }
+    // Either curve alone is enough, and only its checks run.
+    let mut z_only = ok.clone();
+    z_only.as_object_mut().unwrap().remove("spl");
+    let rep = governance(&with(z_only).unwrap());
+    assert!(rep.check("plotted_peak_impedance").is_some());
+    assert!(rep.check("plotted_sensitivity").is_none());
+
+    type Edit = fn(&mut Value);
+    let broken: [(&str, Edit); 10] = [
+        ("unknown key", |v| v["colour"] = json!("red")),
+        ("unknown impedance key", |v| {
+            v["impedance"]["min_ohm"] = json!(33)
+        }),
+        ("unit-less key", |v| {
+            let z = v["impedance"].as_object_mut().unwrap();
+            z.remove("max_ohm");
+            z.insert("max".into(), json!(120.8));
+        }),
+        ("empty source", |v| v["source"] = json!(" ")),
+        ("no method", |v| {
+            v.as_object_mut().unwrap().remove("method");
+        }),
+        ("band upside down", |v| v["spl"]["f2_Hz"] = json!(200)),
+        ("zero tolerance", |v| v["spl"]["tolerance_dB"] = json!(0)),
+        ("negative peak", |v| v["impedance"]["max_ohm"] = json!(-1)),
+        ("not an object", |v| v["spl"] = json!(75.8)),
+        ("no curve", |v| {
+            let m = v.as_object_mut().unwrap();
+            m.remove("impedance");
+            m.remove("spl");
+        }),
+    ];
+    for (what, edit) in broken {
+        let mut v = ok.clone();
+        edit(&mut v);
+        assert!(with(v).is_err(), "{what}");
+    }
+    assert!(with(json!("chart")).is_err(), "plotted must be an object");
 }
 
 // ----- Element against the independent reference ---------------------------

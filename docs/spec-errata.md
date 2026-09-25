@@ -36,6 +36,84 @@ corrected statement. "p." is the PDF page.
   record, and the Phase 1 "3 % in total Q" gate depends on which fields are
   primary. The engine treats fs, Qms, Qes, Re, Mms and Sd as primary, which
   derives Bl = 2.24 T·m.
+  - **The 2016 revision plots curves that contradict the printed set.**
+    Peerless by Tymphany, "Driver Specification Sheet, Model No:
+    HPD-40N16PET00-32, Rev 1, Last Update 2016-12-09"
+    (https://www.toutlehautparleur.com/media/catalog/product/datasheet/peerless/HPD-40N16PET00-32.pdf,
+    retrieved 2026-09-25) prints the same Thiele–Small values. Four
+    printed fields differ from the 2018-07-11 sheet: Zmin 32.9 Ω (33.53),
+    sensitivity 83.5 dB at 2.83 V/1 m and 89.6 dB at 1 W/1 m (74.18 and
+    80.4 dB), and rated noise power 10 W (0.01 W). Its "Frequency and
+    Impedance Response" chart is filled, where the 2018 chart is empty.
+    `tools/driver/digitize_hpd40_2016.py` digitises the chart image,
+    calibrated on its gridlines to about ±0.4 % in frequency, ±0.5 Ω and
+    ±0.1 dB. It gives:
+    - an impedance maximum of 66.1 Ω at 109 Hz, where the printed set
+      gives Re·(1 + Qms/Qes) = 120.8 Ω at 81.8 Hz;
+    - an on-axis SPL at 2.83 V, 1 m averaging 82.55 dB (over ln f) from
+      300 Hz to 1 kHz, where the diaphragm is mass-controlled. The printed
+      set radiates 75.8 dB there into half space, 6.7 dB less.
+  - **No measurement condition reconciles the two.** The sheet does not
+    state the chart's condition, but the peak height does not depend on
+    it. With Z = Re + Bl²/(Rms + jX(ω)), a lossless load (a baffle's air
+    mass, a sealed box, the radiation reactance) changes only X, so |Z|
+    peaks at Re + Bl²/Rms wherever X = 0. Such a load can move the peak:
+    a sealed box of about 2.3 L would move 81.8 Hz to 109 Hz. It cannot
+    change the height. The plotted 66.1 Ω needs Bl²/Rms ≈ 33 Ω, against
+    88.0 Ω from the printed primary set. That means about 2.6 times the mechanical
+    loss at the same Bl, a weaker motor, or a resistive load (a damping
+    screen) that the sheet does not mention.
+  - **The printed sensitivities disagree with each other and with the
+    set.** The 2016 pair matches the chart: 83.5 dB, and the pair implies
+    32.6 Ω. The 2018 value of 74.18 dB at 2.83 V is below what the printed
+    values imply for half space in the mass-controlled range
+    (`tools/driver/reference.py`):
+    - 75.43 dB from the reference efficiency with the printed Vas;
+    - 75.80 dB from the primary set's Bl of 2.24 T·m;
+    - 76.48 dB from the printed Bl of 2.42 T·m.
+  - **What the curves imply.** `acoustilab fit` fitted the primary set to
+    both curves on `tools/driver/datasheet_bench.json`, a free-air driver
+    with a half-space far-field read-out. It used the impedance from
+    20 Hz to 2 kHz and the SPL from 250 Hz to 1.2 kHz, with a 0.5 dB
+    calibration prior. The result is fs 111.3 Hz, Qms 1.15, Qes 1.04,
+    Re 32.1 Ω and Mms 0.075 g, giving Bl 1.27 T·m and Cms 27.3 mm/N. The
+    impedance alone gives the same fs, Qms, Qes and Re. The mass comes from
+    the SPL level (E50) and rests on three readings:
+    - the level as plotted, where ±1 dB is ±26 % in Mms;
+    - half space, as the sensitivity label says;
+    - the free-air moving mass, with no baffle air load added. An
+      infinite baffle would add up to (8/3)ρa³ = 18 mg. With it the fit
+      needs a level offset of up to 2.2 dB, beyond the sheet's ±1 dB, and
+      fits worse (reduced chi-square 10.45 against 10.02; the record's
+      notes give the steps).
+
+    The fitted Mms is a quarter of the printed 0.3 g. Per unit area,
+    7.5 mg/cm², it is close to the commercial 40 mm driver of Chen et al. (0.056 g for
+    6.2 cm², 9.0 mg/cm²; docs/over-ear-template.md). The fit's residuals
+    are 0.80 Ω RMS on the impedance and 0.54 dB on the SPL, both
+    structured. Two features are outside the model: the impedance rise
+    above 2 kHz (coil inductance, which the fit could not identify) and the
+    SPL rise above 1.2 kHz (diaphragm modes and directivity).
+  - **Treatment.** Record `tymphany_hpd_40n16pet00_32` keeps the printed
+    primary set. It is the spec's reference driver, both revisions print
+    it, and the Section 17 and p. 59 checks are defined on it. The record
+    quotes the chart's values in a `plotted` block (source, URL, method),
+    and governance reports three failing checks against them:
+    - `plotted_resonance`, −25 %;
+    - `plotted_peak_impedance`, +83 %;
+    - `plotted_sensitivity`, −6.7 dB.
+
+    The fitted set is a separate record,
+    `tymphany_hpd_40n16pet00_32_curves_2016` (origin `fitted`). It passes
+    the same checks (+2.1 %, +2.3 %, +0.27 dB) and states its readings in
+    its notes. Nothing selects it by default. The PDF and the digitised
+    curves stay in the untracked `private/` directory. Tests in
+    `tests/driver.rs` compare with the curves only when they are present.
+  - **Consequence.** The mass matters for any over-ear result. With the
+    fitted set, the design template's 2–8 kHz drum response is +0.3 dB
+    relative to 500 Hz, against −12.6 dB with the printed set. Its mean
+    error against `ravizza2023_5128` over 2–8 kHz is −9.4 dB instead of
+    −22.2 dB (docs/over-ear-template.md, "The driver record").
 - **E6 — Harman over-ear fixture (pp. 3, 27, 41).** The Harman around-ear and
   on-ear targets were defined on a GRAS 45CA with RA0045 couplers (IEC 60318-4)
   and Harman's custom pinnae (Olive & Clark 2025), not on IEC 60318-1. This also

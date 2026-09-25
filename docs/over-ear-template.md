@@ -389,18 +389,43 @@ headphone (Section 17) would.
 
 **The driver record.**
 
-- **The plots disagree with the printed parameters.** The 2016-12-09 sheet
-  of the same driver (Peerless by Tymphany, HPD-40N16PET00-32, Rev 1) plots
-  its free-air impedance with a maximum of about 66 Ω near 105 Hz. The
-  printed primary set implies about 121 Ω at 81.8 Hz. Its plotted on-axis
-  SPL at 2.83 V, 1 m is about 82–83 dB from 500 Hz to 1 kHz, and it prints
-  83.5 dB. The primary set implies about 76 dB, and the 2018 sheet prints
-  74.18 dB. Both discrepancies point to a lighter or more damped diaphragm
-  than the primary set.
-- **Scale of the effect.** An Mms of 0.18 g would lift the mass line by
-  4.4 dB and move the sealed cup's resonance to 1.2 kHz.
-- **Left as it is.** The record keeps the 2018 primary set (erratum E5); this
-  discrepancy is an open item.
+- **The plots disagree with the printed parameters.** The 2016-12-09
+  revision of the driver's sheet (Peerless by Tymphany,
+  HPD-40N16PET00-32, Rev 1) plots:
+  - a free-air impedance maximum of 66.1 Ω at 109 Hz, where the printed
+    primary set gives 120.8 Ω at 81.8 Hz;
+  - an on-axis SPL at 2.83 V, 1 m that averages 82.55 dB from 300 Hz to
+    1 kHz, 6.7 dB above what the set radiates into half space.
+
+  That sheet prints 83.5 dB; the 2018 sheet prints 74.18 dB. Erratum E5
+  has the digitising, why no measurement condition reconciles the peak
+  height, and the fit.
+- **The fitted set.** Record `tymphany_hpd_40n16pet00_32_curves_2016` fits
+  both curves: fs 111.3 Hz, Qms 1.15, Qes 1.04, Re 32.1 Ω and Mms 0.075 g.
+  That is a quarter of the printed mass and, per unit area, close to Chen
+  et al.'s driver above.
+- **Scale of the effect.** Set the template's driver to the fitted values
+  (`--set driver_fs_Hz=111.3 --set driver_Qms=1.15 --set driver_Qes=1.04
+  --set driver_Re_ohm=32.1 --set driver_Mms_g=0.075`). The four times
+  lighter diaphragm doubles the frequency of its resonance on the cup's air
+  springs. In the sealed cup the resonance moves to 1.84 kHz (930 Hz
+  before). Behind the vent meshes it gives a +10.5 dB drum peak near
+  2.2 kHz.
+  - **Drum response.** From 2 to 8 kHz it averages +0.3 dB relative to
+    500 Hz, against −12.6 dB with the printed set.
+  - **Target error.** The mean error against `ravizza2023_5128` over
+    2–8 kHz is −9.4 dB, against −22.2 dB. The 20 Hz–10 kHz RMS error is
+    6.9 dB, against 12.6 dB.
+  - **Impedance.** The vented cup then has no low-frequency maximum: |Z|
+    stays between 32.8 and 33.3 Ω from 5 Hz to 1 kHz. Its only maximum is
+    36.7 Ω at 2.1 kHz, 1.10 times its minimum below that. None of the
+    published curves above looks like that. The baffle mesh was chosen
+    with the printed set, so a template on the fitted set would need its
+    vents chosen again.
+- **Left as it is.** The template keeps the printed primary set. That set
+  is the spec's reference driver, and the template's tests are written for
+  it. The fitted mass rests on three readings of the plotted SPL (E5).
+  Which set describes the driver stays open until one is measured.
 
 ## Not missing physics, and what the spec says
 
@@ -438,6 +463,7 @@ headphone (Section 17) would.
 | vented default: resistive-coupling level at 100 Hz; flat 50 Hz–1.5 kHz; 2–8 kHz band > 5 dB above the sealed cup's relative to 500 Hz | same | 0.5 dB; 1.5 dB |
 | `baffle_vent_count = 0` reproduces the previous template | CSV output of both, both ear loads, compared byte for byte (this review) | exact |
 | independent lumped model | `tools/over_ear/lumped_check.py` | 0.3 dB, 0.1 Ω |
+| driver set fitted to the 2016 curves: sealed resonance, drum levels, target error ("The driver record") | CLI `solve` and `score` with the `--set` values given there (this review) | as stated |
 
 The fitting, isolation and time-domain worked examples that were built on
 the sealed cup are pinned to `baffle_vent_count = 0`. These are the fit
@@ -476,6 +502,10 @@ Accessed 2026-09-25 unless stated otherwise.
 - Ole Wolff OWR-4009T-38E (rev 01, 2022-03-22) and OWR-4007T-32C (rev 01,
   2021-11-04) product specifications, media.digikey.com.
 - Peerless by Tymphany HPD-40N16PET00-32 driver specification sheet,
-  2016-12-09, and Tymphany's sheet of 2018-07-11 (the record's source).
+  Rev 1, 2016-12-09,
+  https://www.toutlehautparleur.com/media/catalog/product/datasheet/peerless/HPD-40N16PET00-32.pdf
+  (curves digitised by `tools/driver/digitize_hpd40_2016.py`; record
+  `tymphany_hpd_40n16pet00_32_curves_2016`), and Tymphany's sheet of
+  2018-07-11 (the source of record `tymphany_hpd_40n16pet00_32`).
 - Saati, Saatifil Acoustex technical data sheet ADS1200019EN V8,
   2015-09-29.

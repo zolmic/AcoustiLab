@@ -18,6 +18,43 @@
   "vas_printed_m3": 0.00164,
   "sensitivity_implied_ohm": 33.540757836728964
  },
+ "tymphany_sensitivity": {
+  "vas_route_2p83V_dB": 75.42639536482343,
+  "printed_bl_route_2p83V_dB": 76.48046651946179,
+  "primary_route_2p83V_dB": 75.80022816663454,
+  "sensitivity_implied_2016_ohm": 32.62667906905359
+ },
+ "plotted_2016": {
+  "plotted": {
+   "max_ohm": 66.1,
+   "f_max_Hz": 109.0,
+   "drive_V": 2.83,
+   "distance_m": 1.0,
+   "f1_Hz": 300.0,
+   "f2_Hz": 1000.0,
+   "level_dB": 82.55
+  },
+  "tymphany_hpd_40n16pet00_32": {
+   "f_peak_Hz": 81.8,
+   "peak_ohm": 120.8079207920792,
+   "resonance_deviation": -0.24954128440366974,
+   "peak_deviation": 0.8276538697742694,
+   "band_level_dB": 75.81396090161702,
+   "band_level_deviation_dB": -6.736039098382977,
+   "mass_line_dB": 75.80022816663454,
+   "level_1kHz_dB": 75.80447727736771
+  },
+  "tymphany_hpd_40n16pet00_32_curves_2016": {
+   "f_peak_Hz": 111.3,
+   "peak_ohm": 67.5951923076923,
+   "resonance_deviation": 0.021100917431192634,
+   "peak_deviation": 0.022620155940882188,
+   "band_level_dB": 82.81849224850484,
+   "band_level_deviation_dB": 0.26849224850484094,
+   "mass_line_dB": 83.1248151444547,
+   "level_1kHz_dB": 83.05197602130146
+  }
+ },
  "cases": {
   "d1_sealed": {
    "params": {

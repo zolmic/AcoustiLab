@@ -357,12 +357,13 @@ One file per driver, embedded in the engine at build time. Schema
 | key | content |
 |---|---|
 | `name`, `title` | record name used by `"record"`, description |
-| `provenance` | `origin` (`datasheet` \| `measured` \| `user`), `source`, *`url`*, `date`, *`retrieved`*, `licence`, `condition` (free air, coupler, vacuum), `air_load` |
+| `provenance` | `origin` (`datasheet` \| `measured` \| `fitted` \| `user`; `fitted` means identified from published or measured curves, with the curves, model and assumptions named in `source`), `source`, *`url`*, `date`, *`retrieved`*, `licence`, `condition` (free air, coupler, vacuum), `air_load` |
 | `primary` | `fs_Hz`, `Qms`, `Qes`, `Re_ohm`, `Mms_g`, `Sd_cm2`: the only values the network uses |
 | `datasheet` | values kept for the consistency report, exactly as printed: *`Bl_Tm`*, *`Cms_*`*, *`Vas_L`*, *`Le_*`*, *`Qts`*, *`Zmin_ohm`*, *`Xmax_mm`*, *`rated_impedance_ohm`*, *`rated_power_mW`*, *`sensitivity`*: [{`level_dB`, `drive_V` \| `drive_W`, *`distance_m`*, *`f_Hz`*, *`condition`*}] |
 | `tolerances` | stated relative tolerances by parameter |
 | `model` | element keys beyond the primary set (D1, creep, D2) |
 | `estimated` | keys of `model` that are estimates |
+| *`plotted`* | summary values read from curves a source plots, which never feed the network: `source`, *`url`*, *`retrieved`*, `method` (how they were read, with the accuracy), and at least one of *`impedance`*: {`condition`, `max_ohm`, `f_max_Hz`} (the free-air maximum) and *`spl`*: {`condition`, `drive_V`, `distance_m`, `f1_Hz`, `f2_Hz`, `level_dB`, `tolerance_dB`} (the on-axis level averaged over ln f across a band where the diaphragm is mass-controlled, with the level tolerance the source states) |
 | `notes` | free text |
 
 The governance report (`elements::driver::governance`) checks, at 5 %: the
@@ -373,9 +374,29 @@ against 80 % of the rated impedance, and reports the impedance implied by a
 pair of voltage and power sensitivities. A unit anomaly is flagged when a
 decimal factor on one field (µ/m/k for masses, compliances and volumes; cm²/mm²
 for areas) repairs a failing identity without worsening any other. A record
-with an anomaly in a primary field is refused by the element. The Tymphany
-record fails the electrical-Q identity (0.864 against 1.01, E5) and flags
-`Cms_um_per_N` as `Cms_mm_per_N`.
+with an anomaly in a primary field is refused by the element.
+
+With a `plotted` block it also compares the primary set with the curves:
+`plotted_resonance` (fs, where the unloaded impedance peaks, against the
+frequency of the plotted maximum) and `plotted_peak_impedance`
+(Re·(1 + Qms/Qes) = Re + Bl²/Rms against the plotted maximum), both at 5 %,
+and `plotted_sensitivity`: the on-axis level of the unloaded D0 driver in
+half space, |p| = ρω|U|/(2πr) (exact on axis for a rigid baffled piston),
+averaged in dB over ln f across the plotted band, against the plotted level
+within the stated tolerance. Its deviation and tolerance are in dB, not
+relative. Governance uses the spec's reference air (ρ = 1.204 kg/m³). A
+failing check becomes a `record_consistency` note on the element; the
+network still uses the primary set.
+
+The Tymphany record `tymphany_hpd_40n16pet00_32` fails the electrical-Q
+identity (0.864 against 1.01, E5) and flags `Cms_um_per_N` as
+`Cms_mm_per_N`. It also fails all three plotted checks against the curves
+of the sheet's 2016 revision: fs 81.8 Hz against a maximum at 109 Hz, a
+peak of 120.8 Ω against 66.1 Ω, and a band level 6.7 dB below the plotted
+one. Record `tymphany_hpd_40n16pet00_32_curves_2016` (origin `fitted`) holds
+the primary set fitted to those curves and passes them. It is a separate
+record, and the reference driver of the spec's tests stays the printed set
+(E5).
 
 Thiele–Small conversions, the sqrt(R0) extraction and the Levenberg–Marquardt
 impedance fit (creep and LR-2) are in `acoustilab::ts`. Drive conventions

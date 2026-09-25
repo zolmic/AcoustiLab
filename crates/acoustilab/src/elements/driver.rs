@@ -51,8 +51,10 @@
 //! licence, measurement condition and air load), the primary set, the
 //! datasheet values kept only for the consistency report, element
 //! parameters beyond the primary set (`model`), and which of those are
-//! estimates. [`governance`] runs the identity checks of spec Section 5 and
-//! flags unit anomalies.
+//! estimates. A record may also quote summary values read from curves its
+//! source plots (`plotted`), with their own source and method.
+//! [`governance`] runs the identity checks of spec Section 5, flags unit
+//! anomalies, and compares the primary set with the plotted values.
 
 use super::couplers::{Motor, Piston};
 use super::electrical::CoilModel;
@@ -87,10 +89,16 @@ pub fn constructor(ty: &str) -> Option<Constructor> {
 pub const RECORD_SCHEMA: &str = "acoustilab-driver/0.1";
 
 /// Embedded records: (name, JSON text).
-const RECORDS: &[(&str, &str)] = &[(
-    "tymphany_hpd_40n16pet00_32",
-    include_str!("../../../../data/drivers/tymphany_hpd_40n16pet00_32.json"),
-)];
+const RECORDS: &[(&str, &str)] = &[
+    (
+        "tymphany_hpd_40n16pet00_32",
+        include_str!("../../../../data/drivers/tymphany_hpd_40n16pet00_32.json"),
+    ),
+    (
+        "tymphany_hpd_40n16pet00_32_curves_2016",
+        include_str!("../../../../data/drivers/tymphany_hpd_40n16pet00_32_curves_2016.json"),
+    ),
+];
 
 /// Names of the embedded driver records.
 pub fn record_names() -> Vec<&'static str> {
@@ -120,8 +128,13 @@ pub fn record(name: &str) -> std::result::Result<DriverRecord, String> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Origin {
+    /// Values printed in a datasheet.
     Datasheet,
+    /// Measured by the record's author.
     Measured,
+    /// Identified by fitting a model to published or measured curves; the
+    /// provenance names the curves, the model and the assumptions.
+    Fitted,
     User,
 }
 
@@ -178,6 +191,49 @@ pub struct Datasheet {
     pub sensitivity: Vec<SensitivityRating>,
 }
 
+/// The free-air impedance curve a source plots, reduced to its maximum.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PlottedImpedance {
+    pub condition: String,
+    /// Largest plotted |Z|, Ω.
+    pub max: f64,
+    /// Frequency of that maximum, Hz.
+    pub f_max: f64,
+}
+
+/// An on-axis SPL curve a source plots, reduced to its mean level over a
+/// band where the diaphragm is mass-controlled.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PlottedSpl {
+    pub condition: String,
+    /// Drive, V RMS.
+    pub drive: f64,
+    /// Measurement distance, m.
+    pub distance: f64,
+    /// Band edges, Hz.
+    pub f1: f64,
+    pub f2: f64,
+    /// Mean of the plotted level over the band in ln f, dB SPL.
+    pub level_db: f64,
+    /// Level tolerance the source states, dB.
+    pub tolerance_db: f64,
+}
+
+/// Summary values read from curves a source plots (for example a datasheet
+/// revision whose printed values the record does not use), with their
+/// source and reading method. They never feed the network; governance
+/// compares the primary set with them.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Plotted {
+    pub source: String,
+    pub url: Option<String>,
+    pub retrieved: Option<String>,
+    /// How the values were read (digitising tool and accuracy).
+    pub method: String,
+    pub impedance: Option<PlottedImpedance>,
+    pub spl: Option<PlottedSpl>,
+}
+
 /// A driver record (see the module documentation).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DriverRecord {
@@ -194,6 +250,8 @@ pub struct DriverRecord {
     pub estimated: Vec<String>,
     /// Stated relative tolerances by parameter name.
     pub tolerances: BTreeMap<String, f64>,
+    /// Values read from plotted curves, if the record quotes any.
+    pub plotted: Option<Plotted>,
     pub notes: Vec<String>,
     /// Keys exactly as printed for the dimensional fields, e.g.
     /// `"Cms" → "Cms_um_per_N"`, used to name unit anomalies.
@@ -244,6 +302,7 @@ pub fn parse_record(text: &str) -> std::result::Result<DriverRecord, String> {
         "tolerances",
         "model",
         "estimated",
+        "plotted",
         "notes",
     ];
     if let Some(k) = top.keys().find(|k| !allowed.contains(&k.as_str())) {
@@ -263,6 +322,7 @@ pub fn parse_record(text: &str) -> std::result::Result<DriverRecord, String> {
     let origin = match string(pv, "origin")?.as_str() {
         "datasheet" => Origin::Datasheet,
         "measured" => Origin::Measured,
+        "fitted" => Origin::Fitted,
         "user" => Origin::User,
         o => return Err(format!("record '{name}': unknown origin '{o}'")),
     };
@@ -424,6 +484,11 @@ pub fn parse_record(text: &str) -> std::result::Result<DriverRecord, String> {
         ));
     }
     let notes = strings("notes")?;
+    let plotted = match top.get("plotted") {
+        None => None,
+        Some(Value::Object(m)) => Some(parse_plotted(&name, m.clone())?),
+        Some(_) => return Err(format!("record '{name}': 'plotted' must be an object")),
+    };
     Ok(DriverRecord {
         name,
         title,
@@ -433,8 +498,90 @@ pub fn parse_record(text: &str) -> std::result::Result<DriverRecord, String> {
         model,
         estimated,
         tolerances,
+        plotted,
         notes,
         printed_keys,
+    })
+}
+
+/// Parses a record's `plotted` block.
+fn parse_plotted(name: &str, m: Map<String, Value>) -> std::result::Result<Plotted, String> {
+    let e = |x: crate::Error| format!("record '{name}': {x}");
+    let mut p = Params::new(format!("record {name}: plotted"), m);
+    let required = |p: &mut Params, key: &str| -> std::result::Result<String, String> {
+        p.string_opt(key)
+            .map_err(e)?
+            .filter(|s| !s.trim().is_empty())
+            .ok_or_else(|| format!("record '{name}': plotted '{key}' is missing or empty"))
+    };
+    let source = required(&mut p, "source")?;
+    let method = required(&mut p, "method")?;
+    let url = p.string_opt("url").map_err(e)?;
+    let retrieved = p.string_opt("retrieved").map_err(e)?;
+    let object = |v: Value, key: &str| -> std::result::Result<Map<String, Value>, String> {
+        match v {
+            Value::Object(m) => Ok(m),
+            _ => Err(format!(
+                "record '{name}': plotted '{key}' must be an object"
+            )),
+        }
+    };
+    let impedance = match p.value_opt("impedance") {
+        None => None,
+        Some(v) => {
+            let mut q = Params::new(
+                format!("record {name}: plotted impedance"),
+                object(v, "impedance")?,
+            );
+            let z = PlottedImpedance {
+                condition: required(&mut q, "condition")?,
+                max: q.positive("max", Dim::ElecResistance).map_err(e)?,
+                f_max: q.positive("f_max", Dim::Frequency).map_err(e)?,
+            };
+            q.finish().map_err(e)?;
+            Some(z)
+        }
+    };
+    let spl = match p.value_opt("spl") {
+        None => None,
+        Some(v) => {
+            let mut q = Params::new(format!("record {name}: plotted spl"), object(v, "spl")?);
+            let s = PlottedSpl {
+                condition: required(&mut q, "condition")?,
+                drive: q.positive("drive", Dim::Voltage).map_err(e)?,
+                distance: q.positive("distance", Dim::Length).map_err(e)?,
+                f1: q.positive("f1", Dim::Frequency).map_err(e)?,
+                f2: q.positive("f2", Dim::Frequency).map_err(e)?,
+                level_db: q.number("level_dB").map_err(e)?,
+                tolerance_db: q.number("tolerance_dB").map_err(e)?,
+            };
+            q.finish().map_err(e)?;
+            if s.f2 <= s.f1 {
+                return Err(format!(
+                    "record '{name}': plotted spl band needs f2 above f1"
+                ));
+            }
+            if s.tolerance_db <= 0.0 {
+                return Err(format!(
+                    "record '{name}': plotted spl tolerance_dB must be positive"
+                ));
+            }
+            Some(s)
+        }
+    };
+    p.finish().map_err(e)?;
+    if impedance.is_none() && spl.is_none() {
+        return Err(format!(
+            "record '{name}': 'plotted' needs an 'impedance' or 'spl' block"
+        ));
+    }
+    Ok(Plotted {
+        source,
+        url,
+        retrieved,
+        method,
+        impedance,
+        spl,
     })
 }
 
@@ -499,7 +646,8 @@ pub struct Check {
     pub value: Option<f64>,
     /// The printed or primary quantity it should equal.
     pub reference: Option<f64>,
-    /// value/reference − 1.
+    /// value/reference − 1; for the level check `plotted_sensitivity`, the
+    /// difference value − reference in dB (its tolerance is in dB too).
     pub deviation: Option<f64>,
     pub tolerance: Option<f64>,
     pub status: CheckStatus,
@@ -652,7 +800,15 @@ fn passes(d: f64) -> bool {
 /// * `rated_impedance`: minimum impedance (printed Zmin, else Re) at least
 ///   80 % of the rated impedance;
 /// * `sensitivity_conversion` (info): the impedance implied by a pair of
-///   voltage- and power-referenced sensitivities (erratum E32).
+///   voltage- and power-referenced sensitivities (erratum E32);
+/// * with plotted values (`plotted`): `plotted_resonance`, the primary fs
+///   (where the unloaded D0 impedance peaks) against the frequency of the
+///   plotted impedance maximum, and `plotted_peak_impedance`,
+///   Re·(1 + Qms/Qes) = Re + Bl²/Rms against the plotted maximum, both at
+///   5 %; `plotted_sensitivity`, the on-axis half-space SPL of the unloaded
+///   D0 model (|p| = ρω|U|/(2πr), exact on axis for a rigid baffled piston)
+///   averaged in dB over ln f across the plotted band, against the plotted
+///   band level, within the tolerance the source states (dB).
 ///
 /// Unit anomalies: for each field of a failing identity, the decimal
 /// factors of [`Field::factors`] are tried; a factor is reported when it
@@ -942,12 +1098,89 @@ pub fn governance(rec: &DriverRecord) -> GovernanceReport {
         }
     }
 
+    // Curves the source plots.
+    if let Some(pl) = &rec.plotted {
+        let status = |pass: bool| {
+            if pass {
+                CheckStatus::Pass
+            } else {
+                CheckStatus::Fail
+            }
+        };
+        if let Some(z) = &pl.impedance {
+            let d = p.fs / z.f_max - 1.0;
+            checks.push(Check {
+                id: "plotted_resonance",
+                description: format!(
+                    "the primary fs of {:.1} Hz, where the unloaded impedance peaks, against the plotted maximum at {:.1} Hz ({}; {})",
+                    p.fs, z.f_max, z.condition, pl.source
+                ),
+                value: Some(p.fs),
+                reference: Some(z.f_max),
+                deviation: Some(d),
+                tolerance: Some(IDENTITY_TOLERANCE),
+                status: status(passes(d)),
+                repair: None,
+            });
+            let peak = p.re * (1.0 + p.qms / p.qes);
+            let d = peak / z.max - 1.0;
+            checks.push(Check {
+                id: "plotted_peak_impedance",
+                description: format!(
+                    "Re (1 + Qms/Qes) = Re + Bl^2/Rms = {:.1} ohm from the primary set against the plotted maximum of {:.1} ohm ({}; {})",
+                    peak, z.max, z.condition, pl.source
+                ),
+                value: Some(peak),
+                reference: Some(z.max),
+                deviation: Some(d),
+                tolerance: Some(IDENTITY_TOLERANCE),
+                status: status(passes(d)),
+                repair: None,
+            });
+        }
+        if let Some(sp) = &pl.spl {
+            let level = half_space_band_level(&p.to_physical(), &air, sp);
+            let d = level - sp.level_db;
+            checks.push(Check {
+                id: "plotted_sensitivity",
+                description: format!(
+                    "on-axis half-space SPL of the unloaded primary set at {} V and {} m, {:.2} dB on average over {}-{} Hz, against the plotted {:.2} dB +/- {} dB ({}; {}); deviation and tolerance in dB",
+                    sp.drive, sp.distance, level, sp.f1, sp.f2, sp.level_db, sp.tolerance_db, sp.condition, pl.source
+                ),
+                value: Some(level),
+                reference: Some(sp.level_db),
+                deviation: Some(d),
+                tolerance: Some(sp.tolerance_db),
+                status: status(d.abs() <= sp.tolerance_db),
+                repair: None,
+            });
+        }
+    }
+
     GovernanceReport {
         record: rec.name.clone(),
         derived: p.to_physical(),
         checks,
         anomalies,
     }
+}
+
+/// On-axis far-field SPL of the unloaded D0 piston radiating into half
+/// space, |p| = ρ·ω·|U|/(2π·r) with U = Sd·Bl·i/Zm and i = V/Zin (exact on
+/// axis for a rigid baffled piston at any ka), averaged in dB over ln f
+/// across the band (trapezoid rule, 256 intervals).
+pub fn half_space_band_level(phys: &PhysicalParams, air: &AirState, s: &PlottedSpl) -> f64 {
+    const N: usize = 256;
+    let level = |ln_f: f64| {
+        let w = 2.0 * PI * ln_f.exp();
+        let u = phys.sd * phys.bl * (s.drive / phys.impedance(w)) / phys.mechanical_impedance(w);
+        let p = air.rho * w * u.norm() / (2.0 * PI * s.distance);
+        20.0 * (p / crate::air::P_REF).log10()
+    };
+    let (a, b) = (s.f1.ln(), s.f2.ln());
+    let h = (b - a) / N as f64;
+    let inner: f64 = (1..N).map(|k| level(a + k as f64 * h)).sum();
+    (0.5 * (level(a) + level(b)) + inner) * h / (b - a)
 }
 
 /// The suffixed key whose SI factor is `factor` times that of `printed`.
