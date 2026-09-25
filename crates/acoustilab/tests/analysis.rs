@@ -1010,11 +1010,37 @@ fn template_readouts_are_consistent_with_the_drive() {
         .unwrap();
     let spl = exact.probe("p_drp").unwrap().spl_db();
     assert!((resp.level_500 - spl[0]).abs() < 1e-12 && (resp.level_1k - spl[1]).abs() < 1e-12);
-    // The in-situ impedance peak and the coupled resonance are close.
+    // The template's damping cloth leaves the coupled resonance overdamped
+    // (impedance Qms about 0.56): the |v/i| maximum is robust but a few
+    // percent from the flat in-situ |Z| peak, inside that peak's half-power
+    // band.
     let z = r.impedance.as_ref().unwrap();
     let c = resp.coupled_resonance.as_ref().unwrap();
-    assert!((z.resonance.unwrap().f_hz / c.f_hz - 1.0).abs() < 0.01);
+    let q = z.q.as_ref().unwrap();
+    assert!(c.robust && q.qms < 1.0, "{c:?} {q:?}");
+    assert!(q.f1 < c.f_hz && c.f_hz < q.f2, "{c:?} {q:?}");
     assert!(z.rated_check.as_ref().unwrap().pass);
+    // Without the cloth the resonance is lightly damped (Qms above 5) and
+    // the in-situ impedance peak and the coupled resonance coincide.
+    let bare = Design::parse(
+        TEMPLATE,
+        &[("damping_rayl".to_string(), PValue::Num(0.0))]
+            .into_iter()
+            .collect(),
+    )
+    .unwrap();
+    let rb = readouts::readouts(&bare, &Default::default()).unwrap();
+    let (zb, cb) = (
+        rb.impedance.as_ref().unwrap(),
+        rb.response
+            .as_ref()
+            .unwrap()
+            .coupled_resonance
+            .as_ref()
+            .unwrap(),
+    );
+    assert!(zb.q.as_ref().unwrap().qms > 5.0);
+    assert!((zb.resonance.unwrap().f_hz / cb.f_hz - 1.0).abs() < 0.01);
     // A rated impedance given as an option overrides the drive key's.
     let r50 = readouts::readouts(
         &d,

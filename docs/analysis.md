@@ -205,10 +205,9 @@ continuous parameter, the design is re-solved with the parameter raised by
    excludes an ambiguous one) and unshaded in both designs, and the two
    values differ at three significant digits.
 
-On the template: "Raising diaphragm area Sd 10 % lowers p_drp by 1.4 dB on
-average from 100 to 945 Hz (4.6 dB at 893 Hz), raises it by 4.2 dB on
-average from 1.00 to 1.06 kHz and moves the coupled resonance from 934 Hz
-to 1.03 kHz."
+On the template: "Raising driver-to-ear depth 10 % lowers p_drp by 0.64 dB
+on average from 100 Hz to 1.00 kHz and moves the coupled resonance from 991
+to 976 Hz."
 
 A parameter whose change alters the netlist's structure is skipped and
 listed in `skipped` with the reason. Options: `{"probe", "top", "step_pct",
@@ -302,9 +301,13 @@ which. All values are under the stated drive:
   response peak at the drum was not used, because ear-simulator and canal
   resonances compete with it.
 
-  With a single resonance, the three definitions agree. On the template,
-  closed or open back, with either ear, the |v/i| maximum, the in-situ
-  |Z| peak and the drum-pressure peak lie within 1 % of each other.
+  With a single, lightly damped resonance, the three definitions agree.
+  On the template without its damping cloth, closed or open back, with
+  either ear, the |v/i| maximum and the in-situ |Z| peak lie within 1 % of
+  each other, and the drum-pressure peak within the grid's spacing. The
+  cloth overdamps the resonance (the impedance readout's Qms is 0.56): the
+  |Z| peak (962 Hz, 1.7 Ω above Re) and the |v/i| maximum (991 Hz) are
+  3 % apart, and the drum pressure has no peak.
 
   Open vents or a large leak add a second resonance, and then no single
   frequency is *the* coupled resonance. Every maximum of |v/i| with at
@@ -313,16 +316,19 @@ which. All values are under the stated drive:
   The next one is reported as `competing: {f_Hz, margin_dB}`.
 
   When the margin is below 3 dB, the value is `ambiguous`. A few percent
-  of a parameter can then swap the two peaks. With a 1 mm leak on the
-  template (margin 1.2 dB), +5 % of Mms moves the maximum from 1185 to
-  516 Hz. An ambiguous resonance is left out of `scalars()`, so a tornado
-  or a Monte Carlo run never mixes the two.
+  of a parameter can then swap the two peaks. On the open-back template
+  without its damping cloth and with a 0.4 mm leak (margin 0.36 dB), −5 %
+  of Mms moves the maximum from 54 to 685 Hz. (The template with a 1 mm
+  leak is ambiguous too: 1143 Hz against 500 Hz, margin 0.73 dB.) An
+  ambiguous resonance is left out of `scalars()`, so a tornado or a Monte
+  Carlo run never mixes the two.
 
   The value is `robust` when |v/i| at the peak exceeds its values one
   octave either side by at least 1 dB and it is not ambiguous. The
   impedance `resonance` is the *first* |Z| peak. In a two-resonance
-  design it can name the other resonance: with a 0.3 mm leak, the first
-  |Z| peak is at 349 Hz and the coupled resonance at 996 Hz.
+  design it can name the other resonance: on the open-back template
+  without its damping cloth and with a 0.3 mm leak, the first |Z| peak is
+  at 53 Hz and the coupled resonance at 627 Hz.
 
   Result: `{f_Hz, driver, prominence_dB, competing, ambiguous, robust,
   shading}`.
@@ -428,11 +434,11 @@ base overrides. Result (`RunChunk`):
   "engine": "acoustilab 0.1.0",
   "frequencies_Hz": [...],
   "samples": [
-    {"index": 0, "overrides": {"driver_fs_Hz": 75.9, ...}, "hash": "bd24...", "ok": true,
+    {"index": 0, "overrides": {"driver_fs_Hz": 73.6, ...}, "hash": "5d6d...", "ok": true,
      "curves": [{"id": "p_drp", "dB": [...]},
                 {"id": "zin", "magnitude": [...], "phase_deg": [...]},
                 {"id": "x", "magnitude": [...]}],
-     "metrics": {"bass_extension_Hz": null, "coupled_resonance_Hz": 956.2, ...}}
+     "metrics": {"bass_extension_Hz": null, "coupled_resonance_Hz": 974.6, ...}}
   ]
 }
 ```
@@ -454,7 +460,7 @@ count of finite values; for curves, these are per frequency:
 {"frequencies_Hz": [...], "runs": 200, "failed": 0, "other_grid": 0,
  "probes": [{"id": "p_drp", "dB": {"median": [...], "p5": [...], "p10": [...], "p90": [...],
                                     "p95": [...], "min": [...], "max": [...], "n": [...]}}],
- "metrics": {"coupled_resonance_Hz": {"median": 935.3, "p5": 916.9, "n": 200, ...}},
+ "metrics": {"coupled_resonance_Hz": {"median": 993.3, "p5": 934.7, "n": 200, ...}},
  "percentile_method": "linear interpolation between order statistics (numpy default; Hyndman and Fan type 7)"}
 ```
 
@@ -571,9 +577,10 @@ unit tests in each module.
 
 ## Performance
 
-Measured on `examples/design_over_ear.json` (265 frequencies, 37 unknowns,
-7 probes, 19 continuous parameters), release builds, one core of the
-development container:
+Measured on `examples/design_over_ear.json` before its damping cloth was
+added (265 frequencies, 37 unknowns, 7 probes, 19 continuous parameters;
+the cloth adds one node and three parameters), release builds, one core of
+the development container:
 
 | task | native | wasm32 (Node 22) |
 |---|---|---|
@@ -626,8 +633,8 @@ grid points in the worst case, negligible below about 10⁴ points.
 * In a two-resonance design, the coupled resonance is the highest |v/i|
   maximum. A large change can hand that maximum to the other resonance
   even when the base design is not ambiguous. On the open-back template
-  with a 0.3 mm leak (margin 5.7 dB), the tornado's upper leak end
-  (0.45 mm) moves the maximum from 778 to 55 Hz. The `competing` peak
+  without its damping cloth and with a 0.3 mm leak (margin 5.8 dB), the
+  tornado's upper leak end (0.45 mm) moves the maximum from 627 to 56 Hz. The `competing` peak
   shows when this can happen. Nothing tracks one resonance across designs.
 * A plan holds at most 100 000 runs (`mc::MAX_RUNS`), since it is returned
   whole. That is about 38 MB of JSON for the template.

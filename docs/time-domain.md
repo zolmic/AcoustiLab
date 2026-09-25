@@ -159,9 +159,9 @@ band, such as the design's 0.19 Hz leak corner, is seen instead by the DC
 probe (`dc_corner_Hz`) and reported beside the E46 check as `dc_tail`:
 time constant τ = 1/(2π·f_c), `needed_s` = ln(10⁴)·τ for an 80 dB decay
 (first order; longer for a double zero at DC), and whether N/(2·fs)
-covers it. For the template τ = 0.82 s and 7.6 s are needed, so
+covers it. For the template τ = 0.83 s and 7.7 s are needed, so
 `ir_length.covered` is true while `dc_tail.covered` is false, and the tail
-wraps around the buffer: late energy −29 dB mixed-phase, −36 dB for the
+wraps around the buffer: late energy −28 dB mixed-phase, −31 dB for the
 minimum-phase filter.
 
 ## Causality (erratum E52)
@@ -178,7 +178,7 @@ spreads the impulse symmetrically in time however long N is:
 | 200 Hz notch (flat at the band edge) | 0 dB | −15.0 dB | −159.9 dB |
 | 1 kHz resonator, Q = 5 | −52 dB | −61.1 dB | −227 dB |
 | 100 Hz resonator, Q = 5 (N = 16 384) | −92 dB | below −80 dB | below −80 dB |
-| design template, p_drp (N = 8192) | rising | −29.1 dB | −36.2 dB (the 0.8 s leak tail) |
+| design template, p_drp (N = 8192) | falling slowly | −27.6 dB | −31.2 dB (the 0.8 s leak tail) |
 
 The minimum-phase filter is causal by construction (next section), so the
 −80 dB test belongs to it, provided the buffer also holds its decay (E46,
@@ -188,9 +188,10 @@ the first four rows were reproduced with an independent numpy script
 during review; the minimum-phase column is the engine's (for the
 high-pass, a plain cepstrum of the served magnitude without the analytic
 DC factor gives −84.7 dB). The
-design template has −25.2 dB of its spectral energy above 20 kHz, because
-its drum response rises towards a resonance just above the band (a fitted
-pole at 20.4 kHz, Q = 28), so the continuation exponent is clamped at +1.
+design template has −24.2 dB of its spectral energy above 20 kHz: its drum
+response has a sharp resonance at 17.2 kHz (Q = 240, the front cavity's
+depth line) and a fitted pole at 20.5 kHz (Q = 28) just above the band,
+and falls only slowly at the band edge (continuation exponent −0.38).
 Its filters also carry the 0.8 s leak decay, which no audition-length
 buffer holds (`dc_tail`, see E46 above).
 
@@ -275,9 +276,10 @@ The error that remains is set by the magnitude assumed above the solved
 band, which the model does not define. The minimum phase at frequency f
 depends on the whole magnitude curve. A continuation exponent n
 contributes a group delay of about −n/(π·f_hi) at low frequency (±16 µs
-per unit of n at 20 kHz). For the design template the analysis counterpart
-and the vector fit's zeros (whose model has its own behaviour above
-20 kHz) put the excess delay at 95 µs and 68 µs respectively. Excess delays
+per unit of n at 20 kHz). For the design template before its damping
+cloth was added, the analysis counterpart and the vector fit's zeros
+(whose model has its own behaviour above 20 kHz) put the excess delay at
+95 µs and 68 µs respectively. Excess delays
 are therefore uncertain by some tens of µs; the 0.5 ms decision is not
 affected.
 
@@ -305,10 +307,10 @@ Results:
   mixed phase, with 1 ms found to 1e-3 and no pure delay.
 * A 100 mm matched tube gives minimum phase, with a pure delay of
   L/c = 291.5 µs to 2 %; alignment moves its IR peak by that delay.
-* The design template's trusted band is 105 Hz to 1.06 kHz (IEC 60318-4
+* The design template's trusted band is 105 Hz to 1.01 kHz (IEC 60318-4
   below 100 Hz; the rear cavity's lumped limit). It has a near-constant
-  excess delay of 94.5 µs (front-cavity depth line and simulator), varying
-  by under 1 µs, so minimum phase applies.
+  excess delay of 100 µs (front-cavity depth line and simulator), varying
+  by 2 µs, so minimum phase applies.
 
 Robinson's energy-delay theorem (Section 17, "minimum-phase energy
 concentration") is checked on a causal low-pass × all-pass: the filter's
@@ -328,8 +330,9 @@ lists the fit's right-half-plane zeros inside the decision band
 (`fit_rhp_zeros_in_decision_band_Hz`; empty for such a notch, null when the
 fit did not run). It is reported, not folded into the decision, because a
 rational model can represent a propagation delay (which the 0.5 ms test
-deliberately admits) only with right-half-plane zeros; the template's fit
-has such a pair at 18 kHz, outside its decision band. The test
+deliberately admits) only with right-half-plane zeros; the template's
+order-30 fit has such pairs at 13.9 and 17.3 kHz, outside its decision
+band. The test
 `a_notch_narrower_than_a_bin_and_the_fit_cross_check` pins this down.
 
 ## Group delay
@@ -345,8 +348,9 @@ has such a pair at 18 kHz, outside its decision band. The test
 On a 1 kHz, Q = 5 resonator both agree with the closed form, the fit to
 1e-6 relative and the dense estimate to 1e-3 of the peak delay below 10 kHz
 (the dense one is limited by the band-limited, time-aliased IR). On the
-design template, the fit's group delay agrees with a central difference of
-exact solves at f(1 ± 1e-5) to 2 µs from 20 Hz to 10 kHz. The dense
+design template before its damping cloth was added, the fit's group delay
+agreed with a central difference of exact solves at f(1 ± 1e-5) to 2 µs
+from 20 Hz to 10 kHz. The dense
 estimate needs an IR that fits in N, which the template's 0.8 s leak tail
 does not.
 
@@ -381,7 +385,8 @@ pairs in the real basis of `vectfit3`.
   index and a note says so, while the reported error covers every sample.
   This bounds the relocation's least-squares matrices, (2k + 1) ×
   (2·order + 3) reals, at 5 MB for order 80.
-* **Robustness** (review checks on the template's p_drp, 12 iterations):
+* **Robustness** (review checks on the template's p_drp before its
+  damping cloth was added, 12 iterations):
   with 0.1 %, 1 % and 10 % complex noise the fit settles at the noise level
   (0.04°, 0.3° and 3.5° at order 30) without unstable poles; a pure 1 ms
   delay, not rational, errs 25 dB at order 30 and fits at order 80. Many
@@ -399,7 +404,8 @@ pairs in the real basis of `vectfit3`.
   the fitted band. Passivity enforcement for plant export is out of scope.
 
 Largest dB and degree error from 20 Hz to 20 kHz against order (24 points
-per octave, relative weighting, constant asymptote):
+per octave, relative weighting, constant asymptote; the design template
+before its damping cloth was added):
 
 | network | 10 | 16 | 20 | 30 | 40 | 80 |
 |---|---|---|---|---|---|---|
@@ -428,14 +434,17 @@ responses produce read −35 to −90 dB. A pole is **resonant** when it is a
 pair with Q ≥ 1, inside the band, with weight ≥ −20 dB (`q_min`,
 `weight_min_dB`). Zeros are listed with the half-plane they lie in. Spec
 Section 17 asserts minimum phase only after checking the fit's zeros, and
-`min_phase_in_band` does exactly that. The design template's fit has one
-right-half-plane pair at 18 kHz, part of the fitted form of its propagation
-delay.
+`min_phase_in_band` does exactly that. The design template's order-30
+fit has right-half-plane pairs at 13.9 and 17.3 kHz (Q 0.5 and 0.7), part
+of the fitted form of its propagation delay, so `min_phase_in_band` is
+false although the impulse report's decision band (105 Hz to 1.01 kHz)
+holds none.
 
 The weight is measured at the pole's own resonance, so a spurious,
 nearly undamped pole with a tiny residue can still pass. The template's
-table is clean at orders 30 and 60 (936 Hz, 7.1 kHz and 11.57 kHz), and
-with 1 % noise at order 30; with 0.1 % complex noise at order 60 the fit
+table is clean at orders 30 and 60 (7.0, 8.75 and 17.2 kHz; its damping
+cloth leaves no resonant pole near the coupled resonance), and, before
+the cloth was added, with 1 % noise at order 30; with 0.1 % complex noise at order 60 the fit
 places a pole at 57 Hz with Q ≈ 11 000 and a weight of −18 dB, which is
 flagged resonant and would make the E46 check ask for minutes of buffer.
 Simulated responses are noise-free, but a table with an implausible Q
@@ -459,17 +468,22 @@ Checks:
 
 * An LC resonator gives d ln f/d ln L = d ln f/d ln C = −1/2 and
   d ln Q/d ln R = −1, all to 0.01.
-* On the design template, the 936 Hz coupled resonance goes to the
-  diaphragm area (+0.99: the air springs scale as Sd²), the moving mass
-  (−0.50) and the cup radius (−0.42). The radius sets the front air spring,
-  about 45 % of the total stiffness with the rear cavity.
-* The 11.57 kHz, Q = 132 pole goes to the front depth (−0.97: the depth
-  half-wave).
+* On the design template without its damping cloth and with a 15 mm
+  front depth, the 890 Hz coupled resonance goes to the diaphragm area
+  (+0.99: the air springs scale as Sd²), the moving mass (−0.49) and the
+  cup radius (−0.39), which sets the front air spring.
+* There the 11.56 kHz, Q = 144 pole goes to the front depth (−0.98: the
+  depth half-wave).
 * A 7.1 kHz resonance that no parameter moves goes to the ear simulator,
   whose values are fixed.
+* On the template as it is, the cloth leaves no resonant pole below
+  2 kHz. The depth half-wave (8.75 kHz at 20 mm) lies 1.25 times above the
+  ear simulator's resonance and the two interact: the half-wave goes to
+  the front depth with −0.93, and the ear's 7.0 kHz resonance moves by
+  −0.08 with it.
 
 Cost: one solve and one short fit per parameter, 0.45 s for the
-template's 16 parameters natively.
+16 parameters the template had before its damping cloth, natively.
 
 ## Interfaces
 
@@ -526,7 +540,8 @@ unknown option keys with kind `options`):
 
 ## Cost
 
-The design template (37 unknowns, L1, IEC 60318-4 ear):
+The design template before its damping cloth was added (37 unknowns, L1,
+IEC 60318-4 ear):
 
 | call | native (release) | wasm (Node 22) |
 |---|---|---|
