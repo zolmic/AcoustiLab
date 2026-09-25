@@ -356,8 +356,9 @@ with an open back, is marked unused), plus the resolved elements
 ### Other behaviour
 
 - **Examples.** Every `examples/*.json` of the repository is bundled at build
-  time (`import.meta.glob`). The picker groups those that declare parameters
-  as "Design templates" and the rest as "Example netlists"; the first visit
+  time (`import.meta.glob`). The picker groups those whose `ui` block names a
+  `template` as "Design templates" and the rest as "Example netlists" (any
+  example that declares parameters still opens in the Design tab); the first visit
   opens `design_over_ear`. Loading one over an edited netlist keeps the edits
   one click away ("Restore your edits"; no dialog, since embedded viewers
   suppress `window.confirm`).
