@@ -52,11 +52,12 @@ export class Baselines {
     return unique;
   }
 
-  /** Freezes a result under `name`; the first baseline becomes the Δ reference. */
-  add(r: SolveResult, name: string): void {
+  /** Freezes a result (solved from `text`) under `name`; the first baseline becomes the Δ reference. */
+  add(r: SolveResult, text: string, name: string): void {
     const b: Baseline = {
       id: ++this.seq,
       name: this.uniqueName(name),
+      text,
       freqs: r.frequencies_Hz,
       probes: r.probes.map((p) => ({
         id: p.id,

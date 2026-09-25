@@ -337,6 +337,8 @@ everything through its `ViewHost`:
 | `current()` | the latest successful live result and the text it was solved from |
 | `parameters()` | the `parameters()` document of the current text (null while it is being described, or without parameters) |
 | `reference()` | the loaded template's declared parameter values (what Reset restores) |
+| `baselines()` | the frozen baselines, `{id, name, text}` with the netlist text each was solved from |
+| `deltaReference()` | id of the baseline chosen as the Δ reference, or null |
 | `call(fn, ...args)` | calls any wasm export by name, with JSON-text arguments, on a worker reserved for this view, so long jobs (Monte Carlo, fits) never delay the live solve; the reply's value is the parsed JSON |
 | `cancel()` | terminates the view's worker, cancelling its running call |
 | `setParameters(values)` | writes parameter values into the netlist text as the design controls do, then re-solves |

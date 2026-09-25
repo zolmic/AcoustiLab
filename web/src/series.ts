@@ -30,6 +30,8 @@ export interface Series {
 export interface Baseline {
   id: number;
   name: string;
+  /** Netlist text the frozen result was solved from (re-solvable by views, e.g. for audition). */
+  text: string;
   freqs: number[];
   probes: Pick<ProbeResult, 'id' | 'quantity' | 'unit' | 'domain' | 'magnitude' | 'phase_deg' | 'spl_dB'>[];
 }

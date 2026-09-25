@@ -24,6 +24,10 @@ export interface ViewHost {
    * or null when the text was not loaded from a template.
    */
   reference(): Map<string, Scalar> | null;
+  /** Frozen baselines (Response tab), each with the netlist text it was solved from. */
+  baselines(): { id: number; name: string; text: string }[];
+  /** Id of the baseline chosen as the Δ reference, if any. */
+  deltaReference(): number | null;
   /**
    * Calls a wasm export by name on a worker reserved for this view, so long
    * jobs never delay the live solve. Arguments are JSON text.

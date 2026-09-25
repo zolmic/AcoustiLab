@@ -1039,7 +1039,7 @@ tableToggle.addEventListener('click', () => {
 });
 
 freezeBtn.addEventListener('click', () => {
-  if (result) baselines.add(result, defaultBaselineName());
+  if (result && solvedText !== null) baselines.add(result, solvedText, defaultBaselineName());
 });
 warnJumpLink.addEventListener('click', (ev) => {
   ev.preventDefault();
@@ -1177,6 +1177,8 @@ function hostFor(v: MountedView): ViewHost {
     current: () => (result && solvedText !== null ? { result, text: solvedText } : null),
     parameters: () => (paramsDoc && paramsText === editor.value ? paramsDoc : null),
     reference: () => referenceValues,
+    baselines: () => baselines.items.map((b) => ({ id: b.id, name: b.name, text: b.text })),
+    deltaReference: () => baselines.reference?.id ?? null,
     call: (fn, ...args) => (v.worker ??= new EngineWorker()).invoke(fn, ...args),
     cancel: () => v.worker?.cancel(),
     setParameters: (values) => applyParams(values),
