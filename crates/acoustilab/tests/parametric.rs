@@ -299,6 +299,37 @@ fn template_solves_in_every_variant() {
         );
         assert_eq!(r.to_json()["meta"]["drive"]["convention"], "power");
     }
+    // Parameters that do not reach the netlist are reported as unused:
+    // with an open back the vent sizes and rear volume do nothing.
+    let r = Circuit::from_parametric(&p, &ov(&[("rear", PValue::Str("open".into()))]))
+        .unwrap()
+        .solve()
+        .unwrap();
+    let json = r.to_json();
+    let used: Vec<&str> = json["meta"]["parameters_used"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert!(used.contains(&"grille_rayl") && used.contains(&"rear"));
+    for unused in [
+        "vent_count",
+        "vent_diameter_mm",
+        "rear_volume_cm3",
+        "vent_mesh_rayl",
+    ] {
+        assert!(!used.contains(&unused), "{unused}");
+    }
+    let types: Vec<(&str, &str)> = json["meta"]["elements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| (e["id"].as_str().unwrap(), e["type"].as_str().unwrap()))
+        .collect();
+    assert!(types.contains(&("ear", "iec60318_4")) && types.contains(&("grille", "mesh")));
+    assert!(!types.iter().any(|(id, _)| *id == "vent"));
+
     // The 60318-4 load is shaded below 100 Hz (coupler-extrapolated); Type
     // 4.3 is specified down to 20 Hz.
     let r = Circuit::from_parametric(&p, &ov(&[]))

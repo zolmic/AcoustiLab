@@ -48,6 +48,8 @@ pub struct Circuit {
     pub drive: Option<DriveSpec>,
     /// Resolved parameter values (derived included), in declaration order.
     pub parameters: Vec<(String, PValue)>,
+    /// Parameters whose value reached the netlist (see `Resolved::used`).
+    pub parameters_used: Vec<String>,
     pub nodes: NodeTable,
     pub elements: Vec<Box<dyn Element>>,
     /// Global unknown index of each element's first branch unknown.
@@ -72,6 +74,7 @@ impl Circuit {
         let r = p.resolve(overrides)?;
         let mut c = Self::from_document(Document::from_expanded(r.doc)?)?;
         c.parameters = r.values;
+        c.parameters_used = r.used;
         Ok(c)
     }
 
@@ -106,6 +109,7 @@ impl Circuit {
             level: doc.level,
             drive,
             parameters: Vec::new(),
+            parameters_used: Vec::new(),
             nodes,
             elements,
             branch_offsets,

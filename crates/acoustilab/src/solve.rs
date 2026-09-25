@@ -49,6 +49,10 @@ pub struct Meta {
     pub drive: DriveInfo,
     /// Resolved parameter values, derived ones included.
     pub parameters: Value,
+    /// Names of the parameters whose value reached the netlist.
+    pub parameters_used: Vec<String>,
+    /// The elements of the resolved netlist, `{"id", "type"}`.
+    pub elements: Vec<Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -290,6 +294,12 @@ impl Circuit {
                         .map(|(n, v)| (n.clone(), v.to_json()))
                         .collect(),
                 ),
+                parameters_used: self.parameters_used.clone(),
+                elements: self
+                    .elements
+                    .iter()
+                    .map(|e| json!({"id": e.id(), "type": e.type_name()}))
+                    .collect(),
             },
             freqs_hz: self.freqs.clone(),
             probes,

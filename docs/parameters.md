@@ -106,6 +106,16 @@ bounds and choices; otherwise the error has kind `parameter`. The resolved
 values, derived ones included, are reported in `meta.parameters` of every
 result.
 
+**Which parameters matter.** Expressions are evaluated lazily, so the engine
+knows which parameters actually reached the resolved netlist:
+`meta.parameters_used` in a result, and `"active": true | false` for each
+parameter in `parameters()`. A parameter read only inside a disabled item, in
+an untaken `if` branch, or after a short-circuited `&&`/`||`, is inactive;
+with an open back, for instance, the vent sizes are. A derived parameter that
+is read makes the parameters it read active too. `meta.elements` lists the
+resolved elements as `{"id", "type"}`, so a user interface can name the ear
+load that was chosen.
+
 ## The `ui` block
 
 The engine ignores the top-level `ui` object; user interfaces read it for

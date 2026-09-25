@@ -26,10 +26,14 @@ use crate::expr::{is_identifier, is_reserved, Expr, PValue};
 use crate::units::unit_suffix;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
-use std::collections::{BTreeMap, HashMap};
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// Parameter overrides by name.
 pub type Overrides = BTreeMap<String, PValue>;
+
+/// Names each derived parameter read while it was evaluated.
+type Reads = HashMap<String, BTreeSet<String>>;
 
 /// Distribution of a toleranced parameter for Monte Carlo sampling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -536,6 +540,11 @@ pub struct Parametric {
 pub struct Resolved {
     /// Values of every parameter (derived included), in declaration order.
     pub values: Vec<(String, PValue)>,
+    /// Parameters whose value reached the expanded document, directly or
+    /// through a derived parameter, in declaration order. Expressions are
+    /// evaluated lazily, so a parameter read only inside a disabled item or
+    /// an untaken `if` branch is not listed.
+    pub used: Vec<String>,
     /// The expanded document, ready for [`crate::netlist::Document`].
     pub doc: Value,
 }
@@ -588,6 +597,15 @@ impl Parametric {
     /// Resolves every parameter (defaults, then `overrides`, then derived
     /// ones in dependency order).
     pub fn values(&self, overrides: &Overrides) -> Result<Vec<(String, PValue)>> {
+        Ok(self.values_and_reads(overrides)?.0)
+    }
+
+    /// As [`Self::values`], plus the names each derived parameter actually
+    /// read while being evaluated (`if` reads only the branch it takes).
+    fn values_and_reads(
+        &self,
+        overrides: &Overrides,
+    ) -> Result<(Vec<(String, PValue)>, Reads)> {
         for (name, v) in overrides {
             let def = self
                 .def(name)
@@ -611,6 +629,7 @@ impl Parametric {
             name: &'a str,
             index: &HashMap<&'a str, &'a ParamDef>,
             known: &mut HashMap<&'a str, PValue>,
+            reads: &mut HashMap<String, BTreeSet<String>>,
             stack: &mut Vec<&'a str>,
         ) -> Result<()> {
             if known.contains_key(name) {
@@ -633,32 +652,43 @@ impl Parametric {
             stack.push(def.name.as_str());
             for dep in expr.names() {
                 if let Some((k, _)) = index.get_key_value(dep.as_str()) {
-                    visit(k, index, known, stack)?;
+                    visit(k, index, known, reads, stack)?;
                 }
             }
             stack.pop();
+            let seen = RefCell::new(BTreeSet::new());
             let v = expr
-                .eval(&|n| known.get(n).cloned())
+                .eval(&|n| {
+                    seen.borrow_mut().insert(n.to_string());
+                    known.get(n).cloned()
+                })
                 .map_err(|e| perr(name, format!("expr '{}': {e}", expr.source())))?;
             known.insert(def.name.as_str(), v);
+            reads.insert(def.name.clone(), seen.into_inner());
             Ok(())
         }
         let mut stack = Vec::new();
+        let mut reads = HashMap::new();
         for d in &self.defs {
-            visit(d.name.as_str(), &index, &mut known, &mut stack)?;
+            visit(d.name.as_str(), &index, &mut known, &mut reads, &mut stack)?;
         }
-        Ok(self
+        let values = self
             .defs
             .iter()
             .map(|d| (d.name.clone(), known[d.name.as_str()].clone()))
-            .collect())
+            .collect();
+        Ok((values, reads))
     }
 
     /// Resolves parameters and expands the document.
     pub fn resolve(&self, overrides: &Overrides) -> Result<Resolved> {
-        let values = self.values(overrides)?;
+        let (values, reads) = self.values_and_reads(overrides)?;
         let env: HashMap<&str, &PValue> = values.iter().map(|(n, v)| (n.as_str(), v)).collect();
-        let lookup = |n: &str| env.get(n).map(|v| (*v).clone());
+        let seen = RefCell::new(BTreeSet::new());
+        let lookup = |n: &str| {
+            seen.borrow_mut().insert(n.to_string());
+            env.get(n).map(|v| (*v).clone())
+        };
         let mut doc = self.doc.clone();
         for (key, v) in doc.iter_mut() {
             match key.as_str() {
@@ -667,20 +697,47 @@ impl Parametric {
                 _ => substitute(v, &Loc::top(key), key, &lookup)?,
             }
         }
+        // A derived parameter that was read counts its own reads as used.
+        let mut used = seen.into_inner();
+        let mut todo: Vec<String> = used.iter().cloned().collect();
+        while let Some(n) = todo.pop() {
+            for dep in reads.get(&n).into_iter().flatten() {
+                if used.insert(dep.clone()) {
+                    todo.push(dep.clone());
+                }
+            }
+        }
+        let used = self
+            .defs
+            .iter()
+            .filter(|d| used.contains(&d.name))
+            .map(|d| d.name.clone())
+            .collect();
         Ok(Resolved {
             values,
+            used,
             doc: Value::Object(doc),
         })
     }
 
     /// Description of every parameter for user interfaces, with resolved
-    /// values, plus the document's `ui` block.
+    /// values, plus the document's `ui` block. `active` says whether the
+    /// parameter's value reaches the resolved netlist under these overrides
+    /// (false, for example, for vent sizes when the back is open); it is
+    /// null when the document does not resolve.
     pub fn describe(&self, overrides: &Overrides) -> Result<Value> {
         let values = self.values(overrides)?;
+        let used = self.resolve(overrides).ok().map(|r| r.used);
         let params: Vec<Value> = self
             .defs
             .iter()
-            .map(|d| d.describe(values.iter().find(|(n, _)| *n == d.name).map(|(_, v)| v)))
+            .map(|d| {
+                let mut v = d.describe(values.iter().find(|(n, _)| *n == d.name).map(|(_, v)| v));
+                v["active"] = used
+                    .as_ref()
+                    .map_or(Value::Null, |u| Value::Bool(u.contains(&d.name)));
+                v
+            })
             .collect();
         Ok(json!({
             "parameters": params,
@@ -924,6 +981,35 @@ mod tests {
         assert_eq!(el.len(), 1);
         assert_eq!(el[0]["id"], "k");
         assert_eq!(r.doc["nodes"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn reports_which_parameters_reach_the_netlist() {
+        let r = resolve(doc(), &[]).unwrap();
+        // area_mm2 is derived and never referenced; r_mm reaches the netlist
+        // through the tube, ear through the type expression.
+        assert_eq!(r.used, ["r_mm", "n", "sealed", "ear", "gap_mm"]);
+        let r = resolve(
+            doc(),
+            &[("n", PValue::Num(0.0)), ("sealed", PValue::Bool(true))],
+        )
+        .unwrap();
+        // The tube is disabled (its enabled expression read only n) and the
+        // third element's enabled expression read only sealed.
+        assert_eq!(r.used, ["n", "sealed", "gap_mm"]);
+        let mut d = doc();
+        d["elements"][1]["length_mm"] = json!("=sqrt(area_mm2)");
+        let r = resolve(
+            d,
+            &[("n", PValue::Num(0.0)), ("sealed", PValue::Bool(true))],
+        )
+        .unwrap();
+        // area_mm2 reads r_mm and n: both count through it.
+        assert_eq!(r.used, ["r_mm", "n", "area_mm2", "sealed", "gap_mm"]);
+        let p = Parametric::from_value(doc()).unwrap();
+        let described = p.describe(&Overrides::new()).unwrap();
+        assert_eq!(described["parameters"][2]["active"], json!(false));
+        assert_eq!(described["parameters"][0]["active"], json!(true));
     }
 
     #[test]
