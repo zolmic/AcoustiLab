@@ -16,6 +16,7 @@ pub mod error;
 pub mod grid;
 pub mod linalg;
 pub mod mna;
+pub mod modes;
 pub mod netlist;
 pub mod solve;
 pub mod special;
