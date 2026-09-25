@@ -339,6 +339,11 @@ that a tornado or a Monte Carlo run uses as metrics:
 `Qms`, `Qes`, `Qts`, `z_1kHz_ohm`, `z_min_above_resonance_Hz`,
 `z_min_above_resonance_ohm`, `z_min_ohm`, `z_min_over_rated`.
 
+A readout that does not exist for a design is `null`: no bass extension
+in the sweep, no Q for overlapping resonances, or an ambiguous coupled
+resonance. A tornado refuses a metric that is `null` for the base design.
+A Monte Carlo envelope counts only the runs that have the metric (`n`).
+
 ## Monte Carlo and design of experiments
 
 A run is planned once, solved in chunks, and then summarised:
