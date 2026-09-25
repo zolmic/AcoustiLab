@@ -118,7 +118,14 @@ The stepped designs can be evaluated in two ways (option `method`):
   A kink or jump that leaves the structure unchanged (`round`, `floor`,
   `min`, `max`, `abs`, `clamp` or `if` in an expression) is flagged in
   `warnings`. The test is that the forward and backward one-sided differences
-  disagree by more than half the probe's largest central derivative.
+  of the level or the phase disagree by more than half the probe's largest
+  central derivative of ln y, level and phase together (1 Np = 8.686 dB,
+  1 rad = 57.30°). Against the tested part's own derivative, a quantity that
+  does not move would be flagged by its smooth second-order term alone (and
+  under forward sensitivities by the chord step's h² error, which is even
+  in h and adds up in the difference of the one-sided differences): the
+  template's coil resistance, which only scales the level (Bl follows √Re
+  at a fixed Qes), was flagged at every frequency of the phase of `p_drp`.
 
 Options (all optional): `{"parameters": [names], "probes": [ids], "step":
 1e-5, "method": "complete_solves" | "forward_sensitivity"}`. A name or id
@@ -525,7 +532,10 @@ unit tests in each module.
     credible band, 1e-5 in the shaded band.
   * One-sided schemes at both bounds.
   * The exclusions (integer, boolean, choice, derived, zero, an `enabled`
-    switch inside the step, a grid change) and the kink warning.
+    switch inside the step, a grid change) and the kink warning, and no
+    warning, with either method, for the template's coil resistance, which
+    only scales the level (−10/ln 10/100 dB per %, phase unchanged, both to
+    1e-8).
 * **Readouts against closed forms.**
   * The free-air impedance of a D0 driver recovers fs, Qms and Qes to 1e-7
     on a 12-per-octave grid (1e-6 with the extrapolated Re).

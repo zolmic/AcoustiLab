@@ -39,6 +39,13 @@ export interface ViewHost {
   setParameters(values: [string, Scalar][]): void;
   /** Announces a short status message to assistive technology. */
   announce(message: string): void;
+  /**
+   * Picks out a frequency range on the Response plots (as a selected warning
+   * does; null clears it). The next solve's warnings replace it.
+   */
+  highlight(range: { lo: number; hi: number; label: string } | null): void;
+  /** Shows the Design tab and focuses the control of this parameter. */
+  focusParameter(name: string): void;
 }
 
 export interface ResultView {
