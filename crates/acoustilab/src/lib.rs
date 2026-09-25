@@ -33,6 +33,7 @@ pub mod thermoviscous;
 pub mod time;
 pub mod ts;
 pub mod units;
+pub mod validation;
 pub mod validity;
 
 /// Complex double, the scalar of every phasor in the engine (RMS amplitude,

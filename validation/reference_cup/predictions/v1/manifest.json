@@ -1,0 +1,4276 @@
+{
+  "schema": "acoustilab-frozen-predictions/0.1",
+  "version": "v1",
+  "status": "blind: frozen before any measurement of the device existed; never edit these files, write a new version directory instead",
+  "created": "2026-09-25T12:46:28Z",
+  "engine": "acoustilab 0.1.0",
+  "git": {
+    "commit": "c4ad65dd88eee2f329949ffdab5d34211b230230",
+    "dirty": false
+  },
+  "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1",
+  "protocol": {
+    "file": "protocol.json",
+    "source": "validation/reference_cup/protocol.json",
+    "sha256": "5bb8ce359e9fdd2c5c4e124590d68dd9e5a0bc529cf12028cfc7e962cdc7d727",
+    "title": "Open reference cup: measurement session (spec Section 17)"
+  },
+  "netlist": {
+    "file": "netlist.json",
+    "source": "examples/reference_cup.json",
+    "sha256": "fbae377e33eccbde067e5dab7592eac24773f88bf01f3123f68d2218aeaa4ddf"
+  },
+  "grid": {
+    "f_min_Hz": 10.0,
+    "f_max_Hz": 20000.0,
+    "points_per_octave": 48.0,
+    "kind": "exchange grid 1 kHz * 2^(k/n) (spec Section 14)"
+  },
+  "configurations": [
+    {
+      "id": "driver_free",
+      "label": "Bare driver in free air, before assembly",
+      "overrides": {
+        "drive_mW": 0.01,
+        "fidelity": 1,
+        "load": "driver_free_air",
+        "source_impedance_ohm": 0
+      },
+      "band_Hz": [
+        10.0,
+        20000.0
+      ],
+      "points": 526,
+      "netlist_hash": "b2ef1919610b97fdc56c51275062a5d3a8316fd431a21b5badb68dac5b25c913",
+      "drive": {
+        "convention": "power",
+        "label": "0.01 mW into 32 ohm rated (0.0179 V RMS EMF), source impedance 0 ohm",
+        "source_voltage_V": 0.01788854381999832,
+        "source_impedance_ohm": 0.0,
+        "rated_ohm": 32.0,
+        "probe": null
+      },
+      "shading": {
+        "begin_hz": 3077.469304942592,
+        "deep_hz": null,
+        "low_begin_hz": null,
+        "low_deep_hz": null
+      },
+      "warnings": [],
+      "monte_carlo": {
+        "method": "lhs",
+        "runs": 200,
+        "failed": 0,
+        "failures": [],
+        "seed": 20260925,
+        "parameters": [
+          "driver_Re_ohm",
+          "driver_Mms_g",
+          "driver_Sd_cm2",
+          "driver_compliance_factor",
+          "driver_Bl_factor",
+          "driver_Rms_factor"
+        ],
+        "distributions": [
+          {
+            "name": "driver_Re_ohm",
+            "dist": "normal",
+            "nominal": 32.8,
+            "half_width": 1.64,
+            "sigma": 0.82,
+            "sigma_ln": null,
+            "min": 20.0,
+            "max": 50.0,
+            "clipped": 0,
+            "source": "datasheet (Tymphany HPD-40N16PET00-32: Revc 32.8 ohm +- 5 %)"
+          },
+          {
+            "name": "driver_Mms_g",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.015,
+            "sigma": 0.0075,
+            "sigma_ln": null,
+            "min": 0.1,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Sd_cm2",
+            "dist": "normal",
+            "nominal": 10.0,
+            "half_width": 0.5,
+            "sigma": 0.25,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 15.0,
+            "clipped": 0,
+            "source": "estimate (datasheet: 10 cm2, no tolerance; the effective area of dome and surround is not sharply defined)"
+          },
+          {
+            "name": "driver_compliance_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.3225,
+            "sigma": null,
+            "sigma_ln": 0.1397619423751587,
+            "min": 0.3,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "datasheet fs tolerance +- 15 %, attributed to the suspension compliance (an assumption): fs scales as 1/sqrt(factor), so 1.3225 = 1.15^2"
+          },
+          {
+            "name": "driver_Bl_factor",
+            "dist": "normal",
+            "nominal": 1.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 2.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Rms_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.2,
+            "sigma": null,
+            "sigma_ln": 0.0911607783969773,
+            "min": 0.2,
+            "max": 5.0,
+            "clipped": 0,
+            "source": "estimate (Qms is not toleranced on the datasheet)"
+          }
+        ],
+        "clipped": 0
+      },
+      "measurements": [
+        {
+          "id": "driver_free_z",
+          "probe": "zin",
+          "quantity": "impedance",
+          "reference_point": "terminals",
+          "nominal": "driver_free_z.csv",
+          "envelope": "driver_free_z.envelope.csv"
+        }
+      ]
+    },
+    {
+      "id": "cup_free_sealed",
+      "label": "Cup in free air, rear plug sealed, front plugs mesh",
+      "overrides": {
+        "drive_mW": 0.01,
+        "fidelity": 1,
+        "front_plug": "mesh",
+        "load": "cup_free_air",
+        "rear_plug": "sealed",
+        "source_impedance_ohm": 0
+      },
+      "band_Hz": [
+        10.0,
+        20000.0
+      ],
+      "points": 526,
+      "netlist_hash": "cf48ad15d183b75aef5a21d374aae5484858ed979611897ea6e23948a2503ee2",
+      "drive": {
+        "convention": "power",
+        "label": "0.01 mW into 32 ohm rated (0.0179 V RMS EMF), source impedance 0 ohm",
+        "source_voltage_V": 0.01788854381999832,
+        "source_impedance_ohm": 0.0,
+        "rated_ohm": 32.0,
+        "probe": null
+      },
+      "shading": {
+        "begin_hz": 3077.469304942592,
+        "deep_hz": 6375.247202496846,
+        "low_begin_hz": null,
+        "low_deep_hz": null
+      },
+      "warnings": [],
+      "monte_carlo": {
+        "method": "lhs",
+        "runs": 200,
+        "failed": 0,
+        "failures": [],
+        "seed": 20260925,
+        "parameters": [
+          "driver_Re_ohm",
+          "driver_Mms_g",
+          "driver_Sd_cm2",
+          "driver_compliance_factor",
+          "driver_Bl_factor",
+          "driver_Rms_factor",
+          "driver_rear_boss_diameter_mm",
+          "diaphragm_setback_mm",
+          "lip_inner_diameter_mm",
+          "lip_thickness_mm",
+          "driver_gasket_mm",
+          "cup_inner_diameter_mm",
+          "pad_ring_width_mm",
+          "pad_ring_height_mm",
+          "gasket_compressed_mm",
+          "rear_depth_mm",
+          "rear_mesh_hole_diameter_mm",
+          "front_hole_diameter_mm",
+          "mesh_rayl"
+        ],
+        "distributions": [
+          {
+            "name": "driver_Re_ohm",
+            "dist": "normal",
+            "nominal": 32.8,
+            "half_width": 1.64,
+            "sigma": 0.82,
+            "sigma_ln": null,
+            "min": 20.0,
+            "max": 50.0,
+            "clipped": 0,
+            "source": "datasheet (Tymphany HPD-40N16PET00-32: Revc 32.8 ohm +- 5 %)"
+          },
+          {
+            "name": "driver_Mms_g",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.015,
+            "sigma": 0.0075,
+            "sigma_ln": null,
+            "min": 0.1,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Sd_cm2",
+            "dist": "normal",
+            "nominal": 10.0,
+            "half_width": 0.5,
+            "sigma": 0.25,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 15.0,
+            "clipped": 0,
+            "source": "estimate (datasheet: 10 cm2, no tolerance; the effective area of dome and surround is not sharply defined)"
+          },
+          {
+            "name": "driver_compliance_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.3225,
+            "sigma": null,
+            "sigma_ln": 0.1397619423751587,
+            "min": 0.3,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "datasheet fs tolerance +- 15 %, attributed to the suspension compliance (an assumption): fs scales as 1/sqrt(factor), so 1.3225 = 1.15^2"
+          },
+          {
+            "name": "driver_Bl_factor",
+            "dist": "normal",
+            "nominal": 1.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 2.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Rms_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.2,
+            "sigma": null,
+            "sigma_ln": 0.0911607783969773,
+            "min": 0.2,
+            "max": 5.0,
+            "clipped": 0,
+            "source": "estimate (Qms is not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_rear_boss_diameter_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 3.0,
+            "sigma": 1.5,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 39.0,
+            "clipped": 0,
+            "source": "estimate, scaled from the drawing's rear view (the boss is not dimensioned)"
+          },
+          {
+            "name": "diaphragm_setback_mm",
+            "dist": "normal",
+            "nominal": 0.5,
+            "half_width": 0.3,
+            "sigma": 0.15,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "estimate: mean depth of the diaphragm behind the frame's front plane (not on the datasheet)"
+          },
+          {
+            "name": "lip_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 38.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 36.0,
+            "max": 39.9,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "lip_thickness_mm",
+            "dist": "normal",
+            "nominal": 1.2,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "driver_gasket_mm",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate: 0.5 mm closed-cell foam ring compressed by the retainer"
+          },
+          {
+            "name": "cup_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 66.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 50.0,
+            "max": 90.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_width_mm",
+            "dist": "normal",
+            "nominal": 12.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 3.0,
+            "max": 20.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_height_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 40.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "gasket_compressed_mm",
+            "dist": "normal",
+            "nominal": 2.9,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 1.0,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "estimate: 3 mm medium closed-cell silicone sponge under the protocol's 5 N (1.7 kPa over the 3016 mm2 band compresses it by a few percent)"
+          },
+          {
+            "name": "rear_depth_mm",
+            "dist": "normal",
+            "nominal": 20.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 60.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "rear_mesh_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 8.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 8.0 mm drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "front_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 8.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 8.0 mm drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "mesh_rayl",
+            "dist": "normal",
+            "nominal": 260.0,
+            "half_width": 31.2,
+            "sigma": 15.6,
+            "sigma_ln": null,
+            "min": 50.0,
+            "max": 1000.0,
+            "clipped": 0,
+            "source": "SAATI technical data sheet (2019) gives 260 MKS rayl without a tolerance; 10-15 % is industry practice (spec Section 13). All discs are cut from one sheet, so one value serves every port."
+          }
+        ],
+        "clipped": 0
+      },
+      "measurements": [
+        {
+          "id": "cup_free_sealed_z",
+          "probe": "zin",
+          "quantity": "impedance",
+          "reference_point": "terminals",
+          "nominal": "cup_free_sealed_z.csv",
+          "envelope": "cup_free_sealed_z.envelope.csv"
+        }
+      ]
+    },
+    {
+      "id": "cup_free_hole",
+      "label": "Cup in free air, rear plug hole, front plugs mesh",
+      "overrides": {
+        "drive_mW": 0.01,
+        "fidelity": 1,
+        "front_plug": "mesh",
+        "load": "cup_free_air",
+        "rear_plug": "hole",
+        "source_impedance_ohm": 0
+      },
+      "band_Hz": [
+        10.0,
+        20000.0
+      ],
+      "points": 526,
+      "netlist_hash": "eb2150a3cd50aaa7e50535d0b3845fe7ed7a4bda41fd79aeeeefc94578fb81a8",
+      "drive": {
+        "convention": "power",
+        "label": "0.01 mW into 32 ohm rated (0.0179 V RMS EMF), source impedance 0 ohm",
+        "source_voltage_V": 0.01788854381999832,
+        "source_impedance_ohm": 0.0,
+        "rated_ohm": 32.0,
+        "probe": null
+      },
+      "shading": {
+        "begin_hz": 3077.469304942592,
+        "deep_hz": 6375.247202496846,
+        "low_begin_hz": null,
+        "low_deep_hz": null
+      },
+      "warnings": [],
+      "monte_carlo": {
+        "method": "lhs",
+        "runs": 200,
+        "failed": 0,
+        "failures": [],
+        "seed": 20260925,
+        "parameters": [
+          "driver_Re_ohm",
+          "driver_Mms_g",
+          "driver_Sd_cm2",
+          "driver_compliance_factor",
+          "driver_Bl_factor",
+          "driver_Rms_factor",
+          "driver_rear_boss_diameter_mm",
+          "diaphragm_setback_mm",
+          "lip_inner_diameter_mm",
+          "lip_thickness_mm",
+          "driver_gasket_mm",
+          "cup_inner_diameter_mm",
+          "pad_ring_width_mm",
+          "pad_ring_height_mm",
+          "gasket_compressed_mm",
+          "rear_depth_mm",
+          "back_plate_mm",
+          "rear_hole_diameter_mm",
+          "front_hole_diameter_mm",
+          "mesh_rayl"
+        ],
+        "distributions": [
+          {
+            "name": "driver_Re_ohm",
+            "dist": "normal",
+            "nominal": 32.8,
+            "half_width": 1.64,
+            "sigma": 0.82,
+            "sigma_ln": null,
+            "min": 20.0,
+            "max": 50.0,
+            "clipped": 0,
+            "source": "datasheet (Tymphany HPD-40N16PET00-32: Revc 32.8 ohm +- 5 %)"
+          },
+          {
+            "name": "driver_Mms_g",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.015,
+            "sigma": 0.0075,
+            "sigma_ln": null,
+            "min": 0.1,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Sd_cm2",
+            "dist": "normal",
+            "nominal": 10.0,
+            "half_width": 0.5,
+            "sigma": 0.25,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 15.0,
+            "clipped": 0,
+            "source": "estimate (datasheet: 10 cm2, no tolerance; the effective area of dome and surround is not sharply defined)"
+          },
+          {
+            "name": "driver_compliance_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.3225,
+            "sigma": null,
+            "sigma_ln": 0.1397619423751587,
+            "min": 0.3,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "datasheet fs tolerance +- 15 %, attributed to the suspension compliance (an assumption): fs scales as 1/sqrt(factor), so 1.3225 = 1.15^2"
+          },
+          {
+            "name": "driver_Bl_factor",
+            "dist": "normal",
+            "nominal": 1.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 2.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Rms_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.2,
+            "sigma": null,
+            "sigma_ln": 0.0911607783969773,
+            "min": 0.2,
+            "max": 5.0,
+            "clipped": 0,
+            "source": "estimate (Qms is not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_rear_boss_diameter_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 3.0,
+            "sigma": 1.5,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 39.0,
+            "clipped": 0,
+            "source": "estimate, scaled from the drawing's rear view (the boss is not dimensioned)"
+          },
+          {
+            "name": "diaphragm_setback_mm",
+            "dist": "normal",
+            "nominal": 0.5,
+            "half_width": 0.3,
+            "sigma": 0.15,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "estimate: mean depth of the diaphragm behind the frame's front plane (not on the datasheet)"
+          },
+          {
+            "name": "lip_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 38.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 36.0,
+            "max": 39.9,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "lip_thickness_mm",
+            "dist": "normal",
+            "nominal": 1.2,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "driver_gasket_mm",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate: 0.5 mm closed-cell foam ring compressed by the retainer"
+          },
+          {
+            "name": "cup_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 66.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 50.0,
+            "max": 90.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_width_mm",
+            "dist": "normal",
+            "nominal": 12.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 3.0,
+            "max": 20.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_height_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 40.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "gasket_compressed_mm",
+            "dist": "normal",
+            "nominal": 2.9,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 1.0,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "estimate: 3 mm medium closed-cell silicone sponge under the protocol's 5 N (1.7 kPa over the 3016 mm2 band compresses it by a few percent)"
+          },
+          {
+            "name": "rear_depth_mm",
+            "dist": "normal",
+            "nominal": 20.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 60.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "back_plate_mm",
+            "dist": "normal",
+            "nominal": 6.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 1.0,
+            "max": 20.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "rear_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 3.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 3.0 mm HSS drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "front_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 8.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 8.0 mm drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "mesh_rayl",
+            "dist": "normal",
+            "nominal": 260.0,
+            "half_width": 31.2,
+            "sigma": 15.6,
+            "sigma_ln": null,
+            "min": 50.0,
+            "max": 1000.0,
+            "clipped": 0,
+            "source": "SAATI technical data sheet (2019) gives 260 MKS rayl without a tolerance; 10-15 % is industry practice (spec Section 13). All discs are cut from one sheet, so one value serves every port."
+          }
+        ],
+        "clipped": 0
+      },
+      "measurements": [
+        {
+          "id": "cup_free_hole_z",
+          "probe": "zin",
+          "quantity": "impedance",
+          "reference_point": "terminals",
+          "nominal": "cup_free_hole_z.csv",
+          "envelope": "cup_free_hole_z.envelope.csv"
+        }
+      ]
+    },
+    {
+      "id": "cup_free_mesh",
+      "label": "Cup in free air, rear plug mesh, front plugs mesh",
+      "overrides": {
+        "drive_mW": 0.01,
+        "fidelity": 1,
+        "front_plug": "mesh",
+        "load": "cup_free_air",
+        "rear_plug": "mesh",
+        "source_impedance_ohm": 0
+      },
+      "band_Hz": [
+        10.0,
+        20000.0
+      ],
+      "points": 526,
+      "netlist_hash": "d3469703ce7d451eb42a37a50226f7aadad4e8519715fc30380023bc1eb74e2f",
+      "drive": {
+        "convention": "power",
+        "label": "0.01 mW into 32 ohm rated (0.0179 V RMS EMF), source impedance 0 ohm",
+        "source_voltage_V": 0.01788854381999832,
+        "source_impedance_ohm": 0.0,
+        "rated_ohm": 32.0,
+        "probe": null
+      },
+      "shading": {
+        "begin_hz": 3077.469304942592,
+        "deep_hz": 6375.247202496846,
+        "low_begin_hz": null,
+        "low_deep_hz": null
+      },
+      "warnings": [],
+      "monte_carlo": {
+        "method": "lhs",
+        "runs": 200,
+        "failed": 0,
+        "failures": [],
+        "seed": 20260925,
+        "parameters": [
+          "driver_Re_ohm",
+          "driver_Mms_g",
+          "driver_Sd_cm2",
+          "driver_compliance_factor",
+          "driver_Bl_factor",
+          "driver_Rms_factor",
+          "driver_rear_boss_diameter_mm",
+          "diaphragm_setback_mm",
+          "lip_inner_diameter_mm",
+          "lip_thickness_mm",
+          "driver_gasket_mm",
+          "cup_inner_diameter_mm",
+          "pad_ring_width_mm",
+          "pad_ring_height_mm",
+          "gasket_compressed_mm",
+          "rear_depth_mm",
+          "back_plate_mm",
+          "rear_mesh_hole_diameter_mm",
+          "front_hole_diameter_mm",
+          "mesh_rayl"
+        ],
+        "distributions": [
+          {
+            "name": "driver_Re_ohm",
+            "dist": "normal",
+            "nominal": 32.8,
+            "half_width": 1.64,
+            "sigma": 0.82,
+            "sigma_ln": null,
+            "min": 20.0,
+            "max": 50.0,
+            "clipped": 0,
+            "source": "datasheet (Tymphany HPD-40N16PET00-32: Revc 32.8 ohm +- 5 %)"
+          },
+          {
+            "name": "driver_Mms_g",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.015,
+            "sigma": 0.0075,
+            "sigma_ln": null,
+            "min": 0.1,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Sd_cm2",
+            "dist": "normal",
+            "nominal": 10.0,
+            "half_width": 0.5,
+            "sigma": 0.25,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 15.0,
+            "clipped": 0,
+            "source": "estimate (datasheet: 10 cm2, no tolerance; the effective area of dome and surround is not sharply defined)"
+          },
+          {
+            "name": "driver_compliance_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.3225,
+            "sigma": null,
+            "sigma_ln": 0.1397619423751587,
+            "min": 0.3,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "datasheet fs tolerance +- 15 %, attributed to the suspension compliance (an assumption): fs scales as 1/sqrt(factor), so 1.3225 = 1.15^2"
+          },
+          {
+            "name": "driver_Bl_factor",
+            "dist": "normal",
+            "nominal": 1.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 2.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Rms_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.2,
+            "sigma": null,
+            "sigma_ln": 0.0911607783969773,
+            "min": 0.2,
+            "max": 5.0,
+            "clipped": 0,
+            "source": "estimate (Qms is not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_rear_boss_diameter_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 3.0,
+            "sigma": 1.5,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 39.0,
+            "clipped": 0,
+            "source": "estimate, scaled from the drawing's rear view (the boss is not dimensioned)"
+          },
+          {
+            "name": "diaphragm_setback_mm",
+            "dist": "normal",
+            "nominal": 0.5,
+            "half_width": 0.3,
+            "sigma": 0.15,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "estimate: mean depth of the diaphragm behind the frame's front plane (not on the datasheet)"
+          },
+          {
+            "name": "lip_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 38.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 36.0,
+            "max": 39.9,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "lip_thickness_mm",
+            "dist": "normal",
+            "nominal": 1.2,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "driver_gasket_mm",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate: 0.5 mm closed-cell foam ring compressed by the retainer"
+          },
+          {
+            "name": "cup_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 66.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 50.0,
+            "max": 90.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_width_mm",
+            "dist": "normal",
+            "nominal": 12.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 3.0,
+            "max": 20.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_height_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 40.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "gasket_compressed_mm",
+            "dist": "normal",
+            "nominal": 2.9,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 1.0,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "estimate: 3 mm medium closed-cell silicone sponge under the protocol's 5 N (1.7 kPa over the 3016 mm2 band compresses it by a few percent)"
+          },
+          {
+            "name": "rear_depth_mm",
+            "dist": "normal",
+            "nominal": 20.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 60.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "back_plate_mm",
+            "dist": "normal",
+            "nominal": 6.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 1.0,
+            "max": 20.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "rear_mesh_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 8.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 8.0 mm drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "front_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 8.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 8.0 mm drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "mesh_rayl",
+            "dist": "normal",
+            "nominal": 260.0,
+            "half_width": 31.2,
+            "sigma": 15.6,
+            "sigma_ln": null,
+            "min": 50.0,
+            "max": 1000.0,
+            "clipped": 0,
+            "source": "SAATI technical data sheet (2019) gives 260 MKS rayl without a tolerance; 10-15 % is industry practice (spec Section 13). All discs are cut from one sheet, so one value serves every port."
+          }
+        ],
+        "clipped": 0
+      },
+      "measurements": [
+        {
+          "id": "cup_free_mesh_z",
+          "probe": "zin",
+          "quantity": "impedance",
+          "reference_point": "terminals",
+          "nominal": "cup_free_mesh_z.csv",
+          "envelope": "cup_free_mesh_z.envelope.csv"
+        }
+      ]
+    },
+    {
+      "id": "iec_ref",
+      "label": "IEC 60318-4 on a flat plate, reference state (rear mesh, front mesh)",
+      "overrides": {
+        "drive_mW": 0.01,
+        "fidelity": 1,
+        "front_plug": "mesh",
+        "load": "iec60318_4",
+        "rear_plug": "mesh",
+        "residual_leak_gap_mm": 0.01,
+        "source_impedance_ohm": 0
+      },
+      "band_Hz": [
+        10.0,
+        20000.0
+      ],
+      "points": 526,
+      "netlist_hash": "28e344c9b632c5fcb4bf489c75871c0c61d6167d7e8345eddea6ea657b80a62e",
+      "drive": {
+        "convention": "power",
+        "label": "0.01 mW into 32 ohm rated (0.0179 V RMS EMF), source impedance 0 ohm",
+        "source_voltage_V": 0.01788854381999832,
+        "source_impedance_ohm": 0.0,
+        "rated_ohm": 32.0,
+        "probe": null
+      },
+      "shading": {
+        "begin_hz": 3077.469304942592,
+        "deep_hz": 11262.742981883046,
+        "low_begin_hz": 100.0,
+        "low_deep_hz": null
+      },
+      "warnings": [
+        {
+          "code": "unverified_model",
+          "severity": "info",
+          "element": "ear",
+          "message": "IEC 60318-4 simulator: literature model (Luan et al. 2019, fitted side volumes), not verified against the standard's Table 1 (docs/ear-loads.md)"
+        }
+      ],
+      "monte_carlo": {
+        "method": "lhs",
+        "runs": 200,
+        "failed": 0,
+        "failures": [],
+        "seed": 20260925,
+        "parameters": [
+          "driver_Re_ohm",
+          "driver_Mms_g",
+          "driver_Sd_cm2",
+          "driver_compliance_factor",
+          "driver_Bl_factor",
+          "driver_Rms_factor",
+          "driver_rear_boss_diameter_mm",
+          "diaphragm_setback_mm",
+          "lip_inner_diameter_mm",
+          "lip_thickness_mm",
+          "driver_gasket_mm",
+          "cup_inner_diameter_mm",
+          "pad_ring_width_mm",
+          "pad_ring_height_mm",
+          "gasket_compressed_mm",
+          "rear_depth_mm",
+          "back_plate_mm",
+          "rear_mesh_hole_diameter_mm",
+          "front_hole_diameter_mm",
+          "mesh_rayl",
+          "residual_leak_gap_mm"
+        ],
+        "distributions": [
+          {
+            "name": "driver_Re_ohm",
+            "dist": "normal",
+            "nominal": 32.8,
+            "half_width": 1.64,
+            "sigma": 0.82,
+            "sigma_ln": null,
+            "min": 20.0,
+            "max": 50.0,
+            "clipped": 0,
+            "source": "datasheet (Tymphany HPD-40N16PET00-32: Revc 32.8 ohm +- 5 %)"
+          },
+          {
+            "name": "driver_Mms_g",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.015,
+            "sigma": 0.0075,
+            "sigma_ln": null,
+            "min": 0.1,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Sd_cm2",
+            "dist": "normal",
+            "nominal": 10.0,
+            "half_width": 0.5,
+            "sigma": 0.25,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 15.0,
+            "clipped": 0,
+            "source": "estimate (datasheet: 10 cm2, no tolerance; the effective area of dome and surround is not sharply defined)"
+          },
+          {
+            "name": "driver_compliance_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.3225,
+            "sigma": null,
+            "sigma_ln": 0.1397619423751587,
+            "min": 0.3,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "datasheet fs tolerance +- 15 %, attributed to the suspension compliance (an assumption): fs scales as 1/sqrt(factor), so 1.3225 = 1.15^2"
+          },
+          {
+            "name": "driver_Bl_factor",
+            "dist": "normal",
+            "nominal": 1.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 2.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Rms_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.2,
+            "sigma": null,
+            "sigma_ln": 0.0911607783969773,
+            "min": 0.2,
+            "max": 5.0,
+            "clipped": 0,
+            "source": "estimate (Qms is not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_rear_boss_diameter_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 3.0,
+            "sigma": 1.5,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 39.0,
+            "clipped": 0,
+            "source": "estimate, scaled from the drawing's rear view (the boss is not dimensioned)"
+          },
+          {
+            "name": "diaphragm_setback_mm",
+            "dist": "normal",
+            "nominal": 0.5,
+            "half_width": 0.3,
+            "sigma": 0.15,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "estimate: mean depth of the diaphragm behind the frame's front plane (not on the datasheet)"
+          },
+          {
+            "name": "lip_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 38.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 36.0,
+            "max": 39.9,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "lip_thickness_mm",
+            "dist": "normal",
+            "nominal": 1.2,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "driver_gasket_mm",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate: 0.5 mm closed-cell foam ring compressed by the retainer"
+          },
+          {
+            "name": "cup_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 66.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 50.0,
+            "max": 90.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_width_mm",
+            "dist": "normal",
+            "nominal": 12.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 3.0,
+            "max": 20.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_height_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 40.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "gasket_compressed_mm",
+            "dist": "normal",
+            "nominal": 2.9,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 1.0,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "estimate: 3 mm medium closed-cell silicone sponge under the protocol's 5 N (1.7 kPa over the 3016 mm2 band compresses it by a few percent)"
+          },
+          {
+            "name": "rear_depth_mm",
+            "dist": "normal",
+            "nominal": 20.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 60.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "back_plate_mm",
+            "dist": "normal",
+            "nominal": 6.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 1.0,
+            "max": 20.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "rear_mesh_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 8.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 8.0 mm drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "front_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 8.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 8.0 mm drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "mesh_rayl",
+            "dist": "normal",
+            "nominal": 260.0,
+            "half_width": 31.2,
+            "sigma": 15.6,
+            "sigma_ln": null,
+            "min": 50.0,
+            "max": 1000.0,
+            "clipped": 0,
+            "source": "SAATI technical data sheet (2019) gives 260 MKS rayl without a tolerance; 10-15 % is industry practice (spec Section 13). All discs are cut from one sheet, so one value serves every port."
+          },
+          {
+            "name": "residual_leak_gap_mm",
+            "dist": "lognormal",
+            "nominal": 0.01,
+            "half_width": 0.006999999999999999,
+            "sigma": null,
+            "sigma_ln": 0.2653141255310852,
+            "min": 0.0,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate: the protocol sets the nominal per fixture (flat plate 0.01 mm, head and torso simulator 0.05 mm); fitted in the acceptance test"
+          }
+        ],
+        "clipped": 0
+      },
+      "measurements": [
+        {
+          "id": "iec_ref_p",
+          "probe": "p_drp",
+          "quantity": "pressure",
+          "reference_point": "drp",
+          "nominal": "iec_ref_p.csv",
+          "envelope": "iec_ref_p.envelope.csv"
+        },
+        {
+          "id": "iec_ref_z",
+          "probe": "zin",
+          "quantity": "impedance",
+          "reference_point": "terminals",
+          "nominal": "iec_ref_z.csv",
+          "envelope": "iec_ref_z.envelope.csv"
+        }
+      ]
+    },
+    {
+      "id": "iec_rsealed",
+      "label": "IEC 60318-4 on a flat plate, rear plug sealed, front mesh",
+      "overrides": {
+        "drive_mW": 0.01,
+        "fidelity": 1,
+        "front_plug": "mesh",
+        "load": "iec60318_4",
+        "rear_plug": "sealed",
+        "residual_leak_gap_mm": 0.01,
+        "source_impedance_ohm": 0
+      },
+      "band_Hz": [
+        10.0,
+        20000.0
+      ],
+      "points": 526,
+      "netlist_hash": "41e09dfe6d2bac8fde3154bbfdde4a3c7045e829f50affb32eed66c5590284eb",
+      "drive": {
+        "convention": "power",
+        "label": "0.01 mW into 32 ohm rated (0.0179 V RMS EMF), source impedance 0 ohm",
+        "source_voltage_V": 0.01788854381999832,
+        "source_impedance_ohm": 0.0,
+        "rated_ohm": 32.0,
+        "probe": null
+      },
+      "shading": {
+        "begin_hz": 3077.469304942592,
+        "deep_hz": 11262.742981883046,
+        "low_begin_hz": 100.0,
+        "low_deep_hz": null
+      },
+      "warnings": [
+        {
+          "code": "unverified_model",
+          "severity": "info",
+          "element": "ear",
+          "message": "IEC 60318-4 simulator: literature model (Luan et al. 2019, fitted side volumes), not verified against the standard's Table 1 (docs/ear-loads.md)"
+        }
+      ],
+      "monte_carlo": {
+        "method": "lhs",
+        "runs": 200,
+        "failed": 0,
+        "failures": [],
+        "seed": 20260925,
+        "parameters": [
+          "driver_Re_ohm",
+          "driver_Mms_g",
+          "driver_Sd_cm2",
+          "driver_compliance_factor",
+          "driver_Bl_factor",
+          "driver_Rms_factor",
+          "driver_rear_boss_diameter_mm",
+          "diaphragm_setback_mm",
+          "lip_inner_diameter_mm",
+          "lip_thickness_mm",
+          "driver_gasket_mm",
+          "cup_inner_diameter_mm",
+          "pad_ring_width_mm",
+          "pad_ring_height_mm",
+          "gasket_compressed_mm",
+          "rear_depth_mm",
+          "rear_mesh_hole_diameter_mm",
+          "front_hole_diameter_mm",
+          "mesh_rayl",
+          "residual_leak_gap_mm"
+        ],
+        "distributions": [
+          {
+            "name": "driver_Re_ohm",
+            "dist": "normal",
+            "nominal": 32.8,
+            "half_width": 1.64,
+            "sigma": 0.82,
+            "sigma_ln": null,
+            "min": 20.0,
+            "max": 50.0,
+            "clipped": 0,
+            "source": "datasheet (Tymphany HPD-40N16PET00-32: Revc 32.8 ohm +- 5 %)"
+          },
+          {
+            "name": "driver_Mms_g",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.015,
+            "sigma": 0.0075,
+            "sigma_ln": null,
+            "min": 0.1,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Sd_cm2",
+            "dist": "normal",
+            "nominal": 10.0,
+            "half_width": 0.5,
+            "sigma": 0.25,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 15.0,
+            "clipped": 0,
+            "source": "estimate (datasheet: 10 cm2, no tolerance; the effective area of dome and surround is not sharply defined)"
+          },
+          {
+            "name": "driver_compliance_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.3225,
+            "sigma": null,
+            "sigma_ln": 0.1397619423751587,
+            "min": 0.3,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "datasheet fs tolerance +- 15 %, attributed to the suspension compliance (an assumption): fs scales as 1/sqrt(factor), so 1.3225 = 1.15^2"
+          },
+          {
+            "name": "driver_Bl_factor",
+            "dist": "normal",
+            "nominal": 1.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 2.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Rms_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.2,
+            "sigma": null,
+            "sigma_ln": 0.0911607783969773,
+            "min": 0.2,
+            "max": 5.0,
+            "clipped": 0,
+            "source": "estimate (Qms is not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_rear_boss_diameter_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 3.0,
+            "sigma": 1.5,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 39.0,
+            "clipped": 0,
+            "source": "estimate, scaled from the drawing's rear view (the boss is not dimensioned)"
+          },
+          {
+            "name": "diaphragm_setback_mm",
+            "dist": "normal",
+            "nominal": 0.5,
+            "half_width": 0.3,
+            "sigma": 0.15,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "estimate: mean depth of the diaphragm behind the frame's front plane (not on the datasheet)"
+          },
+          {
+            "name": "lip_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 38.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 36.0,
+            "max": 39.9,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "lip_thickness_mm",
+            "dist": "normal",
+            "nominal": 1.2,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "driver_gasket_mm",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate: 0.5 mm closed-cell foam ring compressed by the retainer"
+          },
+          {
+            "name": "cup_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 66.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 50.0,
+            "max": 90.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_width_mm",
+            "dist": "normal",
+            "nominal": 12.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 3.0,
+            "max": 20.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_height_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 40.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "gasket_compressed_mm",
+            "dist": "normal",
+            "nominal": 2.9,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 1.0,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "estimate: 3 mm medium closed-cell silicone sponge under the protocol's 5 N (1.7 kPa over the 3016 mm2 band compresses it by a few percent)"
+          },
+          {
+            "name": "rear_depth_mm",
+            "dist": "normal",
+            "nominal": 20.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 60.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "rear_mesh_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 8.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 8.0 mm drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "front_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 8.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 8.0 mm drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "mesh_rayl",
+            "dist": "normal",
+            "nominal": 260.0,
+            "half_width": 31.2,
+            "sigma": 15.6,
+            "sigma_ln": null,
+            "min": 50.0,
+            "max": 1000.0,
+            "clipped": 0,
+            "source": "SAATI technical data sheet (2019) gives 260 MKS rayl without a tolerance; 10-15 % is industry practice (spec Section 13). All discs are cut from one sheet, so one value serves every port."
+          },
+          {
+            "name": "residual_leak_gap_mm",
+            "dist": "lognormal",
+            "nominal": 0.01,
+            "half_width": 0.006999999999999999,
+            "sigma": null,
+            "sigma_ln": 0.2653141255310852,
+            "min": 0.0,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate: the protocol sets the nominal per fixture (flat plate 0.01 mm, head and torso simulator 0.05 mm); fitted in the acceptance test"
+          }
+        ],
+        "clipped": 0
+      },
+      "measurements": [
+        {
+          "id": "iec_rsealed_p",
+          "probe": "p_drp",
+          "quantity": "pressure",
+          "reference_point": "drp",
+          "nominal": "iec_rsealed_p.csv",
+          "envelope": "iec_rsealed_p.envelope.csv"
+        },
+        {
+          "id": "iec_rsealed_z",
+          "probe": "zin",
+          "quantity": "impedance",
+          "reference_point": "terminals",
+          "nominal": "iec_rsealed_z.csv",
+          "envelope": "iec_rsealed_z.envelope.csv"
+        }
+      ]
+    },
+    {
+      "id": "iec_rhole",
+      "label": "IEC 60318-4 on a flat plate, rear plug hole, front mesh",
+      "overrides": {
+        "drive_mW": 0.01,
+        "fidelity": 1,
+        "front_plug": "mesh",
+        "load": "iec60318_4",
+        "rear_plug": "hole",
+        "residual_leak_gap_mm": 0.01,
+        "source_impedance_ohm": 0
+      },
+      "band_Hz": [
+        10.0,
+        20000.0
+      ],
+      "points": 526,
+      "netlist_hash": "3cd253a36fba3be1c0139a946d7e5ce7cd9bb6394a3d89eb38e17429f6b688ae",
+      "drive": {
+        "convention": "power",
+        "label": "0.01 mW into 32 ohm rated (0.0179 V RMS EMF), source impedance 0 ohm",
+        "source_voltage_V": 0.01788854381999832,
+        "source_impedance_ohm": 0.0,
+        "rated_ohm": 32.0,
+        "probe": null
+      },
+      "shading": {
+        "begin_hz": 3077.469304942592,
+        "deep_hz": 11262.742981883046,
+        "low_begin_hz": 100.0,
+        "low_deep_hz": null
+      },
+      "warnings": [
+        {
+          "code": "unverified_model",
+          "severity": "info",
+          "element": "ear",
+          "message": "IEC 60318-4 simulator: literature model (Luan et al. 2019, fitted side volumes), not verified against the standard's Table 1 (docs/ear-loads.md)"
+        }
+      ],
+      "monte_carlo": {
+        "method": "lhs",
+        "runs": 200,
+        "failed": 0,
+        "failures": [],
+        "seed": 20260925,
+        "parameters": [
+          "driver_Re_ohm",
+          "driver_Mms_g",
+          "driver_Sd_cm2",
+          "driver_compliance_factor",
+          "driver_Bl_factor",
+          "driver_Rms_factor",
+          "driver_rear_boss_diameter_mm",
+          "diaphragm_setback_mm",
+          "lip_inner_diameter_mm",
+          "lip_thickness_mm",
+          "driver_gasket_mm",
+          "cup_inner_diameter_mm",
+          "pad_ring_width_mm",
+          "pad_ring_height_mm",
+          "gasket_compressed_mm",
+          "rear_depth_mm",
+          "back_plate_mm",
+          "rear_hole_diameter_mm",
+          "front_hole_diameter_mm",
+          "mesh_rayl",
+          "residual_leak_gap_mm"
+        ],
+        "distributions": [
+          {
+            "name": "driver_Re_ohm",
+            "dist": "normal",
+            "nominal": 32.8,
+            "half_width": 1.64,
+            "sigma": 0.82,
+            "sigma_ln": null,
+            "min": 20.0,
+            "max": 50.0,
+            "clipped": 0,
+            "source": "datasheet (Tymphany HPD-40N16PET00-32: Revc 32.8 ohm +- 5 %)"
+          },
+          {
+            "name": "driver_Mms_g",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.015,
+            "sigma": 0.0075,
+            "sigma_ln": null,
+            "min": 0.1,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Sd_cm2",
+            "dist": "normal",
+            "nominal": 10.0,
+            "half_width": 0.5,
+            "sigma": 0.25,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 15.0,
+            "clipped": 0,
+            "source": "estimate (datasheet: 10 cm2, no tolerance; the effective area of dome and surround is not sharply defined)"
+          },
+          {
+            "name": "driver_compliance_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.3225,
+            "sigma": null,
+            "sigma_ln": 0.1397619423751587,
+            "min": 0.3,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "datasheet fs tolerance +- 15 %, attributed to the suspension compliance (an assumption): fs scales as 1/sqrt(factor), so 1.3225 = 1.15^2"
+          },
+          {
+            "name": "driver_Bl_factor",
+            "dist": "normal",
+            "nominal": 1.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 2.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Rms_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.2,
+            "sigma": null,
+            "sigma_ln": 0.0911607783969773,
+            "min": 0.2,
+            "max": 5.0,
+            "clipped": 0,
+            "source": "estimate (Qms is not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_rear_boss_diameter_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 3.0,
+            "sigma": 1.5,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 39.0,
+            "clipped": 0,
+            "source": "estimate, scaled from the drawing's rear view (the boss is not dimensioned)"
+          },
+          {
+            "name": "diaphragm_setback_mm",
+            "dist": "normal",
+            "nominal": 0.5,
+            "half_width": 0.3,
+            "sigma": 0.15,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "estimate: mean depth of the diaphragm behind the frame's front plane (not on the datasheet)"
+          },
+          {
+            "name": "lip_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 38.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 36.0,
+            "max": 39.9,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "lip_thickness_mm",
+            "dist": "normal",
+            "nominal": 1.2,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "driver_gasket_mm",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate: 0.5 mm closed-cell foam ring compressed by the retainer"
+          },
+          {
+            "name": "cup_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 66.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 50.0,
+            "max": 90.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_width_mm",
+            "dist": "normal",
+            "nominal": 12.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 3.0,
+            "max": 20.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_height_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 40.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "gasket_compressed_mm",
+            "dist": "normal",
+            "nominal": 2.9,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 1.0,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "estimate: 3 mm medium closed-cell silicone sponge under the protocol's 5 N (1.7 kPa over the 3016 mm2 band compresses it by a few percent)"
+          },
+          {
+            "name": "rear_depth_mm",
+            "dist": "normal",
+            "nominal": 20.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 60.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "back_plate_mm",
+            "dist": "normal",
+            "nominal": 6.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 1.0,
+            "max": 20.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "rear_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 3.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 3.0 mm HSS drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "front_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 8.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 8.0 mm drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "mesh_rayl",
+            "dist": "normal",
+            "nominal": 260.0,
+            "half_width": 31.2,
+            "sigma": 15.6,
+            "sigma_ln": null,
+            "min": 50.0,
+            "max": 1000.0,
+            "clipped": 0,
+            "source": "SAATI technical data sheet (2019) gives 260 MKS rayl without a tolerance; 10-15 % is industry practice (spec Section 13). All discs are cut from one sheet, so one value serves every port."
+          },
+          {
+            "name": "residual_leak_gap_mm",
+            "dist": "lognormal",
+            "nominal": 0.01,
+            "half_width": 0.006999999999999999,
+            "sigma": null,
+            "sigma_ln": 0.2653141255310852,
+            "min": 0.0,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate: the protocol sets the nominal per fixture (flat plate 0.01 mm, head and torso simulator 0.05 mm); fitted in the acceptance test"
+          }
+        ],
+        "clipped": 0
+      },
+      "measurements": [
+        {
+          "id": "iec_rhole_p",
+          "probe": "p_drp",
+          "quantity": "pressure",
+          "reference_point": "drp",
+          "nominal": "iec_rhole_p.csv",
+          "envelope": "iec_rhole_p.envelope.csv"
+        },
+        {
+          "id": "iec_rhole_z",
+          "probe": "zin",
+          "quantity": "impedance",
+          "reference_point": "terminals",
+          "nominal": "iec_rhole_z.csv",
+          "envelope": "iec_rhole_z.envelope.csv"
+        }
+      ]
+    },
+    {
+      "id": "iec_rhole_hi",
+      "label": "As iec_rhole at 100 uW (+10 dB): linearity check of the open hole",
+      "overrides": {
+        "drive_mW": 0.1,
+        "fidelity": 1,
+        "front_plug": "mesh",
+        "load": "iec60318_4",
+        "rear_plug": "hole",
+        "residual_leak_gap_mm": 0.01,
+        "source_impedance_ohm": 0
+      },
+      "band_Hz": [
+        10.0,
+        20000.0
+      ],
+      "points": 526,
+      "netlist_hash": "2d94060c6b04cd358b6e7f8e945a8e1de736098b9b30e8b0b7be7634228db6cd",
+      "drive": {
+        "convention": "power",
+        "label": "0.1 mW into 32 ohm rated (0.0566 V RMS EMF), source impedance 0 ohm",
+        "source_voltage_V": 0.0565685424949238,
+        "source_impedance_ohm": 0.0,
+        "rated_ohm": 32.0,
+        "probe": null
+      },
+      "shading": {
+        "begin_hz": 3077.469304942592,
+        "deep_hz": 11262.742981883046,
+        "low_begin_hz": 100.0,
+        "low_deep_hz": null
+      },
+      "warnings": [
+        {
+          "code": "unverified_model",
+          "severity": "info",
+          "element": "ear",
+          "message": "IEC 60318-4 simulator: literature model (Luan et al. 2019, fitted side volumes), not verified against the standard's Table 1 (docs/ear-loads.md)"
+        }
+      ],
+      "monte_carlo": {
+        "method": "lhs",
+        "runs": 200,
+        "failed": 0,
+        "failures": [],
+        "seed": 20260925,
+        "parameters": [
+          "driver_Re_ohm",
+          "driver_Mms_g",
+          "driver_Sd_cm2",
+          "driver_compliance_factor",
+          "driver_Bl_factor",
+          "driver_Rms_factor",
+          "driver_rear_boss_diameter_mm",
+          "diaphragm_setback_mm",
+          "lip_inner_diameter_mm",
+          "lip_thickness_mm",
+          "driver_gasket_mm",
+          "cup_inner_diameter_mm",
+          "pad_ring_width_mm",
+          "pad_ring_height_mm",
+          "gasket_compressed_mm",
+          "rear_depth_mm",
+          "back_plate_mm",
+          "rear_hole_diameter_mm",
+          "front_hole_diameter_mm",
+          "mesh_rayl",
+          "residual_leak_gap_mm"
+        ],
+        "distributions": [
+          {
+            "name": "driver_Re_ohm",
+            "dist": "normal",
+            "nominal": 32.8,
+            "half_width": 1.64,
+            "sigma": 0.82,
+            "sigma_ln": null,
+            "min": 20.0,
+            "max": 50.0,
+            "clipped": 0,
+            "source": "datasheet (Tymphany HPD-40N16PET00-32: Revc 32.8 ohm +- 5 %)"
+          },
+          {
+            "name": "driver_Mms_g",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.015,
+            "sigma": 0.0075,
+            "sigma_ln": null,
+            "min": 0.1,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Sd_cm2",
+            "dist": "normal",
+            "nominal": 10.0,
+            "half_width": 0.5,
+            "sigma": 0.25,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 15.0,
+            "clipped": 0,
+            "source": "estimate (datasheet: 10 cm2, no tolerance; the effective area of dome and surround is not sharply defined)"
+          },
+          {
+            "name": "driver_compliance_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.3225,
+            "sigma": null,
+            "sigma_ln": 0.1397619423751587,
+            "min": 0.3,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "datasheet fs tolerance +- 15 %, attributed to the suspension compliance (an assumption): fs scales as 1/sqrt(factor), so 1.3225 = 1.15^2"
+          },
+          {
+            "name": "driver_Bl_factor",
+            "dist": "normal",
+            "nominal": 1.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 2.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Rms_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.2,
+            "sigma": null,
+            "sigma_ln": 0.0911607783969773,
+            "min": 0.2,
+            "max": 5.0,
+            "clipped": 0,
+            "source": "estimate (Qms is not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_rear_boss_diameter_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 3.0,
+            "sigma": 1.5,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 39.0,
+            "clipped": 0,
+            "source": "estimate, scaled from the drawing's rear view (the boss is not dimensioned)"
+          },
+          {
+            "name": "diaphragm_setback_mm",
+            "dist": "normal",
+            "nominal": 0.5,
+            "half_width": 0.3,
+            "sigma": 0.15,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "estimate: mean depth of the diaphragm behind the frame's front plane (not on the datasheet)"
+          },
+          {
+            "name": "lip_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 38.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 36.0,
+            "max": 39.9,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "lip_thickness_mm",
+            "dist": "normal",
+            "nominal": 1.2,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "driver_gasket_mm",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate: 0.5 mm closed-cell foam ring compressed by the retainer"
+          },
+          {
+            "name": "cup_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 66.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 50.0,
+            "max": 90.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_width_mm",
+            "dist": "normal",
+            "nominal": 12.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 3.0,
+            "max": 20.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_height_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 40.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "gasket_compressed_mm",
+            "dist": "normal",
+            "nominal": 2.9,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 1.0,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "estimate: 3 mm medium closed-cell silicone sponge under the protocol's 5 N (1.7 kPa over the 3016 mm2 band compresses it by a few percent)"
+          },
+          {
+            "name": "rear_depth_mm",
+            "dist": "normal",
+            "nominal": 20.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 60.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "back_plate_mm",
+            "dist": "normal",
+            "nominal": 6.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 1.0,
+            "max": 20.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "rear_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 3.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 3.0 mm HSS drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "front_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 8.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 8.0 mm drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "mesh_rayl",
+            "dist": "normal",
+            "nominal": 260.0,
+            "half_width": 31.2,
+            "sigma": 15.6,
+            "sigma_ln": null,
+            "min": 50.0,
+            "max": 1000.0,
+            "clipped": 0,
+            "source": "SAATI technical data sheet (2019) gives 260 MKS rayl without a tolerance; 10-15 % is industry practice (spec Section 13). All discs are cut from one sheet, so one value serves every port."
+          },
+          {
+            "name": "residual_leak_gap_mm",
+            "dist": "lognormal",
+            "nominal": 0.01,
+            "half_width": 0.006999999999999999,
+            "sigma": null,
+            "sigma_ln": 0.2653141255310852,
+            "min": 0.0,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate: the protocol sets the nominal per fixture (flat plate 0.01 mm, head and torso simulator 0.05 mm); fitted in the acceptance test"
+          }
+        ],
+        "clipped": 0
+      },
+      "measurements": [
+        {
+          "id": "iec_rhole_hi_p",
+          "probe": "p_drp",
+          "quantity": "pressure",
+          "reference_point": "drp",
+          "nominal": "iec_rhole_hi_p.csv",
+          "envelope": "iec_rhole_hi_p.envelope.csv"
+        }
+      ]
+    },
+    {
+      "id": "iec_fsealed",
+      "label": "IEC 60318-4 on a flat plate, rear mesh, front plugs sealed",
+      "overrides": {
+        "drive_mW": 0.01,
+        "fidelity": 1,
+        "front_plug": "sealed",
+        "load": "iec60318_4",
+        "rear_plug": "mesh",
+        "residual_leak_gap_mm": 0.01,
+        "source_impedance_ohm": 0
+      },
+      "band_Hz": [
+        10.0,
+        20000.0
+      ],
+      "points": 526,
+      "netlist_hash": "95e17b569b241d4495ac21a45f299223ae68ba461adffaeaa279f5e047f5ec79",
+      "drive": {
+        "convention": "power",
+        "label": "0.01 mW into 32 ohm rated (0.0179 V RMS EMF), source impedance 0 ohm",
+        "source_voltage_V": 0.01788854381999832,
+        "source_impedance_ohm": 0.0,
+        "rated_ohm": 32.0,
+        "probe": null
+      },
+      "shading": {
+        "begin_hz": 3077.469304942592,
+        "deep_hz": 11262.742981883046,
+        "low_begin_hz": 100.0,
+        "low_deep_hz": null
+      },
+      "warnings": [
+        {
+          "code": "unverified_model",
+          "severity": "info",
+          "element": "ear",
+          "message": "IEC 60318-4 simulator: literature model (Luan et al. 2019, fitted side volumes), not verified against the standard's Table 1 (docs/ear-loads.md)"
+        }
+      ],
+      "monte_carlo": {
+        "method": "lhs",
+        "runs": 200,
+        "failed": 0,
+        "failures": [],
+        "seed": 20260925,
+        "parameters": [
+          "driver_Re_ohm",
+          "driver_Mms_g",
+          "driver_Sd_cm2",
+          "driver_compliance_factor",
+          "driver_Bl_factor",
+          "driver_Rms_factor",
+          "driver_rear_boss_diameter_mm",
+          "diaphragm_setback_mm",
+          "lip_inner_diameter_mm",
+          "lip_thickness_mm",
+          "driver_gasket_mm",
+          "cup_inner_diameter_mm",
+          "pad_ring_width_mm",
+          "pad_ring_height_mm",
+          "gasket_compressed_mm",
+          "rear_depth_mm",
+          "back_plate_mm",
+          "rear_mesh_hole_diameter_mm",
+          "front_hole_diameter_mm",
+          "mesh_rayl",
+          "residual_leak_gap_mm"
+        ],
+        "distributions": [
+          {
+            "name": "driver_Re_ohm",
+            "dist": "normal",
+            "nominal": 32.8,
+            "half_width": 1.64,
+            "sigma": 0.82,
+            "sigma_ln": null,
+            "min": 20.0,
+            "max": 50.0,
+            "clipped": 0,
+            "source": "datasheet (Tymphany HPD-40N16PET00-32: Revc 32.8 ohm +- 5 %)"
+          },
+          {
+            "name": "driver_Mms_g",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.015,
+            "sigma": 0.0075,
+            "sigma_ln": null,
+            "min": 0.1,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Sd_cm2",
+            "dist": "normal",
+            "nominal": 10.0,
+            "half_width": 0.5,
+            "sigma": 0.25,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 15.0,
+            "clipped": 0,
+            "source": "estimate (datasheet: 10 cm2, no tolerance; the effective area of dome and surround is not sharply defined)"
+          },
+          {
+            "name": "driver_compliance_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.3225,
+            "sigma": null,
+            "sigma_ln": 0.1397619423751587,
+            "min": 0.3,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "datasheet fs tolerance +- 15 %, attributed to the suspension compliance (an assumption): fs scales as 1/sqrt(factor), so 1.3225 = 1.15^2"
+          },
+          {
+            "name": "driver_Bl_factor",
+            "dist": "normal",
+            "nominal": 1.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 2.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Rms_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.2,
+            "sigma": null,
+            "sigma_ln": 0.0911607783969773,
+            "min": 0.2,
+            "max": 5.0,
+            "clipped": 0,
+            "source": "estimate (Qms is not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_rear_boss_diameter_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 3.0,
+            "sigma": 1.5,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 39.0,
+            "clipped": 0,
+            "source": "estimate, scaled from the drawing's rear view (the boss is not dimensioned)"
+          },
+          {
+            "name": "diaphragm_setback_mm",
+            "dist": "normal",
+            "nominal": 0.5,
+            "half_width": 0.3,
+            "sigma": 0.15,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "estimate: mean depth of the diaphragm behind the frame's front plane (not on the datasheet)"
+          },
+          {
+            "name": "lip_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 38.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 36.0,
+            "max": 39.9,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "lip_thickness_mm",
+            "dist": "normal",
+            "nominal": 1.2,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "driver_gasket_mm",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate: 0.5 mm closed-cell foam ring compressed by the retainer"
+          },
+          {
+            "name": "cup_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 66.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 50.0,
+            "max": 90.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_width_mm",
+            "dist": "normal",
+            "nominal": 12.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 3.0,
+            "max": 20.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_height_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 40.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "gasket_compressed_mm",
+            "dist": "normal",
+            "nominal": 2.9,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 1.0,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "estimate: 3 mm medium closed-cell silicone sponge under the protocol's 5 N (1.7 kPa over the 3016 mm2 band compresses it by a few percent)"
+          },
+          {
+            "name": "rear_depth_mm",
+            "dist": "normal",
+            "nominal": 20.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 60.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "back_plate_mm",
+            "dist": "normal",
+            "nominal": 6.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 1.0,
+            "max": 20.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "rear_mesh_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 8.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 8.0 mm drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "front_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 8.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 8.0 mm drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "mesh_rayl",
+            "dist": "normal",
+            "nominal": 260.0,
+            "half_width": 31.2,
+            "sigma": 15.6,
+            "sigma_ln": null,
+            "min": 50.0,
+            "max": 1000.0,
+            "clipped": 0,
+            "source": "SAATI technical data sheet (2019) gives 260 MKS rayl without a tolerance; 10-15 % is industry practice (spec Section 13). All discs are cut from one sheet, so one value serves every port."
+          },
+          {
+            "name": "residual_leak_gap_mm",
+            "dist": "lognormal",
+            "nominal": 0.01,
+            "half_width": 0.006999999999999999,
+            "sigma": null,
+            "sigma_ln": 0.2653141255310852,
+            "min": 0.0,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate: the protocol sets the nominal per fixture (flat plate 0.01 mm, head and torso simulator 0.05 mm); fitted in the acceptance test"
+          }
+        ],
+        "clipped": 0
+      },
+      "measurements": [
+        {
+          "id": "iec_fsealed_p",
+          "probe": "p_drp",
+          "quantity": "pressure",
+          "reference_point": "drp",
+          "nominal": "iec_fsealed_p.csv",
+          "envelope": "iec_fsealed_p.envelope.csv"
+        },
+        {
+          "id": "iec_fsealed_z",
+          "probe": "zin",
+          "quantity": "impedance",
+          "reference_point": "terminals",
+          "nominal": "iec_fsealed_z.csv",
+          "envelope": "iec_fsealed_z.envelope.csv"
+        }
+      ]
+    },
+    {
+      "id": "iec_sealed",
+      "label": "IEC 60318-4 on a flat plate, all plugs sealed (pressure chamber)",
+      "overrides": {
+        "drive_mW": 0.01,
+        "fidelity": 1,
+        "front_plug": "sealed",
+        "load": "iec60318_4",
+        "rear_plug": "sealed",
+        "residual_leak_gap_mm": 0.01,
+        "source_impedance_ohm": 0
+      },
+      "band_Hz": [
+        10.0,
+        20000.0
+      ],
+      "points": 526,
+      "netlist_hash": "729d79e8635a746c9950780b4ad0e910751b37a1216c3424c20330f137d450b7",
+      "drive": {
+        "convention": "power",
+        "label": "0.01 mW into 32 ohm rated (0.0179 V RMS EMF), source impedance 0 ohm",
+        "source_voltage_V": 0.01788854381999832,
+        "source_impedance_ohm": 0.0,
+        "rated_ohm": 32.0,
+        "probe": null
+      },
+      "shading": {
+        "begin_hz": 3077.469304942592,
+        "deep_hz": 11262.742981883046,
+        "low_begin_hz": 100.0,
+        "low_deep_hz": null
+      },
+      "warnings": [
+        {
+          "code": "unverified_model",
+          "severity": "info",
+          "element": "ear",
+          "message": "IEC 60318-4 simulator: literature model (Luan et al. 2019, fitted side volumes), not verified against the standard's Table 1 (docs/ear-loads.md)"
+        }
+      ],
+      "monte_carlo": {
+        "method": "lhs",
+        "runs": 200,
+        "failed": 0,
+        "failures": [],
+        "seed": 20260925,
+        "parameters": [
+          "driver_Re_ohm",
+          "driver_Mms_g",
+          "driver_Sd_cm2",
+          "driver_compliance_factor",
+          "driver_Bl_factor",
+          "driver_Rms_factor",
+          "driver_rear_boss_diameter_mm",
+          "diaphragm_setback_mm",
+          "lip_inner_diameter_mm",
+          "lip_thickness_mm",
+          "driver_gasket_mm",
+          "cup_inner_diameter_mm",
+          "pad_ring_width_mm",
+          "pad_ring_height_mm",
+          "gasket_compressed_mm",
+          "rear_depth_mm",
+          "rear_mesh_hole_diameter_mm",
+          "front_hole_diameter_mm",
+          "residual_leak_gap_mm"
+        ],
+        "distributions": [
+          {
+            "name": "driver_Re_ohm",
+            "dist": "normal",
+            "nominal": 32.8,
+            "half_width": 1.64,
+            "sigma": 0.82,
+            "sigma_ln": null,
+            "min": 20.0,
+            "max": 50.0,
+            "clipped": 0,
+            "source": "datasheet (Tymphany HPD-40N16PET00-32: Revc 32.8 ohm +- 5 %)"
+          },
+          {
+            "name": "driver_Mms_g",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.015,
+            "sigma": 0.0075,
+            "sigma_ln": null,
+            "min": 0.1,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Sd_cm2",
+            "dist": "normal",
+            "nominal": 10.0,
+            "half_width": 0.5,
+            "sigma": 0.25,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 15.0,
+            "clipped": 0,
+            "source": "estimate (datasheet: 10 cm2, no tolerance; the effective area of dome and surround is not sharply defined)"
+          },
+          {
+            "name": "driver_compliance_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.3225,
+            "sigma": null,
+            "sigma_ln": 0.1397619423751587,
+            "min": 0.3,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "datasheet fs tolerance +- 15 %, attributed to the suspension compliance (an assumption): fs scales as 1/sqrt(factor), so 1.3225 = 1.15^2"
+          },
+          {
+            "name": "driver_Bl_factor",
+            "dist": "normal",
+            "nominal": 1.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 2.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Rms_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.2,
+            "sigma": null,
+            "sigma_ln": 0.0911607783969773,
+            "min": 0.2,
+            "max": 5.0,
+            "clipped": 0,
+            "source": "estimate (Qms is not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_rear_boss_diameter_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 3.0,
+            "sigma": 1.5,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 39.0,
+            "clipped": 0,
+            "source": "estimate, scaled from the drawing's rear view (the boss is not dimensioned)"
+          },
+          {
+            "name": "diaphragm_setback_mm",
+            "dist": "normal",
+            "nominal": 0.5,
+            "half_width": 0.3,
+            "sigma": 0.15,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "estimate: mean depth of the diaphragm behind the frame's front plane (not on the datasheet)"
+          },
+          {
+            "name": "lip_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 38.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 36.0,
+            "max": 39.9,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "lip_thickness_mm",
+            "dist": "normal",
+            "nominal": 1.2,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "driver_gasket_mm",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate: 0.5 mm closed-cell foam ring compressed by the retainer"
+          },
+          {
+            "name": "cup_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 66.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 50.0,
+            "max": 90.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_width_mm",
+            "dist": "normal",
+            "nominal": 12.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 3.0,
+            "max": 20.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_height_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 40.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "gasket_compressed_mm",
+            "dist": "normal",
+            "nominal": 2.9,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 1.0,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "estimate: 3 mm medium closed-cell silicone sponge under the protocol's 5 N (1.7 kPa over the 3016 mm2 band compresses it by a few percent)"
+          },
+          {
+            "name": "rear_depth_mm",
+            "dist": "normal",
+            "nominal": 20.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 60.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "rear_mesh_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 8.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 8.0 mm drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "front_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 8.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 8.0 mm drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "residual_leak_gap_mm",
+            "dist": "lognormal",
+            "nominal": 0.01,
+            "half_width": 0.006999999999999999,
+            "sigma": null,
+            "sigma_ln": 0.2653141255310852,
+            "min": 0.0,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate: the protocol sets the nominal per fixture (flat plate 0.01 mm, head and torso simulator 0.05 mm); fitted in the acceptance test"
+          }
+        ],
+        "clipped": 0
+      },
+      "measurements": [
+        {
+          "id": "iec_sealed_p",
+          "probe": "p_drp",
+          "quantity": "pressure",
+          "reference_point": "drp",
+          "nominal": "iec_sealed_p.csv",
+          "envelope": "iec_sealed_p.envelope.csv"
+        },
+        {
+          "id": "iec_sealed_z",
+          "probe": "zin",
+          "quantity": "impedance",
+          "reference_point": "terminals",
+          "nominal": "iec_sealed_z.csv",
+          "envelope": "iec_sealed_z.envelope.csv"
+        }
+      ]
+    },
+    {
+      "id": "iecd_ref",
+      "label": "Damped IEC 60318-4 variant on a flat plate, reference state",
+      "overrides": {
+        "drive_mW": 0.01,
+        "fidelity": 1,
+        "front_plug": "mesh",
+        "load": "iec60318_4_damped",
+        "rear_plug": "mesh",
+        "residual_leak_gap_mm": 0.01,
+        "source_impedance_ohm": 0
+      },
+      "band_Hz": [
+        10.0,
+        10000.0
+      ],
+      "points": 478,
+      "netlist_hash": "59579cc2ed0301ee2f2f81f43f740f4f2943068ebeeba20a3b590e512620f5fe",
+      "drive": {
+        "convention": "power",
+        "label": "0.01 mW into 32 ohm rated (0.0179 V RMS EMF), source impedance 0 ohm",
+        "source_voltage_V": 0.01788854381999832,
+        "source_impedance_ohm": 0.0,
+        "rated_ohm": 32.0,
+        "probe": null
+      },
+      "shading": {
+        "begin_hz": 3077.469304942592,
+        "deep_hz": 11262.742981883046,
+        "low_begin_hz": 100.0,
+        "low_deep_hz": null
+      },
+      "warnings": [
+        {
+          "code": "unverified_model",
+          "severity": "info",
+          "element": "ear",
+          "message": "IEC 60318-4 simulator: literature model (Luan et al. 2019, fitted side volumes), not verified against the standard's Table 1 (docs/ear-loads.md)"
+        }
+      ],
+      "monte_carlo": {
+        "method": "lhs",
+        "runs": 200,
+        "failed": 0,
+        "failures": [],
+        "seed": 20260925,
+        "parameters": [
+          "driver_Re_ohm",
+          "driver_Mms_g",
+          "driver_Sd_cm2",
+          "driver_compliance_factor",
+          "driver_Bl_factor",
+          "driver_Rms_factor",
+          "driver_rear_boss_diameter_mm",
+          "diaphragm_setback_mm",
+          "lip_inner_diameter_mm",
+          "lip_thickness_mm",
+          "driver_gasket_mm",
+          "cup_inner_diameter_mm",
+          "pad_ring_width_mm",
+          "pad_ring_height_mm",
+          "gasket_compressed_mm",
+          "rear_depth_mm",
+          "back_plate_mm",
+          "rear_mesh_hole_diameter_mm",
+          "front_hole_diameter_mm",
+          "mesh_rayl",
+          "residual_leak_gap_mm"
+        ],
+        "distributions": [
+          {
+            "name": "driver_Re_ohm",
+            "dist": "normal",
+            "nominal": 32.8,
+            "half_width": 1.64,
+            "sigma": 0.82,
+            "sigma_ln": null,
+            "min": 20.0,
+            "max": 50.0,
+            "clipped": 0,
+            "source": "datasheet (Tymphany HPD-40N16PET00-32: Revc 32.8 ohm +- 5 %)"
+          },
+          {
+            "name": "driver_Mms_g",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.015,
+            "sigma": 0.0075,
+            "sigma_ln": null,
+            "min": 0.1,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Sd_cm2",
+            "dist": "normal",
+            "nominal": 10.0,
+            "half_width": 0.5,
+            "sigma": 0.25,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 15.0,
+            "clipped": 0,
+            "source": "estimate (datasheet: 10 cm2, no tolerance; the effective area of dome and surround is not sharply defined)"
+          },
+          {
+            "name": "driver_compliance_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.3225,
+            "sigma": null,
+            "sigma_ln": 0.1397619423751587,
+            "min": 0.3,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "datasheet fs tolerance +- 15 %, attributed to the suspension compliance (an assumption): fs scales as 1/sqrt(factor), so 1.3225 = 1.15^2"
+          },
+          {
+            "name": "driver_Bl_factor",
+            "dist": "normal",
+            "nominal": 1.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 2.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Rms_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.2,
+            "sigma": null,
+            "sigma_ln": 0.0911607783969773,
+            "min": 0.2,
+            "max": 5.0,
+            "clipped": 0,
+            "source": "estimate (Qms is not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_rear_boss_diameter_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 3.0,
+            "sigma": 1.5,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 39.0,
+            "clipped": 0,
+            "source": "estimate, scaled from the drawing's rear view (the boss is not dimensioned)"
+          },
+          {
+            "name": "diaphragm_setback_mm",
+            "dist": "normal",
+            "nominal": 0.5,
+            "half_width": 0.3,
+            "sigma": 0.15,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "estimate: mean depth of the diaphragm behind the frame's front plane (not on the datasheet)"
+          },
+          {
+            "name": "lip_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 38.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 36.0,
+            "max": 39.9,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "lip_thickness_mm",
+            "dist": "normal",
+            "nominal": 1.2,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "driver_gasket_mm",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate: 0.5 mm closed-cell foam ring compressed by the retainer"
+          },
+          {
+            "name": "cup_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 66.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 50.0,
+            "max": 90.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_width_mm",
+            "dist": "normal",
+            "nominal": 12.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 3.0,
+            "max": 20.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_height_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 40.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "gasket_compressed_mm",
+            "dist": "normal",
+            "nominal": 2.9,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 1.0,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "estimate: 3 mm medium closed-cell silicone sponge under the protocol's 5 N (1.7 kPa over the 3016 mm2 band compresses it by a few percent)"
+          },
+          {
+            "name": "rear_depth_mm",
+            "dist": "normal",
+            "nominal": 20.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 60.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "back_plate_mm",
+            "dist": "normal",
+            "nominal": 6.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 1.0,
+            "max": 20.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "rear_mesh_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 8.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 8.0 mm drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "front_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 8.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 8.0 mm drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "mesh_rayl",
+            "dist": "normal",
+            "nominal": 260.0,
+            "half_width": 31.2,
+            "sigma": 15.6,
+            "sigma_ln": null,
+            "min": 50.0,
+            "max": 1000.0,
+            "clipped": 0,
+            "source": "SAATI technical data sheet (2019) gives 260 MKS rayl without a tolerance; 10-15 % is industry practice (spec Section 13). All discs are cut from one sheet, so one value serves every port."
+          },
+          {
+            "name": "residual_leak_gap_mm",
+            "dist": "lognormal",
+            "nominal": 0.01,
+            "half_width": 0.006999999999999999,
+            "sigma": null,
+            "sigma_ln": 0.2653141255310852,
+            "min": 0.0,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate: the protocol sets the nominal per fixture (flat plate 0.01 mm, head and torso simulator 0.05 mm); fitted in the acceptance test"
+          }
+        ],
+        "clipped": 0
+      },
+      "measurements": [
+        {
+          "id": "iecd_ref_p",
+          "probe": "p_drp",
+          "quantity": "pressure",
+          "reference_point": "drp",
+          "nominal": "iecd_ref_p.csv",
+          "envelope": "iecd_ref_p.envelope.csv"
+        },
+        {
+          "id": "iecd_ref_z",
+          "probe": "zin",
+          "quantity": "impedance",
+          "reference_point": "terminals",
+          "nominal": "iecd_ref_z.csv",
+          "envelope": "iecd_ref_z.envelope.csv"
+        }
+      ]
+    },
+    {
+      "id": "t43_ref",
+      "label": "ITU-T P.57 Type 4.3 ear on a head and torso simulator, reference state",
+      "overrides": {
+        "drive_mW": 0.01,
+        "fidelity": 1,
+        "front_plug": "mesh",
+        "load": "type43",
+        "pinna_volume_cm3": 10,
+        "rear_plug": "mesh",
+        "residual_leak_gap_mm": 0.05,
+        "source_impedance_ohm": 0
+      },
+      "band_Hz": [
+        10.0,
+        20000.0
+      ],
+      "points": 526,
+      "netlist_hash": "fdecc2746fc36be3da5fd3090b6c152e0141b4c521ad3fc5cda0062464df4073",
+      "drive": {
+        "convention": "power",
+        "label": "0.01 mW into 32 ohm rated (0.0179 V RMS EMF), source impedance 0 ohm",
+        "source_voltage_V": 0.01788854381999832,
+        "source_impedance_ohm": 0.0,
+        "rated_ohm": 32.0,
+        "probe": null
+      },
+      "shading": {
+        "begin_hz": 3077.469304942592,
+        "deep_hz": 11262.742981883046,
+        "low_begin_hz": null,
+        "low_deep_hz": null
+      },
+      "warnings": [],
+      "monte_carlo": {
+        "method": "lhs",
+        "runs": 200,
+        "failed": 0,
+        "failures": [],
+        "seed": 20260925,
+        "parameters": [
+          "driver_Re_ohm",
+          "driver_Mms_g",
+          "driver_Sd_cm2",
+          "driver_compliance_factor",
+          "driver_Bl_factor",
+          "driver_Rms_factor",
+          "driver_rear_boss_diameter_mm",
+          "diaphragm_setback_mm",
+          "lip_inner_diameter_mm",
+          "lip_thickness_mm",
+          "driver_gasket_mm",
+          "cup_inner_diameter_mm",
+          "pad_ring_width_mm",
+          "pad_ring_height_mm",
+          "gasket_compressed_mm",
+          "rear_depth_mm",
+          "back_plate_mm",
+          "rear_mesh_hole_diameter_mm",
+          "front_hole_diameter_mm",
+          "mesh_rayl",
+          "residual_leak_gap_mm",
+          "pinna_volume_cm3"
+        ],
+        "distributions": [
+          {
+            "name": "driver_Re_ohm",
+            "dist": "normal",
+            "nominal": 32.8,
+            "half_width": 1.64,
+            "sigma": 0.82,
+            "sigma_ln": null,
+            "min": 20.0,
+            "max": 50.0,
+            "clipped": 0,
+            "source": "datasheet (Tymphany HPD-40N16PET00-32: Revc 32.8 ohm +- 5 %)"
+          },
+          {
+            "name": "driver_Mms_g",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.015,
+            "sigma": 0.0075,
+            "sigma_ln": null,
+            "min": 0.1,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Sd_cm2",
+            "dist": "normal",
+            "nominal": 10.0,
+            "half_width": 0.5,
+            "sigma": 0.25,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 15.0,
+            "clipped": 0,
+            "source": "estimate (datasheet: 10 cm2, no tolerance; the effective area of dome and surround is not sharply defined)"
+          },
+          {
+            "name": "driver_compliance_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.3225,
+            "sigma": null,
+            "sigma_ln": 0.1397619423751587,
+            "min": 0.3,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "datasheet fs tolerance +- 15 %, attributed to the suspension compliance (an assumption): fs scales as 1/sqrt(factor), so 1.3225 = 1.15^2"
+          },
+          {
+            "name": "driver_Bl_factor",
+            "dist": "normal",
+            "nominal": 1.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 2.0,
+            "clipped": 0,
+            "source": "estimate (not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_Rms_factor",
+            "dist": "lognormal",
+            "nominal": 1.0,
+            "half_width": 0.2,
+            "sigma": null,
+            "sigma_ln": 0.0911607783969773,
+            "min": 0.2,
+            "max": 5.0,
+            "clipped": 0,
+            "source": "estimate (Qms is not toleranced on the datasheet)"
+          },
+          {
+            "name": "driver_rear_boss_diameter_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 3.0,
+            "sigma": 1.5,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 39.0,
+            "clipped": 0,
+            "source": "estimate, scaled from the drawing's rear view (the boss is not dimensioned)"
+          },
+          {
+            "name": "diaphragm_setback_mm",
+            "dist": "normal",
+            "nominal": 0.5,
+            "half_width": 0.3,
+            "sigma": 0.15,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "estimate: mean depth of the diaphragm behind the frame's front plane (not on the datasheet)"
+          },
+          {
+            "name": "lip_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 38.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 36.0,
+            "max": 39.9,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "lip_thickness_mm",
+            "dist": "normal",
+            "nominal": 1.2,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 3.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "driver_gasket_mm",
+            "dist": "normal",
+            "nominal": 0.3,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate: 0.5 mm closed-cell foam ring compressed by the retainer"
+          },
+          {
+            "name": "cup_inner_diameter_mm",
+            "dist": "normal",
+            "nominal": 66.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 50.0,
+            "max": 90.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_width_mm",
+            "dist": "normal",
+            "nominal": 12.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 3.0,
+            "max": 20.0,
+            "clipped": 0,
+            "source": "build check (FDM, XY; estimate of the process)"
+          },
+          {
+            "name": "pad_ring_height_mm",
+            "dist": "normal",
+            "nominal": 22.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 40.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "gasket_compressed_mm",
+            "dist": "normal",
+            "nominal": 2.9,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 1.0,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "estimate: 3 mm medium closed-cell silicone sponge under the protocol's 5 N (1.7 kPa over the 3016 mm2 band compresses it by a few percent)"
+          },
+          {
+            "name": "rear_depth_mm",
+            "dist": "normal",
+            "nominal": 20.0,
+            "half_width": 0.2,
+            "sigma": 0.1,
+            "sigma_ln": null,
+            "min": 5.0,
+            "max": 60.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "back_plate_mm",
+            "dist": "normal",
+            "nominal": 6.0,
+            "half_width": 0.1,
+            "sigma": 0.05,
+            "sigma_ln": null,
+            "min": 1.0,
+            "max": 20.0,
+            "clipped": 0,
+            "source": "build check (FDM, Z; estimate of the process)"
+          },
+          {
+            "name": "rear_mesh_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 8.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 8.0 mm drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "front_hole_diameter_mm",
+            "dist": "normal",
+            "nominal": 8.0,
+            "half_width": 0.05,
+            "sigma": 0.025,
+            "sigma_ln": null,
+            "min": 0.5,
+            "max": 10.0,
+            "clipped": 0,
+            "source": "build check: drilled after printing with a new 8.0 mm drill, checked with pin gauges (estimate of the process)"
+          },
+          {
+            "name": "mesh_rayl",
+            "dist": "normal",
+            "nominal": 260.0,
+            "half_width": 31.2,
+            "sigma": 15.6,
+            "sigma_ln": null,
+            "min": 50.0,
+            "max": 1000.0,
+            "clipped": 0,
+            "source": "SAATI technical data sheet (2019) gives 260 MKS rayl without a tolerance; 10-15 % is industry practice (spec Section 13). All discs are cut from one sheet, so one value serves every port."
+          },
+          {
+            "name": "residual_leak_gap_mm",
+            "dist": "lognormal",
+            "nominal": 0.05,
+            "half_width": 0.034999999999999996,
+            "sigma": null,
+            "sigma_ln": 0.2653141255310852,
+            "min": 0.0,
+            "max": 1.0,
+            "clipped": 0,
+            "source": "estimate: the protocol sets the nominal per fixture (flat plate 0.01 mm, head and torso simulator 0.05 mm); fitted in the acceptance test"
+          },
+          {
+            "name": "pinna_volume_cm3",
+            "dist": "normal",
+            "nominal": 10.0,
+            "half_width": 5.0,
+            "sigma": 2.5,
+            "sigma_ln": null,
+            "min": 0.0,
+            "max": 40.0,
+            "clipped": 0,
+            "source": "estimate: 0 on a flat plate; the protocol sets 10 cm3 on the head and torso simulator"
+          }
+        ],
+        "clipped": 0
+      },
+      "measurements": [
+        {
+          "id": "t43_ref_p",
+          "probe": "p_drp",
+          "quantity": "pressure",
+          "reference_point": "drp",
+          "nominal": "t43_ref_p.csv",
+          "envelope": "t43_ref_p.envelope.csv"
+        },
+        {
+          "id": "t43_ref_z",
+          "probe": "zin",
+          "quantity": "impedance",
+          "reference_point": "terminals",
+          "nominal": "t43_ref_z.csv",
+          "envelope": "t43_ref_z.envelope.csv"
+        }
+      ]
+    }
+  ],
+  "files": [
+    {
+      "path": "cup_free_hole_z.csv",
+      "sha256": "0d4b49d2a87e94460ebab26562cfd4702f75d83f47270e15b44a35e3b3305351",
+      "bytes": 29316,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "cup_free_hole_z.csv.sidecar.json",
+      "sha256": "8208c3bd039a810b5566aebe72b79d81212ab11b1bdd83f00e9474229061ea8e",
+      "bytes": 904,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "cup_free_hole_z.envelope.csv",
+      "sha256": "b00d799633d6a0756f4882046b5d8bf39aa29d6cfc5a5bf01ea76ecf96070805",
+      "bytes": 150964,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "cup_free_hole_z.envelope.csv.sidecar.json",
+      "sha256": "06d9c6e445ffee0bc997b50ef2b6e2114faba37d5367cd64ecfc739d0b26c583",
+      "bytes": 1694,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "cup_free_mesh_z.csv",
+      "sha256": "647f325e0708cc4b81e26dcbcc0986dff8ba81a2891d811430e7b5fbf12585f6",
+      "bytes": 29185,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "cup_free_mesh_z.csv.sidecar.json",
+      "sha256": "d80d00138428f1c478babb60d45bb437916d2d6b732425d333d4f77682bd1eb9",
+      "bytes": 904,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "cup_free_mesh_z.envelope.csv",
+      "sha256": "9f7b58a702930bf388334fc3b11b124da3d8c981333524f611166bc08a5f1380",
+      "bytes": 150422,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "cup_free_mesh_z.envelope.csv.sidecar.json",
+      "sha256": "e887e1c6c4e70ec64079c49cd7208b2bb6b104eeab50392c433f654a163170fd",
+      "bytes": 1699,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "cup_free_sealed_z.csv",
+      "sha256": "2779c66577c7cf80fa50c4f728a26f9395814f898b7183b92aeabda203db90d8",
+      "bytes": 29233,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "cup_free_sealed_z.csv.sidecar.json",
+      "sha256": "e48b4584e4129fc062aaa879ccb0a5935916dde5f285500028974321e3df0872",
+      "bytes": 1010,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "cup_free_sealed_z.envelope.csv",
+      "sha256": "c3225258ecaab4886d857b32f3a6b2fa8d4e6f9070be0c926510a9541b7c43ce",
+      "bytes": 150753,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "cup_free_sealed_z.envelope.csv.sidecar.json",
+      "sha256": "0ad17d9d631898c7e3245e4716b427a7d68bde5f95d4a0cc78cb23caed51f7dd",
+      "bytes": 1790,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "driver_free_z.csv",
+      "sha256": "3996fc85dbaf3011faee733dc539588c9829c99b2a8e6ba6c87862076c8c2b0c",
+      "bytes": 29267,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "driver_free_z.csv.sidecar.json",
+      "sha256": "3e59c67673c57572d65267d8b2c8cf6b4709e3b29bcbef117d5a9d4e13e195e9",
+      "bytes": 957,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "driver_free_z.envelope.csv",
+      "sha256": "51d90b566e7c1ce80366e6d3c83804d55ce904d49cdbebbb38beca2b2efb4631",
+      "bytes": 150810,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "driver_free_z.envelope.csv.sidecar.json",
+      "sha256": "bbcd5af4c9c39b0be253ca975ad4433926dac74018e437617ac54bcdf3106a5f",
+      "bytes": 1464,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_fsealed_p.csv",
+      "sha256": "6acf3d1e80e991d2633e1a154d97a78e0e444f80187bff8c56fa7a5131bd75c1",
+      "bytes": 29142,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_fsealed_p.csv.sidecar.json",
+      "sha256": "a442fa56f2dd1da19c68d867037cde0e7298b55a1b211ef62d499d79cbe1dee7",
+      "bytes": 1008,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_fsealed_p.envelope.csv",
+      "sha256": "ab3d726e651f1f569d4e92145a109276a16fb2f52ca5d647899143cd28437475",
+      "bytes": 88075,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_fsealed_p.envelope.csv.sidecar.json",
+      "sha256": "acffac868ea78e737de039cb6a78d2710b84400bb6e5916da96a92ee76d93aff",
+      "bytes": 1764,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_fsealed_z.csv",
+      "sha256": "cbf68f232058f5cba48899453faf746dcfe69865b8929ec6cb6a48aeaedb02c1",
+      "bytes": 29221,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_fsealed_z.csv.sidecar.json",
+      "sha256": "a0ce353bc30247bc2aa3b7107d49bcc6d4d92551b6c96e2aca3ab7461368c9c7",
+      "bytes": 993,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_fsealed_z.envelope.csv",
+      "sha256": "859e288ade6bae6b1965cd461d6a4a94262c2c6b61fc0c712eb3cc9019d7b7ff",
+      "bytes": 150634,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_fsealed_z.envelope.csv.sidecar.json",
+      "sha256": "0ebd64c65e9a39e1bb69a3f175761f83bfc21d4fbcad92a41fae59ee979b8040",
+      "bytes": 1810,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_ref_p.csv",
+      "sha256": "bed876e90ff0dab7bbbf880f3b6348b33b30e614392e93dba8c08a2a89484744",
+      "bytes": 28826,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_ref_p.csv.sidecar.json",
+      "sha256": "0645e8ed0d9f98ebba2227002291b042a58a8e34d22a566a8c5742f5a675755f",
+      "bytes": 1391,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_ref_p.envelope.csv",
+      "sha256": "1c670dd61201c56f3e6b8744f9c0a58cee71307653a0689eb81eda47a23eadc3",
+      "bytes": 87949,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_ref_p.envelope.csv.sidecar.json",
+      "sha256": "ee1e64e304b51bfbdef7d03ce71226267df3a0febd576e20883434e703a991b0",
+      "bytes": 2147,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_ref_z.csv",
+      "sha256": "fc6e3922ff4d98ab525f64ad15e6f740e531838c7473ada0461f2529f51188b5",
+      "bytes": 29234,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_ref_z.csv.sidecar.json",
+      "sha256": "2a2a97669c3fc6ae2d5518f7aa4fa79410717a7a4bb33ca4d508ceb124cb32fb",
+      "bytes": 1376,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_ref_z.envelope.csv",
+      "sha256": "8b74a7b3cbd4ae041432573355020982d6d72d813e118fb5d62695b1c913853e",
+      "bytes": 150678,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_ref_z.envelope.csv.sidecar.json",
+      "sha256": "8dbf600dc5e002f480bec6ae2cab6940093ae28be4d560d4c7b530adaca59847",
+      "bytes": 2193,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_rhole_hi_p.csv",
+      "sha256": "da0c1bcddcaacedd938226963edf3d6424a9c13c0fee587db1af0b1d8fbf1853",
+      "bytes": 29193,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_rhole_hi_p.csv.sidecar.json",
+      "sha256": "2704bf1e2765b3c06516dc84374fe4f937106d745b90f6859c224b35f9f44689",
+      "bytes": 1248,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_rhole_hi_p.envelope.csv",
+      "sha256": "e1d4070162b6a64a5df1fd9c75d39611b3e5ec91b9b74202aa838e26ed3ec075",
+      "bytes": 89771,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_rhole_hi_p.envelope.csv.sidecar.json",
+      "sha256": "82c3fb48941fbb9dffe363b51003d7021eb4a2f0935e33e436cae40b018e545d",
+      "bytes": 1999,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_rhole_p.csv",
+      "sha256": "203948ac41317b64ef6ca1faf266ed66dbe0cd12e01d61bc5f2219f0c2fd3c06",
+      "bytes": 28973,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_rhole_p.csv.sidecar.json",
+      "sha256": "437abc2ba6753ab6c16ce9ad662381101702677f02b3f8b7f5bfffb8ab86de78",
+      "bytes": 999,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_rhole_p.envelope.csv",
+      "sha256": "8243df20d060366b75149dd28f9a6506c766198d5470c222385d00dd01ba3956",
+      "bytes": 88016,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_rhole_p.envelope.csv.sidecar.json",
+      "sha256": "6088fc5df51519c5cdc75c73953c627a5e8d6c5d6791508efb1da2ff747c21e5",
+      "bytes": 1750,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_rhole_z.csv",
+      "sha256": "b59662c5cd866204bcc461bddca1cf8c2371744a1d576b614c12ef61ec67baf2",
+      "bytes": 29307,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_rhole_z.csv.sidecar.json",
+      "sha256": "651cb99be2811e14a06f7be66e712f48f304d43660a7b1ed5874557dccb96078",
+      "bytes": 984,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_rhole_z.envelope.csv",
+      "sha256": "702798fda77ec53eb8ee8054f54b9c24d19955df2fb829364bf6d8c30102be9d",
+      "bytes": 150832,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_rhole_z.envelope.csv.sidecar.json",
+      "sha256": "b74b28fb5634fcf05a706b912269f717734e3fe31eff2b6e9391b1b321a9d76a",
+      "bytes": 1796,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_rsealed_p.csv",
+      "sha256": "958f68c4ffadab91a3fd697f54ca4689aeed9e7757495d186f4009633636f62a",
+      "bytes": 28806,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_rsealed_p.csv.sidecar.json",
+      "sha256": "d7e156f4e881cc09dee8aa8d1a08a971af6f085535a12c2fc6acf01762b3b932",
+      "bytes": 1007,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_rsealed_p.envelope.csv",
+      "sha256": "f15b9c5e1b854d29395d5272ba167136f29f5119c66c95f04b411432280f6401",
+      "bytes": 88009,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_rsealed_p.envelope.csv.sidecar.json",
+      "sha256": "1dc6b006c6de67cfb5b3eba99a4f86a403ba810ae87a5dc1f633df4b8b0e06e1",
+      "bytes": 1748,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_rsealed_z.csv",
+      "sha256": "ec84356fcd170e94a0c75631844379a5d0f697b9cc41bac931e5871033e6a4d6",
+      "bytes": 29204,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_rsealed_z.csv.sidecar.json",
+      "sha256": "12a2bd377c8116720cccf6de5ba5198ae0e15cd95055c1fc30e3e648705d1c62",
+      "bytes": 992,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_rsealed_z.envelope.csv",
+      "sha256": "8d769d1695565d6baec289fb56e716b80c0954f104b6f6182c0127585c581c67",
+      "bytes": 150613,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_rsealed_z.envelope.csv.sidecar.json",
+      "sha256": "b04cc17af914d9eaaa237429fff073a422a6e6485605a396040d4c81e2ba8719",
+      "bytes": 1794,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_sealed_p.csv",
+      "sha256": "a6082c2536aafea895d5b226d7b60cfbd2cfbab4ce92b2076905c3643bc439c2",
+      "bytes": 29205,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_sealed_p.csv.sidecar.json",
+      "sha256": "3868578dcae8496442730d5e15be00e18b6d8072c2ea5807f8ce9eb862859d5a",
+      "bytes": 1014,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_sealed_p.envelope.csv",
+      "sha256": "86260b31beaf37333e946d065e814e84e9f7ce14935158fe52f8074c6a0d6730",
+      "bytes": 88138,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_sealed_p.envelope.csv.sidecar.json",
+      "sha256": "3ca287ee5739fcf667cb92b768b387f5413b2436de3bd917286e245bea79f5dc",
+      "bytes": 1744,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_sealed_z.csv",
+      "sha256": "4325b930892a2e4435b6c3a5f26c646fc8df30fc781aa7544d5d94167d93a930",
+      "bytes": 29240,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_sealed_z.csv.sidecar.json",
+      "sha256": "054ab63db535ec05257d9304e8efe7abf1235fa3493313f2bc3fe6d18b5a18ae",
+      "bytes": 999,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_sealed_z.envelope.csv",
+      "sha256": "18367d031486ed8391f01a6a0a403871d59c51e36af3d8655353fe27aecc960a",
+      "bytes": 150836,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iec_sealed_z.envelope.csv.sidecar.json",
+      "sha256": "9e4a28e83f439ff430805a629a38637842dc2dcaf672dcbf49f4ec030d8eb540",
+      "bytes": 1790,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iecd_ref_p.csv",
+      "sha256": "dbbae81ce003fcea11b35acb1821ee0a103724b5b0eeee340fd92c08f6d01a64",
+      "bytes": 26162,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iecd_ref_p.csv.sidecar.json",
+      "sha256": "119e2e9cdd4503d77eed9524adf8b8e80bba468fd3e5af69f5e82ce4151ef266",
+      "bytes": 1311,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iecd_ref_p.envelope.csv",
+      "sha256": "52947c6ad5d1212bd54945221f9497edcd78a8747dd03d2f35db52396cdef212",
+      "bytes": 79919,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iecd_ref_p.envelope.csv.sidecar.json",
+      "sha256": "c654ab17c1cce9f9d7c2606cb66b885c84e63a50a3473ac4cb59d2d04d52c144",
+      "bytes": 2067,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iecd_ref_z.csv",
+      "sha256": "7d6e65e747e1b8baf2a4a5b78ce4fee194cf2050ab594b8abda5b4f738f3230d",
+      "bytes": 26497,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iecd_ref_z.csv.sidecar.json",
+      "sha256": "20a04e092efcb0549e463c83b9926fa99660c1f127810315f4833f564c88b02d",
+      "bytes": 1296,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iecd_ref_z.envelope.csv",
+      "sha256": "3679ed8677e15942055c47cd8d67cfb71b06cbdfe70a75d79d41f46c242f9ae5",
+      "bytes": 136581,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "iecd_ref_z.envelope.csv.sidecar.json",
+      "sha256": "8ad2983f6acb6fb602f47aa84b1d50da3b9ed09598febd9997f27bdc9bc3265d",
+      "bytes": 2113,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "netlist.json",
+      "sha256": "fbae377e33eccbde067e5dab7592eac24773f88bf01f3123f68d2218aeaa4ddf",
+      "bytes": 20621,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "protocol.json",
+      "sha256": "5bb8ce359e9fdd2c5c4e124590d68dd9e5a0bc529cf12028cfc7e962cdc7d727",
+      "bytes": 9257,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "t43_ref_p.csv",
+      "sha256": "76489c6d7a01bd3701e46f38e23f89ba97d54d9e225911717dd699a4a1a77b6c",
+      "bytes": 28714,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "t43_ref_p.csv.sidecar.json",
+      "sha256": "43f907a6b669da335f18824e33827e727f2b686b5f51721edacc823d372a44bb",
+      "bytes": 1320,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "t43_ref_p.envelope.csv",
+      "sha256": "03794b61660a2eb9980d89b5154722f4f20b0264b8d9b5533326d8cb3f71c174",
+      "bytes": 87948,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "t43_ref_p.envelope.csv.sidecar.json",
+      "sha256": "4b2c67314f10a2e1ae557d7635adfcbff75d8805d3c9b71155dd9b623f812405",
+      "bytes": 2094,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "t43_ref_z.csv",
+      "sha256": "8f770a87e9db717b6ab834a7c706ae094a6c9841d905228679394dacd61ce019",
+      "bytes": 29249,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "t43_ref_z.csv.sidecar.json",
+      "sha256": "2b35eca95a4ab49778a08fe95a4c1caac405bda1a3f086b44b52e03dadf99724",
+      "bytes": 1305,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "t43_ref_z.envelope.csv",
+      "sha256": "0aa6b27e7f71a9e8e79eb74ee45a623aef8e2cdf8f904372e1898c7f29852705",
+      "bytes": 150650,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    },
+    {
+      "path": "t43_ref_z.envelope.csv.sidecar.json",
+      "sha256": "d31ddeda9b98bca887fc611a7887d198256a4b198c5baa07d5bfcb6a45b0e623",
+      "bytes": 2140,
+      "command": "acoustilab validate --predict --out validation/reference_cup/predictions/v1"
+    }
+  ]
+}

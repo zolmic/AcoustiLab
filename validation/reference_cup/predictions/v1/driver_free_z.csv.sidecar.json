@@ -1,0 +1,23 @@
+{
+  "schema": "acoustilab-curve-sidecar/0.1",
+  "quantity": "impedance",
+  "fixture": "free air",
+  "smoothing": "none",
+  "drive": {
+    "power_mW": 0.01,
+    "rated_ohm": 32.0
+  },
+  "source_impedance_ohm": 0.0,
+  "compensation": "none",
+  "reference_point": "terminals",
+  "temperature_C": 23.0,
+  "date": "2026-09-25",
+  "device": "open reference cup, design (examples/reference_cup.json)",
+  "provenance": {
+    "origin": "simulated",
+    "source": "frozen blind prediction v1 of 'driver_free_z' (configuration 'driver_free'), nominal parameters; protocol 'Open reference cup: measurement session (spec Section 17)'",
+    "licence": "CC-BY-4.0",
+    "tool": "acoustilab 0.1.0"
+  },
+  "notes": "Bare driver in free air, before assembly. Overrides: {\"drive_mW\":0.01,\"fidelity\":1,\"load\":\"driver_free_air\",\"source_impedance_ohm\":0}. Hang the driver by its leads at least 30 cm from any surface, diaphragm vertical. Re-hang it between repeats."
+}

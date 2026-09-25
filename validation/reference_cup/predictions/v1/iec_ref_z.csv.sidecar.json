@@ -1,0 +1,25 @@
+{
+  "schema": "acoustilab-curve-sidecar/0.1",
+  "quantity": "impedance",
+  "fixture": "flat plate",
+  "ear_simulator": "iec60318_4",
+  "pinna": "none",
+  "smoothing": "none",
+  "drive": {
+    "power_mW": 0.01,
+    "rated_ohm": 32.0
+  },
+  "source_impedance_ohm": 0.0,
+  "compensation": "none",
+  "reference_point": "terminals",
+  "temperature_C": 23.0,
+  "date": "2026-09-25",
+  "device": "open reference cup, design (examples/reference_cup.json)",
+  "provenance": {
+    "origin": "simulated",
+    "source": "frozen blind prediction v1 of 'iec_ref_z' (configuration 'iec_ref'), nominal parameters; protocol 'Open reference cup: measurement session (spec Section 17)'",
+    "licence": "CC-BY-4.0",
+    "tool": "acoustilab 0.1.0"
+  },
+  "notes": "IEC 60318-4 on a flat plate, reference state (rear mesh, front mesh). Overrides: {\"drive_mW\":0.01,\"fidelity\":1,\"front_plug\":\"mesh\",\"load\":\"iec60318_4\",\"rear_plug\":\"mesh\",\"residual_leak_gap_mm\":0.01,\"source_impedance_ohm\":0}. Centre the cup on the simulator's entrance, press it down with 5.0 N in total (plate horizontal: weigh the assembled cup and put 510 g minus its mass on the rear shell), and take this state first in every seating; then, without lifting the cup, swap plugs for iec_rsealed, iec_rhole, iec_rhole_hi, iec_fsealed and iec_sealed, and restore the reference plugs before the next seating."
+}

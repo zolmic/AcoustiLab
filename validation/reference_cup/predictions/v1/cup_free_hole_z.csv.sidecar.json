@@ -1,0 +1,23 @@
+{
+  "schema": "acoustilab-curve-sidecar/0.1",
+  "quantity": "impedance",
+  "fixture": "free air",
+  "smoothing": "none",
+  "drive": {
+    "power_mW": 0.01,
+    "rated_ohm": 32.0
+  },
+  "source_impedance_ohm": 0.0,
+  "compensation": "none",
+  "reference_point": "terminals",
+  "temperature_C": 23.0,
+  "date": "2026-09-25",
+  "device": "open reference cup, design (examples/reference_cup.json)",
+  "provenance": {
+    "origin": "simulated",
+    "source": "frozen blind prediction v1 of 'cup_free_hole_z' (configuration 'cup_free_hole'), nominal parameters; protocol 'Open reference cup: measurement session (spec Section 17)'",
+    "licence": "CC-BY-4.0",
+    "tool": "acoustilab 0.1.0"
+  },
+  "notes": "Cup in free air, rear plug hole, front plugs mesh. Overrides: {\"drive_mW\":0.01,\"fidelity\":1,\"front_plug\":\"mesh\",\"load\":\"cup_free_air\",\"rear_plug\":\"hole\",\"source_impedance_ohm\":0}."
+}

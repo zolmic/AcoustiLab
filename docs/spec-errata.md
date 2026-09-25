@@ -281,3 +281,23 @@ corrected statement. "p." is the PDF page.
 
   The engine generates the sentences from re-solves (`docs/analysis.md`).
   Sensitivities in dB per percent describe small changes only.
+
+## Package `refcup` (open reference headphone)
+
+- **E54 — reference headphone acceptance (Section 17, p. 59).** "Acceptance
+  after fitting only leak and front volume: within 2 dB to 1 kHz and within
+  4 dB from 1 to 4 kHz" states neither a lower frequency, nor the statistic
+  (every point, an RMS, a percentile), nor which curve (one seating or the
+  mean of the re-seats), nor whether a level offset for the microphone
+  calibration may be fitted with the two parameters. The readings can
+  differ by more than the bounds: at sharp features one seating differs
+  from the mean by several dB (in the synthetic level-1 session of
+  `tests/reference_cup.rs`, where the front volume varies by 1 % between
+  seatings, the spread is 0.05–0.3 dB in the median but 4–5 dB at the
+  cup's notch near 5 kHz), and a free level offset absorbs a broadband
+  error of any size. The engine applies the bounds to every point of the
+  mean level of the seatings (in dB) from 20 Hz, fits no level offset, and
+  judges a band only when the data reach both of its ends, reporting a
+  curve that stops short of a band as not evaluated rather than failed
+  (docs/reference-cup.md). Other readings can be computed from the report's
+  residuals, which it lists at every frequency.

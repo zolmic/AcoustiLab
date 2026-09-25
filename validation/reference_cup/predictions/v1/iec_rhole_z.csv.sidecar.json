@@ -1,0 +1,25 @@
+{
+  "schema": "acoustilab-curve-sidecar/0.1",
+  "quantity": "impedance",
+  "fixture": "flat plate",
+  "ear_simulator": "iec60318_4",
+  "pinna": "none",
+  "smoothing": "none",
+  "drive": {
+    "power_mW": 0.01,
+    "rated_ohm": 32.0
+  },
+  "source_impedance_ohm": 0.0,
+  "compensation": "none",
+  "reference_point": "terminals",
+  "temperature_C": 23.0,
+  "date": "2026-09-25",
+  "device": "open reference cup, design (examples/reference_cup.json)",
+  "provenance": {
+    "origin": "simulated",
+    "source": "frozen blind prediction v1 of 'iec_rhole_z' (configuration 'iec_rhole'), nominal parameters; protocol 'Open reference cup: measurement session (spec Section 17)'",
+    "licence": "CC-BY-4.0",
+    "tool": "acoustilab 0.1.0"
+  },
+  "notes": "IEC 60318-4 on a flat plate, rear plug hole, front mesh. Overrides: {\"drive_mW\":0.01,\"fidelity\":1,\"front_plug\":\"mesh\",\"load\":\"iec60318_4\",\"rear_plug\":\"hole\",\"residual_leak_gap_mm\":0.01,\"source_impedance_ohm\":0}."
+}

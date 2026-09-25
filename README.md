@@ -59,5 +59,7 @@ synthetic measurements are described in `docs/fitting.md`.
 
 Impulse responses, pole/Q tables and passive isolation: `acoustilab ir | poles | isolation` (`docs/time-domain.md`, `docs/isolation.md`).
 
+The open reference headphone of spec Section 17 (printable CAD, model, measurement protocol and frozen blind predictions) is in `validation/reference_cup/`; `acoustilab validate` runs a measurement session against it (`docs/reference-cup.md`).
+
 To run the browser UI:
 `cd web && npm ci && npm run dev` (details in `docs/web.md`).
