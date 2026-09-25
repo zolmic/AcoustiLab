@@ -1,8 +1,8 @@
 // Canvas 2D plots sharing one log-frequency axis, validity shading and a
 // crosshair (spec Sections 2 and 15).
 
-import type { PlotGroup, Series } from './series';
-import { DASHES, styleSlot } from './series';
+import type { OverlaySeries, PlotGroup, Series } from './series';
+import { DASHES, LIVE_WIDTH, OVERLAY_DASHES, OVERLAY_MIX, OVERLAY_WIDTH, PRIMARY_WIDTH, styleSlot } from './series';
 import {
   formatHzTick,
   freqTicks,
@@ -32,6 +32,8 @@ export interface Theme {
   shadeEdge: string;
   crosshair: string;
   selection: string;
+  hlFill: string;
+  hlEdge: string;
   series: string[];
   font: string;
 }
@@ -51,14 +53,39 @@ export function readTheme(): Theme {
     shadeEdge: v('--shade-edge'),
     crosshair: v('--crosshair'),
     selection: v('--selection'),
+    hlFill: v('--hl-fill'),
+    hlEdge: v('--hl-edge'),
     series: Array.from({ length: 8 }, (_, i) => v(`--series-${i + 1}`)),
     font: v('--font-sans') || 'system-ui, sans-serif',
   };
 }
 
+/**
+ * `a` mixed with `b` (both "#rrggbb"), weight `t` on `a`. Baseline overlays
+ * use the live curve's colour half mixed with the secondary ink: the hue
+ * still names the probe, the washed-out tone says "not the live design",
+ * and the mix keeps >= 3.5:1 against the plot surface and both validity
+ * shades in either theme (every series colour mixed with --ink-2 at 1/2).
+ */
+export function mixHex(a: string, b: string, t: number): string {
+  const rgb = (h: string) => (/^#[0-9a-f]{6}$/i.test(h) ? [1, 3, 5].map((k) => parseInt(h.slice(k, k + 2), 16)) : null);
+  const x = rgb(a);
+  const y = rgb(b);
+  if (!x || !y) return a;
+  return `#${x.map((c, k) => Math.round(t * c + (1 - t) * y[k]).toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** A frequency range picked out on every plot (e.g. where a warning applies). */
+export interface Highlight {
+  lo: number;
+  hi: number;
+  label: string;
+}
+
 export interface PlotData {
   freqs: number[]; // ascending
   shading: Shading;
+  highlight?: Highlight | null;
 }
 
 interface Axis {
@@ -121,11 +148,13 @@ export class Plot {
     this.figure.append(this.caption, this.canvas);
   }
 
-  describe(visible: Series[]): void {
-    const ids = visible.map((s) => s.id).join(', ') || 'no visible curves';
+  describe(visible: Series[], overlays: OverlaySeries[]): void {
+    const ids = visible.map((s) => (s.primary ? `${s.id} (primary)` : s.id)).join(', ') || 'no visible curves';
+    const names = [...new Set(overlays.map((o) => `“${o.name}”`))];
     const label =
-      `${this.group.title} ${this.group.symbol} ${this.unitEl.textContent ?? ''} against frequency: ${ids}. ` +
-      'Arrow keys move the crosshair; values are read out above the plots and listed in the data table.';
+      `${this.group.title} ${this.group.symbol} ${this.unitEl.textContent ?? ''} against frequency: ${ids}` +
+      (names.length ? `; frozen baselines, drawn as thin patterned lines: ${names.join(', ')}` : '') +
+      '. Arrow keys move the crosshair; values are read out above the plots and listed in the data table.';
     if (this.canvas.getAttribute('aria-label') !== label) this.canvas.setAttribute('aria-label', label);
   }
 
@@ -144,19 +173,21 @@ export class Plot {
     return Math.exp(Math.log(lo) + t * (Math.log(hi) - Math.log(lo)));
   }
 
-  private axis(visible: Series[], freqs: number[], lo: number, hi: number): Axis {
+  private axis(visible: Series[], overlays: OverlaySeries[], freqs: number[], lo: number, hi: number): Axis {
     const g = this.group;
     let vmin = Infinity;
     let vmax = -Infinity;
-    for (const s of visible) {
-      for (let i = 0; i < freqs.length; i++) {
-        if (freqs[i] < lo || freqs[i] > hi) continue;
-        const v = s.values[i];
+    const scan = (f: number[], values: (number | null)[]) => {
+      for (let i = 0; i < f.length; i++) {
+        if (f[i] < lo || f[i] > hi) continue;
+        const v = values[i];
         if (!finite(v) || (g.scale === 'log' && v <= 0)) continue;
         vmin = Math.min(vmin, v);
         vmax = Math.max(vmax, v);
       }
-    }
+    };
+    for (const s of visible) scan(freqs, s.values);
+    for (const o of overlays) scan(o.freqs, o.values);
     if (!(vmax >= vmin)) {
       vmin = g.scale === 'log' ? 1 : 0;
       vmax = g.scale === 'log' ? 10 : 1;
@@ -193,6 +224,12 @@ export class Plot {
         vmin = c - 5;
         vmax = c + 5;
       }
+    } else if (g.kind === 'delta') {
+      // Differences: zero always in view, at least ±1 dB.
+      mults = [1, 2, 5];
+      target = 4;
+      vmin = Math.min(vmin, -1, 0);
+      vmax = Math.max(vmax, 1, 0);
     } else if (g.kind === 'phase') {
       mults = [1, 1.5, 3, 4.5, 9];
       target = 4;
@@ -271,17 +308,22 @@ export class Plot {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const r = this.plotRect();
     const visible = this.group.series.filter((s) => !hidden.has(s.id));
-    const ax = this.axis(visible, data.freqs, lo, hi);
+    const overlays = this.group.overlays.filter((o) => !hidden.has(o.id));
+    const ax = this.axis(visible, overlays, data.freqs, lo, hi);
     if (this.unitEl.textContent !== `(${ax.unitText})`) this.unitEl.textContent = `(${ax.unitText})`;
-    this.describe(visible);
+    this.describe(visible, overlays);
 
     ctx.fillStyle = th.bg;
     ctx.fillRect(0, 0, this.cssW, this.cssH);
 
-    // Validity shading: light from begin_hz, darker from deep_hz.
-    const band = (f: number | null) => (f === null ? null : Math.min(Math.max(this.xOf(f, lo, hi), r.x0), r.x1));
+    // Validity shading: light from begin_hz, darker from deep_hz, and on the
+    // low side light below low_begin_hz, darker below low_deep_hz.
+    const band = (f: number | null | undefined) =>
+      f === null || f === undefined ? null : Math.min(Math.max(this.xOf(f, lo, hi), r.x0), r.x1);
     const xb = band(data.shading.begin_hz);
     const xd = band(data.shading.deep_hz);
+    const xlb = band(data.shading.low_begin_hz);
+    const xld = band(data.shading.low_deep_hz);
     if (xb !== null && xb < r.x1) {
       ctx.fillStyle = th.shade1;
       ctx.fillRect(xb, r.y0, (xd ?? r.x1) - xb, r.y1 - r.y0);
@@ -290,12 +332,21 @@ export class Plot {
       ctx.fillStyle = th.shade2;
       ctx.fillRect(xd, r.y0, r.x1 - xd, r.y1 - r.y0);
     }
+    if (xlb !== null && xlb > r.x0) {
+      const from = xld !== null ? Math.max(xld, r.x0) : r.x0;
+      ctx.fillStyle = th.shade1;
+      if (xlb > from) ctx.fillRect(from, r.y0, xlb - from, r.y1 - r.y0);
+    }
+    if (xld !== null && xld > r.x0) {
+      ctx.fillStyle = th.shade2;
+      ctx.fillRect(r.x0, r.y0, xld - r.x0, r.y1 - r.y0);
+    }
     // Band edges: at least 3:1 against both neighbouring fills (WCAG 1.4.11,
     // spec Section 15; the fills themselves are kept faint so curves stay
     // legible), dashed so they never read as the solid crosshair.
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 3]);
-    for (const x of [xb, xd]) {
+    for (const x of [xb, xd, xlb, xld]) {
       if (x !== null && x > r.x0 && x < r.x1) {
         ctx.strokeStyle = th.shadeEdge;
         ctx.beginPath();
@@ -305,6 +356,28 @@ export class Plot {
       }
     }
     ctx.setLineDash([]);
+
+    // Highlighted range (a selected warning): tinted, with solid edges.
+    const hl = data.highlight;
+    let hlBox: [number, number] | null = null;
+    if (hl && hl.hi >= lo && hl.lo <= hi) {
+      const xa = Math.max(r.x0, this.xOf(hl.lo, lo, hi));
+      const xz = Math.min(r.x1, this.xOf(hl.hi, lo, hi));
+      const pad = xz - xa < 4 ? (4 - (xz - xa)) / 2 : 0;
+      hlBox = [xa - pad, xz + pad];
+      ctx.fillStyle = th.hlFill;
+      ctx.fillRect(hlBox[0], r.y0, hlBox[1] - hlBox[0], r.y1 - r.y0);
+      ctx.strokeStyle = th.hlEdge;
+      ctx.lineWidth = 1.5;
+      for (const x of hlBox) {
+        if (x < r.x0 || x > r.x1) continue;
+        ctx.beginPath();
+        ctx.moveTo(x, r.y0);
+        ctx.lineTo(x, r.y1);
+        ctx.stroke();
+      }
+      ctx.lineWidth = 1;
+    }
 
     // Grid.
     const ft = freqTicks(lo, hi);
@@ -380,6 +453,33 @@ export class Plot {
       };
       tag(xb, '≥10 %', xd ?? r.x1);
       tag(xd, '≥36 %', r.x1);
+      // Low side: the tag sits at the left edge of the band.
+      if (xlb !== null && xlb > r.x0 + 20) tag(r.x0, 'below validated range', xlb);
+    }
+    // The highlighted range's label, on every plot (it may be the only one in view).
+    if (hl && hlBox) {
+      ctx.font = `11px ${th.font}`;
+      ctx.textBaseline = 'bottom';
+      const tw = ctx.measureText(hl.label).width;
+      let x = hlBox[0] + 3;
+      if (x + tw + 6 > r.x1) x = Math.max(r.x0 + 2, hlBox[1] - tw - 9);
+      ctx.fillStyle = th.bg;
+      ctx.globalAlpha = 0.9;
+      ctx.fillRect(x - 2, r.y1 - 17, tw + 6, 15);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = th.ink;
+      ctx.textAlign = 'left';
+      ctx.fillText(hl.label, x + 1, r.y1 - 3);
+    }
+
+    // Difference plots: a solid zero line.
+    if (this.group.kind === 'delta') {
+      const y0 = Math.round(this.yOf(0, ax)) + 0.5;
+      ctx.strokeStyle = th.axis;
+      ctx.beginPath();
+      ctx.moveTo(r.x0, y0);
+      ctx.lineTo(r.x1, y0);
+      ctx.stroke();
     }
 
     // Curves, each over a surface-coloured casing so crossings stay legible.
@@ -388,18 +488,23 @@ export class Plot {
     ctx.rect(r.x0, r.y0 - 1, r.x1 - r.x0, r.y1 - r.y0 + 2);
     ctx.clip();
     const f = data.freqs;
-    let i0 = 0;
-    while (i0 < f.length - 1 && f[i0 + 1] < lo) i0++;
-    let i1 = f.length - 1;
-    while (i1 > 0 && f[i1 - 1] > hi) i1--;
-    const pts = (s: Series) => {
+    const range = (g: number[]): [number, number] => {
+      let a = 0;
+      while (a < g.length - 1 && g[a + 1] < lo) a++;
+      let b = g.length - 1;
+      while (b > 0 && g[b - 1] > hi) b--;
+      return [a, b];
+    };
+    const [i0, i1] = range(f);
+    const trace = (g: number[], values: (number | null)[], a: number, b: number) => {
       const out: ([number, number] | null)[] = [];
-      for (let i = i0; i <= i1; i++) {
-        const v = s.values[i];
-        out.push(finite(v) && (ax.scale !== 'log' || v > 0) ? [this.xOf(f[i], lo, hi), this.yOf(v, ax)] : null);
+      for (let i = a; i <= b; i++) {
+        const v = values[i];
+        out.push(finite(v) && (ax.scale !== 'log' || v > 0) ? [this.xOf(g[i], lo, hi), this.yOf(v, ax)] : null);
       }
       return out;
     };
+    const pts = (s: Series) => trace(f, s.values, i0, i1);
     const tracePath = (p: ([number, number] | null)[]) => {
       ctx.beginPath();
       let pen = false;
@@ -414,19 +519,32 @@ export class Plot {
       }
     };
     ctx.lineJoin = 'round';
-    for (const s of visible) {
+    // Baselines first, thin and patterned, so live curves stay on top.
+    for (const o of overlays) {
+      const [a, b] = range(o.freqs);
+      tracePath(trace(o.freqs, o.values, a, b));
+      ctx.setLineDash(OVERLAY_DASHES[o.slot % OVERLAY_DASHES.length]);
+      ctx.lineCap = 'butt';
+      ctx.strokeStyle = mixHex(th.series[styleSlot(o.probe).color], th.ink2, OVERLAY_MIX);
+      ctx.lineWidth = OVERLAY_WIDTH;
+      ctx.stroke();
+    }
+    // The primary curve last, so it is never covered.
+    const order = [...visible].sort((a, b) => Number(!!a.primary) - Number(!!b.primary));
+    for (const s of order) {
       const st = styleSlot(s.probe);
       const p = pts(s);
+      const w = s.primary ? PRIMARY_WIDTH : LIVE_WIDTH;
       tracePath(p);
       ctx.setLineDash([]);
       ctx.lineCap = 'round';
       ctx.strokeStyle = th.bg;
-      ctx.lineWidth = 5;
+      ctx.lineWidth = w + 3;
       ctx.stroke();
       ctx.setLineDash(DASHES[st.dash]);
       ctx.lineCap = 'butt';
       ctx.strokeStyle = th.series[st.color];
-      ctx.lineWidth = 2;
+      ctx.lineWidth = w;
       ctx.stroke();
     }
     ctx.setLineDash([]);
@@ -548,6 +666,20 @@ export class PlotPanel {
     });
     if (this.cursor !== null && this.cursor >= data.freqs.length) this.cursor = null;
     this.render();
+  }
+
+  /** Picks out a frequency range on every plot, widening the view to show it (null clears). */
+  setHighlight(h: Highlight | null): void {
+    if (!this.data) return;
+    this.data.highlight = h;
+    if (h && (h.lo < this.lo || h.hi > this.hi)) {
+      const [bmin, bmax] = this.bounds();
+      const lo = h.lo < this.lo ? h.lo / 1.25 : this.lo;
+      const hi = h.hi > this.hi ? h.hi * 1.25 : this.hi;
+      this.setView(Math.max(bmin, lo), Math.min(bmax, hi));
+    } else {
+      this.render();
+    }
   }
 
   setView(lo: number, hi: number): void {

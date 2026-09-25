@@ -119,5 +119,5 @@ load that was chosen.
 ## The `ui` block
 
 The engine ignores the top-level `ui` object; user interfaces read it for
-presentation hints. The template uses `{"template": "over_ear", "primary_probe":
-"p_drp"}`. See `docs/web.md` for the keys the web UI understands.
+presentation hints. The template sets `template`, `primary_probe`, `ear_load`
+and a `sketch` binding; see `docs/web.md` for the keys the web UI understands.

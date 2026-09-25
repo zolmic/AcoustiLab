@@ -1,11 +1,15 @@
 # Web UI
 
-A single-page browser front end for the engine: a netlist editor, a solve
-that runs in a Web Worker on the engine compiled to WebAssembly, and Canvas
-2D plots with the validity shading of spec Section 2. It implements a first
-slice of spec Section 15; the parts it leaves out are listed at the end.
+A single-page browser front end for the engine. A design panel turns a
+parametric netlist into controls (vent count, cup radius, leak gap, ear
+load, ...), with a to-scale cross-section of the design; a netlist editor
+gives the full detail. Both edit one netlist text. The engine, compiled to
+WebAssembly, solves in a Web Worker on every change, and Canvas 2D plots
+show the result with the validity shading of spec Section 2, operating-limit
+warnings and frozen baselines to compare against. It implements a slice of
+spec Section 15; the parts it leaves out are listed at the end.
 
-![AcoustiLab web UI: netlist editor, conventions strip, SPL, impedance and phase plots with validity shading and a crosshair readout](img/web-ui.png)
+![AcoustiLab web UI in design mode: parameter controls and a to-scale cross-section of the over-ear template on the left; the conventions strip, a frozen baseline with the difference plot, and SPL and impedance plots with validity shading and a crosshair readout on the right](img/web-ui.png)
 
 **Theory only.** Every screen carries the strip "THEORY ONLY - not
 validated against measurements": nothing the UI plots has been checked
@@ -19,7 +23,15 @@ crates/acoustilab-wasm/   wasm-bindgen wrapper (JSON in, JSON out)
 web/
   scripts/build-wasm.sh   builds the wrapper and runs wasm-bindgen
   src/                    TypeScript app (no UI framework)
-  tests/smoke.spec.ts     Playwright smoke tests
+    main.ts               wiring: text, solves, strip, readout, tables
+    design.ts             parameter panel generated from parameters()
+    jsonscan.ts           position-tracking JSON scanner (surgical rewrites)
+    sketch.ts             parametric cross-section (SVG)
+    plot.ts, series.ts    Canvas 2D plots, plot groups, overlays
+    warnings.ts           warnings panel
+    baselines.ts          frozen baselines
+    engine.ts, worker.ts  worker client (coalesced calls) and the worker
+  tests/                  Playwright tests (smoke, design mode, scanner)
   dist/                   production build (not committed)
 ```
 
@@ -38,7 +50,8 @@ npm ci                 # install the pinned toolchain (Vite, TypeScript, Playwri
 npm run dev            # build the wasm, then serve with hot reload on http://localhost:5173
 npm run build          # build the wasm, type-check, bundle into web/dist
 npm run preview        # serve web/dist on http://localhost:4173
-npm test               # build, then run the Playwright smoke tests in Chromium
+npm test               # build, then run the Playwright tests in Chromium
+                       # (PW_PORT=4188 npm test if port 4173 is taken)
 npm run screenshot     # build, then refresh docs/img/web-ui.png
 ```
 
@@ -77,10 +90,19 @@ public API and does not change the engine crate.
 | Export | Returns |
 |---|---|
 | `solve(netlist_json)` | The engine's result document (`SolveResult::to_json`), annotated as below, or an error object |
+| `solve_with(netlist_json, overrides_json)` | As `solve`, with parameter overrides `{"name": value}` (the UI does not use it: it writes values into the text instead) |
+| `parameters(netlist_json, overrides_json)` | `{"parameters": [{name, kind, value, default, min, max, step, log, choices, label, group, unit, description, advanced, tolerance, expr}], "ui": {...}}` (docs/parameters.md); `value` is resolved, derived ones included |
 | `check(netlist_json)` | `{"ok": true, "nodes", "elements", "unknowns", "probes", "frequencies", "f_min_Hz", "f_max_Hz", "level", "air", "shading"}` or an error object. Also evaluates every probe once on a zero solution, so a probe on a port its element lacks (which the engine otherwise finds only while solving) fails here with the same error `solve` gives |
 | `element_types()` | JSON array of the element type names |
 | `engine_version()` | e.g. `"acoustilab 0.1.0"` |
 | `take_last_panic()` | Message of the last Rust panic, then clears it |
+
+A result carries `meta.drive` (`convention`, `label`, `source_voltage_V`,
+`source_impedance_ohm`, `rated_ohm`, `probe`), `meta.parameters` (resolved
+values), `warnings` (`[{code, severity, element, message, f_min_Hz,
+f_max_Hz, value, at_Hz, limit, unit}]`) and `shading` with upper
+(`begin_hz`, `deep_hz`) and lower (`low_begin_hz`, `low_deep_hz`) bands; see
+docs/netlist.md.
 
 **Result annotations.** Each probe gains `domain` (`electrical`,
 `mechanical`, `acoustic`, or `null`), and its `unit` is filled in where the
@@ -111,6 +133,7 @@ mobility 1/(jωM) of a 2 g mass).
 | `unknown_type` | `element`, `type` |
 | `singular` | `f_Hz`, `unknown`, and `node` or `element` |
 | `probe` | `probe` |
+| `parameter` | `parameter` |
 
 Non-finite numbers (for example an impedance whose port flow is exactly zero)
 serialise as `null`; the plots leave a gap there.
@@ -124,21 +147,112 @@ that cannot load at all fails each call once instead of respawning in a loop.
 
 ## How the UI works
 
-- **Examples.** Every `examples/*.json` of the repository is bundled at build
-  time (`import.meta.glob`) and offered in the picker. Loading one replaces the
-  editor text (after a confirmation if the text was edited) and runs it.
-- **Solving.** Run (or <kbd>Ctrl</kbd>+<kbd>Enter</kbd> in the editor) posts
-  the text to a module Web Worker that hosts the engine, so the page never
-  blocks. Cancel terminates the worker (the only way to stop a running wasm
-  call); the next run starts a new one. A second worker runs `check()` 300 ms
-  after each edit and reports whether the netlist is valid, naming the element
-  at fault.
-- **Errors.** A failed run shows the engine message in an alert region with
-  the element, probe, node or JSON line it names, and a "Show in editor"
-  button that selects the matching line. The last good plots stay, dimmed.
-  A passing live check clears the error box only once the text differs from
-  the text that failed, and never for errors only a solve can find (a singular
-  system, an engine panic).
+### One netlist text, two views
+
+The model panel has two tabs over the same netlist text, which stays the
+single source of truth (spec Section 2, principle 1):
+
+- **Design** (the default for a netlist that declares parameters): controls
+  generated from `parameters()`.
+- **Netlist**: the JSON editor, for everything the controls do not cover.
+
+A control never re-serialises the document. `jsonscan.ts` is a strict JSON
+scanner (RFC 8259, as strict as the engine's serde_json) that records the
+character range of every value; a control replaces exactly the token of
+`parameters.<name>` (the shorthand `"name": 3`) or of its `value` member,
+and every other character, the user's formatting included, stays as it
+was. Switching to the Netlist tab therefore always shows the current design,
+and a hand edit in the Netlist tab reaches the Design tab (its parameters
+are described again 250 ms after the last keystroke, and the Design tab
+solves the text when it is shown, after any Run still in flight). The panel
+writes only over text it has seen, the text its controls were built from or
+its own last write: a control used after a hand edit or a load, before the
+engine has described the new text, would compute its value from the old one,
+so that edit is dropped and the control is reset from the new description. A
+netlist that is not valid JSON, or whose parameters the engine rejects, shows
+the engine's message in the Design tab with a button to the editor. The
+scanner rejects lone `\u` surrogates, which `JSON.parse` accepts but
+serde_json does not.
+
+### Design panel
+
+- **Sections** per `group`, in declaration order, collapsible; which are
+  open is remembered per browser. A group whose parameters are all
+  `advanced` appears only in the detailed view.
+- **Controls** by kind:
+  - *number*: slider (logarithmic when `log`) and a numeric entry with the
+    unit. The slider moves in steps of `step` (on a log slider, three
+    significant figures, then `step`); typed values are not rounded (the
+    step is a hint, the bounds are hard). Typed text is checked against
+    `min`/`max` and must be a number, optionally followed by the unit; a
+    rejected entry shows an inline message and is never written to the
+    netlist. <kbd>Esc</kbd> restores the value. The entry's accessible
+    description gives its bounds and says that the arrow keys step it (a
+    text entry announces neither), and the bounds are its tooltip.
+  - *integer*: − / + stepper with a numeric entry; always a whole number
+    within the bounds, whatever `step` says.
+  - *boolean*: a switch. *choice*: segmented radio buttons for up to three
+    options (stacked when their labels are long), a select otherwise.
+  - *derived*: the read-only value with its unit; the expression is in a
+    tooltip and, in the detailed view, as text.
+- **Reset**: a changed parameter has a ↺ button that restores the value of
+  the template the netlist was loaded from; "Reset all (n)" restores them
+  all at once (the text returns to the template byte for byte). A changed
+  row carries a bar at its left edge, and its section counts the changes.
+  The keyboard focus survives a reset: a row's ↺ hands it to the restored
+  control before hiding, and "Reset all" is marked unavailable with
+  `aria-disabled` rather than `disabled` (a disabled or hidden button drops
+  the focus to the page in Chromium).
+- **Help**: `description` is behind a "?" button (and linked to the control
+  with `aria-describedby`).
+- **Show detailed parameters** also shows the `advanced` parameters, each
+  parameter's name, its tolerance ("±15 % (normal, 2σ), datasheet (...)"),
+  derived expressions, and a "Show in netlist" button that selects the
+  declaration in the editor.
+- **Live solving** (spec Section 15, "Responsiveness"): every input event
+  writes the text and asks for a solve. Solves are coalesced (`Coalesced` in
+  `engine.ts`): at most one is in flight, and while it runs only the newest
+  text is kept and solved next, so a drag never queues work. A bar at the top
+  of the results shows that a solve is running; the previous curves stay
+  until the new result lands. `parameters()` calls are coalesced the same way
+  on the second worker, so derived values and the sketch follow a drag
+  without waiting for the solve. Measured in Chromium (headless, this
+  container, `design.spec.ts`), the template (265 frequencies, 7 probes, L1)
+  solves in the worker in a median of about 30 ms, and a click on a stepper
+  is drawn about 50 ms later; with the container's four cores busy with other
+  builds the same test measured medians of 90 to 200 ms and 110 to 130 ms.
+  The solve status is a live region: it says when operating limits are
+  exceeded, so a change that crosses one is announced, not only drawn.
+
+### Cross-section sketch
+
+`sketch.ts` draws an SVG section through the cup axis from the resolved
+parameter values, bound by the netlist's `ui.sketch` block (below): the
+front cavity (radius, depth, volume), the diaphragm spanning its effective
+diameter, the pads with the leak gap under them, the closed rear cavity with
+its wall and vents (a hatch over each vent when it has a mesh) or the open
+grille, and the ear-load surface with its label. Dimensions are labelled in
+millimetres, with a scale bar. Nothing is invented: a slot left unbound is
+not drawn. Every dimension is to scale (the tests check the front and rear
+cavities, pad, diaphragm and vent widths against the parameters) except what
+the caption lists: the leak gap (tenths of a millimetre, drawn 3 to 10 px
+high with its true value, and labelled "drawn enlarged" only when that is
+larger than to scale), the positions of the vents along the section, and
+symbols that carry no dimension: the diaphragm's dome, the side walls (drawn
+as thick as the vented top wall, `vent_length_mm`), the open-back grille's
+height above the driver, and the head surface. The scale covers the template's
+geometry, so it stays put while you edit and only zooms out when the design
+grows beyond it; the sketch's height depends only on the panel width, so the
+controls below it never move during a drag.
+
+Pointing at or focusing a control glows the parts it drives, directly or
+through derived parameters (the rear depth follows the cup radius at fixed
+volume, so the radius glows the rear cavity too), and dims the rest.
+Pointing at a part marks its controls; clicking it focuses the first one.
+The text alternative lists every dimension the drawing shows.
+
+### Results
+
 - **Plots.** One plot per quantity and unit, so no plot has two y-scales:
   - acoustic pressures in dB SPL re 20 µPa (RMS phasors, so no √2 anywhere);
   - impedance probes as |Z| plus a smaller phase plot;
@@ -146,34 +260,145 @@ that cannot load at all fails each call once instead of respawning in a loop.
   Magnitude axes are logarithmic when the data span more than a decade.
   The frequency axis is logarithmic over 10 Hz–40 kHz (widened if the sweep
   goes beyond), with 20 Hz–20 kHz as the default view (spec Section 2,
-  rule 6).
+  rule 6). The netlist's `ui.primary_probe` is plotted first in its plot,
+  drawn heavier, listed first in the legend with a "primary" tag, and its
+  plot comes first.
 - **Validity shading** comes from `result.shading`: a light band from
   `begin_hz` (10 % lumped-model error, or where an element's criterion starts
-  to bite) and a darker band from `deep_hz` (36 %, or a hard limit), labelled
-  "≥10 %" and "≥36 %" on the first plot. Band edges are dashed lines with at
-  least 3:1 contrast against both neighbouring fills. The engine takes the
-  lowest limit over all elements. "Validity limits per element" lists every
-  element's limits.
+  to bite) and a darker band from `deep_hz` (36 %, or a hard limit), and on
+  the low side a light band below `low_begin_hz` and a dark one below
+  `low_deep_hz` (for example the IEC 60318-4 simulator below 100 Hz). The
+  first plot labels them "≥10 %", "≥36 %" and "below validated range". Band
+  edges are dashed lines with at least 3:1 contrast against both neighbouring
+  fills. The engine takes the lowest upper and the highest lower limits over
+  all elements; "Validity limits per element" lists every element's limits,
+  lower ones included. The readout and the data table use the same rule as
+  the engine's `Shading::band` (`shading.ts`).
+- **Warnings** (under the plots): operating limits exceeded at the stated
+  drive are listed prominently, each with its element, what was measured,
+  the frequency range, the worst value and where it occurs, and the limit,
+  followed by the engine's message. Pressing one picks out its range on
+  every plot (tinted, with solid edges and a label; the view widens to show
+  it) and puts the crosshair on the worst point; pressing it again clears
+  it. A link under the results heading counts them. Element notes (estimated
+  data, unverified models) are collapsed under "Model notes (n)". The UI adds
+  no explanatory text of its own (spec Section 15: no hand-written
+  cause-and-effect text).
+- **Baselines.** "Freeze current as baseline" snapshots the result as an
+  overlay. Its default name lists the parameters that differ from the
+  template (`vent_count=3, front_depth_mm=12`), or "template values"; the
+  name is editable, and any number can be kept. Baselines are drawn under the
+  live curves as thin (1.25 px) lines in a muted tone of the live curve's
+  colour (half mixed with the secondary ink, which keeps at least 3.5:1
+  against the plot surface and both shades in either theme), each baseline
+  with its own dash pattern, none of which a live curve uses (five patterns;
+  from the sixth baseline on they repeat, and the names tell them apart); the
+  list shows each pattern, and plot descriptions name them. One
+  baseline is the Δ reference: the readout adds "Δ +1.23 dB vs baseline
+  “name”" to every SPL curve (marked ≈ where the baseline is on another
+  frequency grid and is interpolated in log frequency), and the optional
+  difference plot shows live minus baseline SPL under the SPL plot. The data
+  table lists baseline values where the grids agree. Baselines live in the
+  page only.
 - **Crosshair.** Pointer or keyboard; it snaps to the nearest computed
   frequency (no interpolation) and reads every visible curve, with the phase
-  for impedances and the dB difference between pressure curves. It also says
-  whether the frequency is inside a shaded band.
-- **Legend** buttons show or hide each probe's curve (`aria-pressed`).
+  for impedances, the dB difference between pressure curves and against the
+  Δ baseline. It also says whether the frequency is inside a shaded band.
+- **Legend** buttons show or hide each probe's curve and its baselines
+  (`aria-pressed`).
 - **Data table** lists the plotted values inside the current view, with a
   validity column. It is rebuilt on the main thread at every zoom, pan and
   legend toggle, so it lists at most 1000 grid points (one in k, plus the last
   point in view) and says so in its caption; zoom in to list every point.
-- **Conventions strip** (sticky): air state of the result (temperature,
-  static pressure, ρ, c), fidelity level, the independent sources with their
-  parameters as written in the netlist, "RMS, e^{+jωt}", and the engine
-  version.
-- The editor text and chosen example are remembered in `localStorage` (a
-  per-browser convenience; nothing leaves the browser).
+- **Conventions strip** (sticky on wide screens): the drive as the engine
+  states it (`meta.drive.label`), the ear load, the reference point (the
+  primary probe and its node), the air state of the result, the fidelity
+  level, "RMS, e^{+jωt}", and the engine version. The ear load is the label
+  of the choice named by `ui.ear_load` at its solved value, else the
+  ear-load elements the netlist enables unconditionally.
+
+### Other behaviour
+
+- **Examples.** Every `examples/*.json` of the repository is bundled at build
+  time (`import.meta.glob`). The picker groups those that declare parameters
+  as "Design templates" and the rest as "Example netlists"; the first visit
+  opens `design_over_ear`. Loading one over an edited netlist keeps the edits
+  one click away ("Restore your edits"; no dialog, since embedded viewers
+  suppress `window.confirm`).
+- **Run** (or <kbd>Ctrl</kbd>+<kbd>Enter</kbd> in the editor) solves the
+  text now, abandoning a solve in flight; Cancel terminates the worker (the
+  only way to stop a running wasm call). A second worker runs `check()` 300
+  ms after each edit and reports whether the netlist is valid, naming the
+  element at fault; it also answers `parameters()`.
+- **Errors.** A failed solve shows the engine message in an alert region with
+  the element, probe, node, parameter or JSON line it names, and a "Show in
+  editor" button that selects the matching line. The last good plots stay,
+  dimmed. A passing live check clears the error box only once the text
+  differs from the text that failed, and never for errors only a solve can
+  find (a singular system, an engine panic).
+- **Layout.** On wide screens the model panel scrolls on its own beside the
+  results, with the sketch pinned at its top (controls scrolled into view
+  are never left under it). Below 960 px the panels stack; nothing scrolls
+  sideways at 390 px.
+- The netlist text, the chosen example, the detailed-view switch and the open
+  sections are remembered in `localStorage` (a per-browser convenience;
+  nothing leaves the browser, and the page works without storage).
+
+### The `ui` block
+
+The engine ignores the netlist's top-level `ui` object; the web UI reads
+these keys (all optional, unknown keys are ignored):
+
+| key | meaning |
+|---|---|
+| `template` | name of the design family, e.g. `"over_ear"` (informational) |
+| `primary_probe` | id of the probe to show first and emphasise |
+| `ear_load` | name of a choice parameter whose chosen label names the ear load in the strip and the sketch |
+| `sketch` | `{"kind", "bind", "parts"}`, below |
+
+`sketch.kind` selects a drawing; `over_ear` is the only one so far (another
+kind shows a note instead of a sketch). `sketch.bind` maps the drawing's
+slots to **parameter names only** (no expressions: a dimension that needs
+computing is a derived parameter of the netlist). `cup_radius_mm` and
+`front_depth_mm` are required; every other slot is optional and not drawn
+when unbound.
+
+| slot | meaning | parts |
+|---|---|---|
+| `cup_radius_mm` | radius of the front cavity and the pad's inner edge; the rear cavity has the same radius | front, rear, pad, shell |
+| `front_depth_mm` | driver-to-ear depth; the pad height | front, pad |
+| `front_volume_cm3` | label in the front cavity | front |
+| `driver_diameter_mm` | diaphragm width (e.g. derived from Sd) | driver |
+| `pad_width_mm` | pad face width | pad |
+| `leak_gap_mm` | leak gap under the pad (0: sealed); drawn enlarged | leak |
+| `open_back` | boolean: open grille instead of a closed rear cavity | rear, shell, vents, grille |
+| `rear_depth_mm` | depth of the closed rear cavity | rear, shell |
+| `rear_volume_cm3` | label in the rear cavity | rear |
+| `vent_count`, `vent_diameter_mm` | holes in the rear wall | vents |
+| `vent_length_mm` | vent length, drawn as the rear wall's thickness | vents, shell |
+| `vent_mesh_rayl` | a hatch over each vent when > 0 | vents |
+| `grille_rayl` | label of the open-back grille | grille |
+
+`sketch.parts` maps a part to further parameters that drive it without
+shaping it, for the hover link (the template lists the driver's
+Thiele-Small parameters under `driver`). The ear-load surface (part `ear`)
+is labelled from `ui.ear_load`.
+
+`examples/design_over_ear.json` binds every slot; it adds two derived
+parameters for the purpose: `driver_diameter_mm` (`2·sqrt(Sd/π)`) and
+`open_back` (`rear == 'open'`, detailed view only).
 
 ### Keyboard
 
 | Where | Key | Action |
 |---|---|---|
+| Tabs | <kbd>←</kbd> <kbd>→</kbd> <kbd>Home</kbd> <kbd>End</kbd> | Switch between Design and Netlist |
+| Slider | <kbd>←</kbd> <kbd>→</kbd> / <kbd>↑</kbd> <kbd>↓</kbd> | One step (log sliders: 1 % of the range) |
+| Slider | <kbd>PgUp</kbd> / <kbd>PgDn</kbd> | Ten steps |
+| Slider | <kbd>Home</kbd> / <kbd>End</kbd> | Minimum / maximum |
+| Numeric entry | <kbd>↑</kbd> <kbd>↓</kbd>, <kbd>PgUp</kbd> <kbd>PgDn</kbd> | As on the slider |
+| Numeric entry | <kbd>Enter</kbd> / <kbd>Esc</kbd> | Apply / restore the value |
+| Choice | <kbd>←</kbd> <kbd>→</kbd> | Select the previous / next option |
 | Editor | <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Enter</kbd> | Run |
 | Editor | <kbd>Tab</kbd> | Leaves the editor (it is not captured) |
 | Plot | <kbd>←</kbd> <kbd>→</kbd> (<kbd>Shift</kbd>: 10 points) | Move the crosshair |
@@ -189,22 +414,92 @@ Every action also has a button.
 ### Accessibility
 
 - Text meets WCAG 2.2 AA contrast (≥ 4.5:1) in light and dark themes; the
-  tests run axe-core (WCAG 2.0/2.1/2.2 A and AA rules) on both and require
-  zero violations.
+  tests run axe-core (WCAG 2.0/2.1/2.2 A and AA rules) on both, in both tabs,
+  with every panel open, and require zero violations.
 - Series differ by dash pattern as well as colour. The eight colours are a
   fixed categorical order, each ≥ 3:1 against the plot surface, with
   adjacent-pair colour-vision-deficiency separation checked (OKLab ΔE ≥ 8 under
   simulated protanopia and deuteranopia). Colour and dash follow the probe's
   position in the netlist, so hiding a curve never repaints the others.
-- Every control is reachable with the keyboard, plots are focusable, and
-  keyboard crosshair moves are announced through a polite live region.
-- The data table is a real `<table>` with a caption and header cells.
-- Shading is labelled in the plot and in the table, not by colour alone.
+  Baselines are thinner, muted and use dash patterns no live curve uses,
+  and are named in the legend list, the plot descriptions and the readout.
+- Every control is reachable with the keyboard and every slider has a
+  numeric entry; sliders announce their value with its unit
+  (`aria-valuetext`). Choices are radio groups, the detail switch is a
+  switch, rejected entries are marked `aria-invalid` with the message linked
+  and announced. Icon buttons are 24 px or larger (WCAG 2.2, 2.5.8).
+- The sketch is an image with a text alternative listing its dimensions;
+  pointer-only links from the sketch to the controls have keyboard
+  equivalents (the controls themselves).
+- Plots are focusable; keyboard crosshair moves are announced through a
+  polite live region. The data table is a real `<table>` with a caption and
+  header cells. Shading is labelled in the plot and in the table, not by
+  colour alone; so are changed parameters (the reset button) and the chosen
+  option of a choice (a check mark and weight).
+- Motion: the busy bar and switch transitions stop under
+  `prefers-reduced-motion`.
 
 ## Tests
 
-`npm test` builds everything and runs `web/tests/smoke.spec.ts` in Chromium
-against `vite preview`:
+`npm test` builds everything and runs the tests in `web/tests/` in Chromium
+against `vite preview`.
+
+`jsonscan.spec.ts` (no browser): the scanner agrees with `JSON.parse` on
+every example and on edge cases, rejects what `JSON.parse` rejects (trailing
+commas, comments, leading zeros, bad escapes) with the offset of the fault,
+records exact spans, and a rewrite produces exactly the expected text (the
+old token replaced in place) on compact, pretty, CRLF and tab-indented text,
+shorthand scalars, object forms with `value` after other keys, nested
+`choices` with their own `value` keys, duplicate declarations and duplicate
+`parameters` blocks (the last, as in the engine), escaped key spellings, a
+parameter named `value` and a `parameters` key inside an element. Escaped
+surrogate pairs decode, lone surrogates are rejected (as serde_json does),
+and a name given twice to `setParams` takes its last value.
+
+`design.spec.ts`:
+
+1. The template opens in Design mode with its sections in declaration order,
+   one control per kind, derived values (π·r²·d, 2·sqrt(Sd/π)), the sketch
+   and its text alternative, the primary probe first, and the strip's drive
+   (`meta.drive.label`), ear load and reference point.
+2. A stepper and a slider (keyboard and pointer) change the netlist text in
+   exactly one value token (compared with the template file), re-solve (the
+   curve changes, `meta.parameters` follows), and "Reset all" restores the
+   template byte for byte.
+3. The open-back choice changes the topology (the vent probe disappears) and
+   the sketch (grille, no rear cavity); its reset restores the text.
+4. Out-of-range and non-numeric entries are rejected inline and never reach
+   the text or the worker; a valid entry with its unit is applied.
+5. 41 input events in one task cause at most two worker solves, and the last
+   value is the one solved.
+6. The template's solve time in Chromium (reported, loosely bounded).
+7. At 300 mW the coil-power and vent and leak particle-velocity limits are
+   listed; pressing one draws its range on the plots (pixels inside and
+   outside the band) and moves the crosshair to the worst point.
+8. The IEC 60318-4 ear shades below 100 Hz (pixels, readout, data table,
+   validity table's lower columns); the Type 4.3 ear does not.
+9. Baselines: default names, Δ readout, difference plot, rename, remove.
+   Oracle: raising the drive from 1 mW to 10 mW raises every level by
+   exactly 10 dB, so the Δ is +10.00 dB and the difference plot is 10 dB to
+   1e-9; the 1 mW baseline's pixels are found 10 dB below the live curve.
+10. A hand edit in the Netlist tab reaches the Design tab (and a solve), an
+    unreadable netlist is reported there, and the detailed view shows
+    tolerances, expressions and "Show in netlist".
+11. Races: a Run of a dense sweep still in flight when an edited text is
+    shown in the Design tab is followed by a solve of that text, whose
+    result stays; a stepper clicked in the same task as a hand edit (before
+    the engine has described it) does not overwrite the edit.
+12. The sketch is to scale (the front cavity's aspect ratio is 2r/d; the
+    diaphragm, rear-cavity depth V/(πr²), pad and vent widths relative to
+    2r; the leak gap is labelled enlarged) and linked both ways with the
+    controls.
+13. Open sections are remembered; at 390 px nothing scrolls sideways.
+14. axe-core in light and dark themes with every panel open, and Tab reaches
+    every kind of control. Resets keep the keyboard focus; entries announce
+    their bounds; exceeded limits are announced with the solve.
+
+`smoke.spec.ts` (the netlist editor and plots, on `sealed_cup` and
+closed-form netlists):
 
 1. The example picker offers every `examples/*.json`; `sealed_cup` solves in
    the worker; five plots appear (SPL, |Z|, phase, displacement, volume
@@ -213,7 +508,8 @@ against `vite preview`:
    pixels sampled in each band and below it, and the band edges and decade
    gridlines located in a raw pixel row and converted to frequency with a log
    axis computed in the test, not with the plot's own mapping); the strip
-   shows the air state, level, drive and the theory-only notice.
+   shows the air state, level, the engine's drive label, the ear load and the
+   theory-only notice.
 2. Keyboard and pointer crosshair, readout values equal to the result,
    legend toggles (the curve's pixels disappear and return), keyboard zoom,
    view presets, and the data table's headers, values and validity column.
@@ -227,28 +523,45 @@ against `vite preview`:
    its element lacks is run before the debounced check fires: the check then
    agrees with the run and the error box stays. A singular network (which the
    check cannot see) keeps its error box after the check passes.
-5. An engine panic (today triggered by an absurd `points_per_octave`, which
-   the engine does not bound yet) is reported with its message, and both the
-   solve and the check workers recover.
+5. An engine panic is reported with its message, and both workers recover.
 6. A worker script that cannot load (served as 404) is reported, and no more
-   than one worker per request is started (the original client respawned
-   hundreds per second).
-7. Loading an example asks before discarding edits.
+   than one worker per request is started.
+7. Loading an example over edits keeps them one click away, without a dialog.
 8. A ~480 000-point sweep: the main thread keeps answering in under 500 ms and
    the legend still works while the worker solves; Cancel stops it and the next
    run succeeds. A ~48 000-point sweep with the data table open: the table
    lists at most 1001 rows spanning the view, and the main thread never blocks
-   for 2 s (it blocked for over 10 s building one row per point).
+   for 2 s.
 9. axe-core in light and dark themes; Tab reaches the example picker, Run,
-   the editor, the legend and the plots.
+   the tabs, the editor, the legend and the plots.
 
 The Rust side (`cargo test -p acoustilab-wasm`) tests the JSON API natively.
 
 ## Not implemented yet
 
-From spec Section 15 and the rest of the interface chapter: the parametric
-cross-section and schematic views, live L0 recompute with ghost curves,
-frozen overlays and a pinned inspection frequency, smoothing, target curves,
-the explain panel, particle animation, exports (CSV, PNG/SVG, reports) and a
-units toggle. The spec's message-passing fallback for browsers without module
-workers is not provided; every current browser engine supports them.
+- **Which parameters matter now.** The panel shows every declared parameter,
+  even those the current topology does not use (the vent controls with an
+  open back). Greying them out needs the engine to report which parameters
+  the resolved netlist actually references; the UI does not guess.
+- **Ear-load element types.** Without a `ui.ear_load` hint the strip can
+  only name ear-load elements enabled unconditionally; the engine does not
+  report the element types of the resolved netlist.
+- **Sketch.** Only the `over_ear` kind; no canal drawn to scale (the ear
+  models do not expose their canal geometry as parameters), no pinna, liner,
+  baffle or fixture geometry.
+- **Tolerances** are shown, not yet used (no Monte Carlo band in the UI).
+- **Designer workflow.** Comparing with the template needs a Freeze before
+  the first change (no automatic or one-click "template" baseline); the
+  sketch cannot be collapsed and takes a third of the panel's height on a
+  900 px screen; below 960 px the plots come after every control, two
+  screens down, so a change on a phone is not seen without scrolling (a
+  compact pinned SPL plot would fix it); no per-group ordering hint, so the
+  vents sit under the driver's seven parameters; the input history of the
+  editor (undo) is lost when a control rewrites the text.
+- From spec Section 15 and the rest of the interface chapter: the schematic
+  view, live L0 recompute with ghost curves while a higher level solves,
+  a pinned inspection frequency, smoothing, target curves, the explain
+  panel, field and mode views, particle animation, exports (CSV, PNG/SVG,
+  reports), a units toggle, and saving baselines beyond the page.
+- The spec's message-passing fallback for browsers without module workers is
+  not provided; every current browser engine supports them.

@@ -2,7 +2,7 @@
   "name": "acoustilab-web",
   "private": true,
   "version": "0.1.0",
-  "description": "AcoustiLab browser UI: netlist editor, WebAssembly solve in a Web Worker, Canvas 2D plots",
+  "description": "AcoustiLab browser UI: design panel and netlist editor, WebAssembly solve in a Web Worker, Canvas 2D plots",
   "type": "module",
   "scripts": {
     "build:wasm": "bash scripts/build-wasm.sh",

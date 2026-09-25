@@ -33,8 +33,16 @@ async function solved(page: Page): Promise<void> {
   await expect(page.locator('body')).toHaveAttribute('data-state', 'solved', { timeout: 20_000 });
 }
 
+/** Writes the netlist in the Netlist tab (the page opens on the design template in the Design tab). */
 async function setNetlist(page: Page, text: string): Promise<void> {
+  await page.getByRole('tab', { name: 'Netlist' }).click();
   await page.locator('#netlist').fill(text);
+}
+
+/** Loads an example from the picker and waits for its solve. */
+async function openExample(page: Page, name: string): Promise<void> {
+  await page.selectOption('#example-select', name);
+  await solved(page);
 }
 
 async function cssColor(page: Page, name: string): Promise<number[]> {
@@ -78,7 +86,12 @@ test('solves an example in the worker and draws curves with validity shading', a
   await expect(page.locator('#theory-badge')).toContainText('THEORY ONLY - not validated against measurements');
   await expect(page.locator('#strip-air')).toContainText('23.0 °C, 101.325 kPa');
   await expect(page.locator('#strip-level')).toHaveText('L1 distributed');
-  await expect(page.locator('#strip-drive')).toContainText('amp (vsource: V_V 1, Zs_ohm 0)');
+  // The drive is the engine's own statement (meta.drive.label); sealed_cup
+  // has no drive key, so its source is used as written.
+  const drive = await hook(page, (h) => (h.result() as unknown as { meta: { drive: { label: string } } }).meta.drive.label);
+  expect(drive).toBe("vsource 'amp': 1 V RMS (EMF), source impedance 0 ohm");
+  await expect(page.locator('#strip-drive')).toHaveText(drive);
+  await expect(page.locator('#strip-ear')).toHaveText('none (no ear-load element)');
   await expect(page.locator('#strip-engine')).toContainText('acoustilab');
 
   // Default view 20 Hz to 20 kHz on the 10 Hz to 40 kHz axis.
@@ -168,6 +181,7 @@ test('solves an example in the worker and draws curves with validity shading', a
 test('crosshair readout, legend toggles, zoom and data table', async ({ page }) => {
   await page.goto('/');
   await solved(page);
+  await openExample(page, 'sealed_cup');
   const r = (await hook(page, (h) => h.result()))!;
 
   // Keyboard crosshair on the SPL plot.
@@ -340,6 +354,7 @@ test('a linear magnitude axis starts at zero, not at a padded negative value', a
 test('malformed netlists: the error names the element and jumps to it', async ({ page }) => {
   await page.goto('/');
   await solved(page);
+  await openExample(page, 'sealed_cup');
   const good = await page.locator('#netlist').inputValue();
 
   // A key without a unit suffix on the "front" cavity.
@@ -434,6 +449,7 @@ test('a run error the live check cannot see stays until the text changes', async
 test('an engine panic is reported and the next run uses a fresh engine', async ({ page }) => {
   await page.goto('/');
   await solved(page);
+  await openExample(page, 'sealed_cup');
   const good = await page.locator('#netlist').inputValue();
   // The wasm wrapper panics on purpose for "debug_panic": true (a test hook;
   // the engine rejects bad input with ordinary errors and never panics), and
@@ -492,6 +508,7 @@ test('loading an example over an edited netlist keeps the edits restorable', asy
   });
   await page.goto('/');
   await solved(page);
+  await openExample(page, 'sealed_cup');
   const edited = (await page.locator('#netlist').inputValue()).replace('"V_V": 1.0', '"V_V": 2.0');
   await setNetlist(page, edited);
   await expect(page.locator('#restore-note')).toBeHidden();
@@ -508,12 +525,27 @@ test('loading an example over an edited netlist keeps the edits restorable', asy
   await expect(page.locator('#restore-note')).toBeVisible();
   await page.selectOption('#example-select', 'open_back');
   await expect(page.locator('#restore-note')).toBeHidden();
+
+  // Edits made in the Design tab are restorable too, back into that tab.
+  await openExample(page, 'design_over_ear');
+  await expect(page.getByRole('tab', { name: 'Design' })).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('button', { name: 'Increase Number of rear vents' }).click();
+  await solved(page);
+  const designed = await page.locator('#netlist').inputValue();
+  await openExample(page, 'sealed_cup');
+  await expect(page.getByRole('tab', { name: 'Netlist' })).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('button', { name: 'Restore your edits' }).click();
+  await expect(page.getByRole('tab', { name: 'Design' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#netlist')).toHaveValue(designed);
+  await expect(page.locator('#p-vent_count')).toHaveValue('2');
+  await solved(page);
   expect(dialogs).toBe(0);
 });
 
 test('a long solve runs in the worker: the page stays responsive and can cancel', async ({ page }) => {
   await page.goto('/');
   await solved(page);
+  await openExample(page, 'sealed_cup');
   const good = await page.locator('#netlist').inputValue();
   const big = JSON.parse(good);
   big.sweep = { f_min_Hz: 10, f_max_Hz: 40000, points_per_octave: 40000 }; // ~480k frequencies
@@ -542,6 +574,7 @@ test('a long solve runs in the worker: the page stays responsive and can cancel'
 test('a dense sweep with the data table open does not freeze the page', async ({ page }) => {
   await page.goto('/');
   await solved(page);
+  await openExample(page, 'sealed_cup');
   await page.getByRole('button', { name: 'Show data table' }).click();
   const big = JSON.parse(await page.locator('#netlist').inputValue());
   big.sweep = { f_min_Hz: 10, f_max_Hz: 40000, points_per_octave: 4000 }; // ~48k frequencies
@@ -589,6 +622,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme });
     await page.goto('/');
     await solved(page);
+    await openExample(page, 'sealed_cup');
     await page.getByRole('button', { name: 'Show data table' }).click();
     await page.locator('#validity-details summary').click();
     const axe = await new AxeBuilder({ page })
@@ -596,7 +630,7 @@ for (const scheme of ['light', 'dark'] as const) {
       .analyze();
     expect(axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([]);
 
-    // Tab order reaches the editor, Run, a plot and the legend.
+    // Tab order (Netlist tab) reaches the editor, Run, a plot and the legend.
     const seen = new Set<string>();
     for (let k = 0; k < 40; k++) {
       await page.keyboard.press('Tab');
@@ -608,7 +642,7 @@ for (const scheme of ['light', 'dark'] as const) {
         }),
       );
     }
-    for (const id of ['example-select', 'run-btn', 'netlist', 'button.legend-item', 'canvas']) {
+    for (const id of ['example-select', 'run-btn', 'tab-netlist', 'netlist', 'button.legend-item', 'canvas']) {
       expect([...seen], id).toContain(id);
     }
   });
@@ -620,6 +654,14 @@ test('screenshot for docs/img/web-ui.png', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light' });
   await page.goto('/');
   await solved(page);
+  // The design template in Design mode, with a frozen baseline of the
+  // template and a changed vent count, the difference plot and a crosshair.
+  await page.getByRole('button', { name: 'Freeze current as baseline' }).click();
+  await page.getByRole('button', { name: 'Increase Number of rear vents' }).click();
+  await solved(page);
+  await page.getByRole('button', { name: 'Increase Number of rear vents' }).click();
+  await solved(page);
+  await page.getByLabel('Difference plot').check();
   const canvas = page.locator('figure.plot canvas').first();
   await canvas.focus();
   const r = (await hook(page, (h) => h.result()))!;
@@ -627,8 +669,11 @@ test('screenshot for docs/img/web-ui.png', async ({ page }) => {
   await page.keyboard.press('Home');
   const start = (await hook(page, (h) => h.cursor()))!;
   for (let k = start; k < target; k++) await page.keyboard.press('ArrowRight');
-  await page.locator('#netlist').evaluate((t: HTMLTextAreaElement) => t.scrollTo(0, 0));
   await canvas.evaluate((c: HTMLElement) => c.blur());
-  await page.mouse.move(0, 0);
+  // The geometry sections under the sketch, and a pointer on the cup radius
+  // so the sketch shows what it shapes.
+  await page.locator('.pgroup[data-group="Driver"] summary').click();
+  await page.locator('.model-panel').evaluate((p: HTMLElement) => p.scrollTo(0, 0));
+  await page.locator('.prow[data-param="front_radius_mm"] .plabel').hover();
   await page.screenshot({ path: `${repo}/docs/img/web-ui.png` });
 });

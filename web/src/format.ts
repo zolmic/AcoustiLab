@@ -122,6 +122,33 @@ export function formatHzTick(f: number): string {
   return `${Number(f.toPrecision(3))}`;
 }
 
+// ----- parameter values ---------------------------------------------------
+
+const UNIT_WORDS: Record<string, string> = { ohm: 'Ω', Tm: 'T·m', Ns: 'N·s', C: '°C' };
+
+/**
+ * Display form of a parameter unit suffix (the unit a parameter name ends
+ * with, docs/parameters.md): "cm3" -> "cm³", "uH" -> "µH", "Pa_s_per_m3" ->
+ * "Pa·s/m³", "ohm" -> "Ω". Unknown spellings pass through.
+ */
+export function paramUnit(u: string | null | undefined): string {
+  if (!u) return '';
+  const word = (w: string) =>
+    UNIT_WORDS[w] ?? w.replace(/^u(?=[A-Za-z])/, 'µ').replace(/([A-Za-z])([2-5])$/, (_, a: string, d: string) => a + superscript(Number(d)));
+  const part = (p: string) => p.split('_').map(word).join('·');
+  const [num, ...den] = u.split('_per_');
+  return den.length ? `${part(num)}/${den.map(part).join('/')}` : part(num);
+}
+
+/** A parameter value for display: `digits` significant figures, plain notation for ordinary sizes. */
+export function formatParam(v: number, digits = 4): string {
+  if (!Number.isFinite(v)) return 'n/a';
+  if (v === 0) return '0';
+  const a = Math.abs(v);
+  if (a >= 1e-4 && a < 1e7) return String(Number(v.toPrecision(digits)));
+  return scientific(v, Math.min(digits, 3));
+}
+
 // ----- ticks ------------------------------------------------------------
 
 /** Evenly spaced ticks at a "nice" step chosen from `mults` × 10^n. */
