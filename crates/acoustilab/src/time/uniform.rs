@@ -353,7 +353,12 @@ fn fill(
     // DC from the low-frequency asymptote.
     let (fa, ha, fb, hb) = match lf {
         Some((fa, ha, hb)) => (fa, ha, 2.0 * fa, hb),
-        None => (f1, h[k_lo], f2, h[k_lo + 1]),
+        None => {
+            warnings.push(
+                "the network could not be solved at the low-frequency probe; DC was taken from the two lowest solved bins, which cannot see a corner below them".into(),
+            );
+            (f1, h[k_lo], f2, h[k_lo + 1])
+        }
     };
     let n0 = loglog(ha, hb, fa, fb);
     let linear = ha - (hb - ha) * (fa / (fb - fa));

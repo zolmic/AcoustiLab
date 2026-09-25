@@ -6,7 +6,7 @@
 //! `tests/data/isolation_reference.json`), and closed forms evaluated here:
 //! the normal-incidence mass law, the panel impedance, the monopole bleed
 //! of spec Appendix C9. Where the network is the closed form the tolerance
-//! is 1e-9 relative (observed ~1e-14).
+//! is 1e-9 relative (observed 3e-15 for the slit-leak cup).
 
 use acoustilab::isolation::{
     bleed, find_ear, insertion_loss, occluded_circuit, outside_document, third_octave_bands,

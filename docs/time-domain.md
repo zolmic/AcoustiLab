@@ -352,12 +352,12 @@ per octave, relative weighting, constant asymptote):
 | design template zin (electrical input impedance) | 1.1e-4 dB / 1.6e-3° | 6.3e-6 / 1.0e-4 | 2.6e-6 / 4.0e-5 | 2.5e-6 / 1.9e-5 | 3.0e-6 / 1.4e-5 | 1.6e-6 / 1.1e-5 |
 
 The irrational thermoviscous elements (√f wall losses, transmission lines,
-the simulator's slits) are smooth over the band. Order 20 meets the brief's
+the simulator's slits) are smooth over the band. Order 20 meets the target of
 0.1 dB and 1° with a wide margin, and order 30 (the default) reaches
 3e-4 dB and 0.002°. The error then saturates near 1e-4 dB, a floor set by
 the irrational terms. A known order-19 rational function (8 pairs with Q
 from 0.8 to 18, 3 real poles, d and s·e) is recovered with poles and
-residues to 1e-9 (observed ~1e-12).
+residues to 1e-9 (observed 2e-13 and 4e-13).
 
 ## Poles, zeros and Q table; attribution
 
@@ -374,10 +374,10 @@ Section 17 asserts minimum phase only after checking the fit's zeros, and
 right-half-plane pair at 18 kHz, part of the fitted form of its propagation
 delay.
 
-**Attribution** (`attribute_poles`, report option `attribute`). This is
-the brief's preferred method. Each continuous parameter that an enabled
-element depends on (directly or through derived parameters) is perturbed
-by +1 % (−1 % at an upper bound). The probe is re-solved and re-fitted,
+**Attribution** (`attribute_poles`, report option `attribute`). Each
+continuous parameter that an enabled element depends on (directly or
+through derived parameters) is perturbed by +1 % (−1 % at an upper
+bound). The probe is re-solved and re-fitted,
 starting from the base poles (4 iterations), and each resonant pole is
 matched to the nearest perturbed pole, requiring a mutual nearest match
 within 25 %. The logarithmic sensitivities d ln f/d ln p and d ln Q/d ln p

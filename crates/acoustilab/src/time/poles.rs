@@ -296,6 +296,9 @@ pub struct PoleNeed {
     #[serde(rename = "f_Hz")]
     pub f_hz: f64,
     pub q: f64,
+    /// Time for its envelope to fall 60 dB, 2.2·Q/f, s.
+    #[serde(rename = "t60_s")]
+    pub t60_s: f64,
     /// 2.93·Q/f, s.
     #[serde(rename = "needed_s")]
     pub needed_s: f64,
@@ -331,6 +334,7 @@ pub fn ir_length_check(fit: &PoleFit, fs_hz: f64, n: usize) -> IrLengthCheck {
             PoleNeed {
                 f_hz: r.f_hz,
                 q,
+                t60_s: r.t60_s,
                 needed_s: E46_FACTOR * q / r.f_hz,
             }
         })

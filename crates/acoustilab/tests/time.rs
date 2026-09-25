@@ -239,7 +239,7 @@ impl Leaky {
 
 /// Radix-2 FFT against numpy's pocketfft on the fixture's deterministic
 /// sequence. Tolerance 1e-12 of the largest output: both transforms err by
-/// about ε·log2 N (observed ~1e-15).
+/// about ε·log2 N (observed 3e-16).
 #[test]
 fn fft_matches_numpy() {
     for case in fixture("time_numerics.json")["fft"].as_array().unwrap() {
@@ -287,7 +287,7 @@ fn fft_matches_numpy() {
 /// Eigenvalues (balancing, Hessenberg, Francis QR) against LAPACK's dgeev.
 /// Tolerance 1e-9 of the spectral radius: the vector-fitting matrix is
 /// non-normal, so eigenvalues are only as accurate as ε·‖A‖ times their
-/// condition numbers (observed agreement ~1e-12).
+/// condition numbers (observed 6e-15).
 #[test]
 fn eigenvalues_match_numpy() {
     for case in fixture("time_numerics.json")["eig"].as_array().unwrap() {
@@ -871,7 +871,8 @@ fn known_model() -> RationalModel {
 /// Exact recovery of a known rational function of order 19 (8 pairs with
 /// Q from 0.8 to 18, 3 real poles, d and s·e) sampled on a 24-per-octave
 /// grid from 10 Hz to 20 kHz: poles and residues to 1e-9 relative, the
-/// accuracy the brief asks for (observed ~1e-12).
+/// accuracy required of the fit (observed 2e-13 for poles, 4e-13 for
+/// residues).
 #[test]
 fn vector_fit_recovers_known_rational_function() {
     let truth = known_model();
@@ -982,8 +983,8 @@ fn vector_fit_zeros() {
 
 /// A driver in a vented cup (`examples/closed_back_rear_vent.json`: the
 /// rear Helmholtz vent with its mesh, thermoviscous ducts, a slit leak) and
-/// the design template with the IEC 60318-4 ear, both at L1: the brief's
-/// target is 0.1 dB and 1° from 20 Hz to 20 kHz. Order 30 reaches it with
+/// the design template with the IEC 60318-4 ear, both at L1: the target
+/// is 0.1 dB and 1° from 20 Hz to 20 kHz. Order 30 reaches it with
 /// two orders of magnitude to spare (docs/time-domain.md lists the error
 /// against order); the thermoviscous elements are irrational but smooth.
 #[test]
