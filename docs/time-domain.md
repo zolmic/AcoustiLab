@@ -432,6 +432,16 @@ Section 17 asserts minimum phase only after checking the fit's zeros, and
 right-half-plane pair at 18 kHz, part of the fitted form of its propagation
 delay.
 
+The weight is measured at the pole's own resonance, so a spurious,
+nearly undamped pole with a tiny residue can still pass. The template's
+table is clean at orders 30 and 60 (936 Hz, 7.1 kHz and 11.57 kHz), and
+with 1 % noise at order 30; with 0.1 % complex noise at order 60 the fit
+places a pole at 57 Hz with Q ≈ 11 000 and a weight of −18 dB, which is
+flagged resonant and would make the E46 check ask for minutes of buffer.
+Simulated responses are noise-free, but a table with an implausible Q
+(bandwidth f/Q far below the sweep's spacing) points to over-fitting:
+lower the order.
+
 **Attribution** (`attribute_poles`, report option `attribute`). Each
 continuous parameter that an enabled element depends on (directly or
 through derived parameters) is perturbed by +1 % (−1 % at an upper
