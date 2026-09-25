@@ -1,0 +1,79 @@
+{
+  "schema": "acoustilab-fixtures/0.1",
+  "description": "Measurement fixtures that targets and results belong to (spec Section 11: a target is never drawn without its fixture). 'ear_simulator' is the coupler class; two fixtures with the same ear simulator but a different pinna, head or canal extension are a partial match, and anything else is a mismatch. 'engine_types' lists the netlist ear-load element types whose drum reference point stands for the fixture in a simulation; a simulated load has no pinna or head, so it is never the same fixture as a head and torso simulator. 'human_valid_Hz' is the range over which the ear simulator is specified to represent a human ear, where one is documented.",
+  "fixtures": [
+    {
+      "id": "iec60318_4",
+      "label": "IEC 60318-4 occluded-ear simulator, bare (no pinna or head)",
+      "ear_simulator": "iec60318_4",
+      "pinna": "none",
+      "engine_types": ["iec60318_4"],
+      "human_valid_Hz": [100, 10000],
+      "source": "IEC 60318-4:2010 scope as summarised in docs/ear-loads.md (human-valid from 100 Hz to 10 kHz, coupler-only outside)"
+    },
+    {
+      "id": "iec60318_4_canal_extender",
+      "label": "IEC 60318-4 simulator (GRAS RA0045) with GRAS GR0433 canal extender",
+      "ear_simulator": "iec60318_4",
+      "pinna": "none",
+      "extension": "gras_gr0433",
+      "engine_types": [],
+      "human_valid_Hz": [100, 10000],
+      "source": "Fixture of the Harman in-ear target and model: Listen Inc., 'Harman Predictive Model for Headphones v2' sequence note (archived 2023-03-27, https://web.archive.org/web/20230327215041/https://www.listeninc.com/wp/media/seq_note_Harman_Predictive_Model_In_Ear_Headphones_v2-1.pdf): 'G.R.A.S. RA0045 coupler with GR0433 canal extender'; spec Section 11 target table"
+    },
+    {
+      "id": "p57_type3_3",
+      "label": "ITU-T P.57 Type 3.3 ear (IEC 60318-4 simulator with the 10 mm x 7.5 mm canal extension), as modelled by the engine",
+      "ear_simulator": "iec60318_4",
+      "pinna": "none",
+      "extension": "p57_type3_3",
+      "engine_types": ["type33"],
+      "human_valid_Hz": [100, 10000],
+      "source": "ITU-T P.57 clause 6.3.1 as implemented by the engine's type33 macro (docs/ear-loads.md)"
+    },
+    {
+      "id": "gras45ca_harman",
+      "label": "GRAS 45CA headphone test fixture with RA0045 (IEC 60318-4) couplers and Harman's custom pinnae",
+      "ear_simulator": "iec60318_4",
+      "pinna": "harman_custom",
+      "engine_types": [],
+      "human_valid_Hz": [100, 10000],
+      "source": "Training fixture of the Harman around-ear and on-ear target and model. Erratum E6 (Olive and Clark 2025); Listen Inc. sequence note (above): 'G.R.A.S. 45CA headphone test fixture with a custom pinna'. Olive, Acoustics Today 18(1) 2022, p. 65, describes the same measurements as 'an ear simulator according to IEC 60318-1 (2009) equipped with a custom pinna'; this project follows E6."
+    },
+    {
+      "id": "gras45ca10_kb5000",
+      "label": "GRAS 45CA-10 with KB5000 pinnae",
+      "ear_simulator": "iec60318_4",
+      "pinna": "kb5000",
+      "engine_types": [],
+      "human_valid_Hz": [100, 10000],
+      "source": "Fixture of the Olive and Clark 2025 target (spec Section 11 target table; AES e-library 23068). No data bundled."
+    },
+    {
+      "id": "bk5128",
+      "label": "Bruel & Kjaer HATS Type 5128 (ITU-T P.57 Type 4.3 ear, anthropometric pinna and head)",
+      "ear_simulator": "p57_type4_3",
+      "pinna": "bk5128",
+      "engine_types": [],
+      "human_valid_Hz": [20, 20000],
+      "source": "Fixture of the Ravizza et al. 2023 curves (HATS 5128C, Zenodo 10.5281/zenodo.8388242); human-valid range per ITU-T P.57 Type 4.3 (20 Hz to 20 kHz), see docs/ear-loads.md"
+    },
+    {
+      "id": "p57_type4_3",
+      "label": "ITU-T P.57 Type 4.3 ear (canal and drum, no pinna or head), as modelled by the engine",
+      "ear_simulator": "p57_type4_3",
+      "pinna": "none",
+      "engine_types": ["type43"],
+      "human_valid_Hz": [20, 20000],
+      "source": "Engine type43 macro (docs/ear-loads.md)"
+    },
+    {
+      "id": "human_ear_model",
+      "label": "Modelled human ear (canal and eardrum elements), not a standard fixture",
+      "ear_simulator": "human_ear_model",
+      "pinna": "none",
+      "engine_types": [],
+      "source": "Engine canal and eardrum elements (docs/ear-loads.md). Not inferred from a netlist (the elements expose no drum-reference node); tag the response with it explicitly."
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+ "autoeq_version": "4.1.2",
+ "case": "response_a vs target_a on the 1/24-octave native grid (tools/targets/reference.py, case a_vs_dense)",
+ "over_ear_autoeq_grid": {
+  "score": 68.71437239032146,
+  "sd": 2.352890242466818,
+  "slope": -1.0364911035646907
+ },
+ "over_ear_exact_grid": {
+  "score": 68.34943842740306,
+  "sd": 2.365989196642349,
+  "slope": -1.0493565456095655
+ },
+ "in_ear_autoeq_grid": {
+  "score": 71.25259012838809,
+  "sd": 2.331838006982496,
+  "slope": -0.3815490524818055,
+  "me": 1.8455480436242677
+ }
+}

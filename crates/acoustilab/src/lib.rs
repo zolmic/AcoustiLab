@@ -24,6 +24,7 @@ pub mod netlist;
 pub mod params;
 pub mod solve;
 pub mod special;
+pub mod targets;
 pub mod thermoviscous;
 pub mod ts;
 pub mod units;

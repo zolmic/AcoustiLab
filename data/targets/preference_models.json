@@ -1,0 +1,58 @@
+{
+  "schema": "acoustilab-preference-models/0.1",
+  "description": "Linear headphone preference models: score = intercept - sum(weight * variable). Variables are computed on the error e = response - target on the evaluation grid (1/12 octave, docs/targets.md), with response (the left-right average) and target both normalised at 500 Hz. SD is the sample standard deviation of e (ddof = 1); AS is the absolute slope of the least-squares line of e against ln f (dB per neper of frequency); ME is the mean of |e|. Each variable states its band. 'training' is the fixture and target pair the model was fitted on; a score for any other pair is greyed out.",
+  "models": [
+    {
+      "id": "harman_oe_2018",
+      "label": "Harman around-ear and on-ear model (Olive, Welti and Khonsaripour 2018)",
+      "kind": "over_ear",
+      "intercept": 114.49,
+      "terms": [
+        {"variable": "SD", "weight": 12.62, "band_Hz": [50, 10000]},
+        {"variable": "AS", "weight": 15.52, "band_Hz": [50, 10000]}
+      ],
+      "fit": {"r": 0.86, "rmse": 6.705, "observations": 32},
+      "training": {"fixture": "gras45ca_harman", "target_family": "harman_ae_oe_2018"},
+      "source": "Coefficients: US patent application 2019/0087739 A1 (Harman International; S. E. Olive, T. S. Welti, O. Khonsaripour), 'Linear model to predict listener preference ratings of headphones', published 2019-03-21, Eq. (5) and Table 2 (RMSE 6.705); https://patents.google.com/patent/US20190087739A1/en. Model paper: Olive, Welti and Khonsaripour, 'A Statistical Model that Predicts Listeners' Preference Ratings of Around-Ear and On-Ear Headphones', AES 144th Convention, 2018, paper 9919, e-library 19436 (not read: paywalled). r = 0.86 and an error of 6.7 points are also stated in Olive, Acoustics Today 18(1), 2022, p. 65, which gives no coefficients.",
+      "notes": [
+        "Band: the patent defines SD and AS from 20 Hz to 10 kHz for its variables. Erratum E7 and AutoEq (MIT licence, autoeq/frequency_response.py, harman_overear_preference_score, v4.1.2) use 50 Hz to 10 kHz for this model, AutoEq stating that its implementation reproduces Listen Inc.'s Excel template, which the model's authors supplied. This file follows E7; the primary paper was not available to settle it.",
+        "AutoEq uses the unrounded intercept 114.490443008238 and AS weight 15.5163857197367 (and 12.62 for SD). The rounded patent values used here differ from them by less than 0.01 points for |AS| below 2.",
+        "Grid: Listen's SoundCheck template expects R40 (1/12-octave) data from 20 Hz to 20 kHz, averages left and right and normalises at 500 Hz (Listen Inc. sequence note, archived 2023-03-27)."
+      ]
+    },
+    {
+      "id": "harman_ie_patent",
+      "label": "Harman in-ear model, patent coefficient set (US 2019/0087739 A1, Eq. 4)",
+      "kind": "in_ear",
+      "intercept": 68.685,
+      "terms": [
+        {"variable": "SD", "weight": 3.238, "band_Hz": [20, 10000]},
+        {"variable": "AS", "weight": 4.473, "band_Hz": [20, 10000]},
+        {"variable": "ME", "weight": 2.658, "band_Hz": [40, 10000]}
+      ],
+      "fit": {"r": 0.91, "rmse": 5.505, "observations": 32, "listeners": 71},
+      "training": {"fixture": "iec60318_4_canal_extender", "target_family": "harman_ie_2017"},
+      "source": "US patent application 2019/0087739 A1 (above), Eq. (1)-(4) and Table 1; SD and AS from 20 Hz to 10 kHz, ME from 40 Hz to 10 kHz (paragraphs on Eq. 1-3 and claim 9). This is the set printed in the spec (Section 11); erratum E7.",
+      "notes": [
+        "Model papers: Olive, Welti and Khonsaripour, 'A Statistical Model that Predicts Listeners' Preference Ratings of In-Ear Headphones', Parts 1 and 2, AES 143rd Convention, 2017, e-library 19237 and 19275 (not read: paywalled)."
+      ]
+    },
+    {
+      "id": "harman_ie_listen",
+      "label": "Harman in-ear model, coefficient set of Listen SoundCheck and AutoEq",
+      "kind": "in_ear",
+      "intercept": 100.0795,
+      "terms": [
+        {"variable": "SD", "weight": 8.5, "band_Hz": [20, 10000]},
+        {"variable": "AS", "weight": 6.796, "band_Hz": [20, 10000]},
+        {"variable": "ME", "weight": 3.475, "band_Hz": [40, 10000]}
+      ],
+      "fit": null,
+      "training": {"fixture": "iec60318_4_canal_extender", "target_family": "harman_ie_2017"},
+      "source": "AutoEq (J. Pasanen, MIT licence), autoeq/frequency_response.py, harman_inear_preference_score, v4.1.2 (https://github.com/jaakkopasanen/AutoEq), whose comment states that it reproduces Listen Inc.'s Excel template; erratum E7. ME is the mean |e| with e taken relative to its value at 500 Hz, which the 500 Hz normalisation of response and target already makes zero.",
+      "notes": [
+        "No publication of this coefficient set was found; its fit statistics are unknown. The two in-ear sets differ by 10 to 30 points (E7), so a score always names its set."
+      ]
+    }
+  ]
+}
