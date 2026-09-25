@@ -521,6 +521,10 @@ export class PlotPanel {
   ) {
     this.theme = readTheme();
     new ResizeObserver(() => this.render()).observe(container);
+    new MutationObserver(() => {
+      this.theme = readTheme();
+      this.render();
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
       this.theme = readTheme();
       this.render();

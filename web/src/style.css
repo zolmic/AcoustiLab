@@ -47,8 +47,10 @@
   --series-8: #e34948;
 }
 
+/* Dark palette: follows the OS unless the page is explicitly set to light;
+   an explicit data-theme="dark" (e.g. the artifact viewer's toggle) wins too. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     color-scheme: dark;
     --page: #0d0d0d;
     --panel: #1a1a19;
@@ -85,6 +87,44 @@
     --series-7: #9085e9;
     --series-8: #e66767;
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --panel: #1a1a19;
+  --plot-bg: #1a1a19;
+  --ink: #ffffff;
+  --ink-2: #c3c2b7;
+  --control-border: #8a8983;
+  --grid: #2c2c2a;
+  --grid-minor: #222220;
+  --axis: #6b6a65;
+  --shade-1: #262624;
+  --shade-2: #353531;
+  --shade-edge: #8a8983;
+  --crosshair: #c3c2b7;
+  --selection: rgba(57, 135, 229, 0.24);
+  --accent: #86b6ef;
+  --accent-ink: #0b0b0b;
+  --pressed-bg: #1f3350;
+  --focus: #86b6ef;
+  --badge-bg: #3a2a00;
+  --badge-border: #c98500;
+  --badge-ink: #ffe3a3;
+  --error-bg: #2d1414;
+  --error-border: #e66767;
+  --error-ink: #ffb4ab;
+  --ok-ink: #7fd67f;
+
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
 }
 
 * {
@@ -151,7 +191,7 @@ kbd {
 
 .app-header {
   position: sticky;
-  top: 0;
+  top: env(safe-area-inset-top, 0px);
   z-index: 10;
   display: flex;
   flex-wrap: wrap;
@@ -541,4 +581,16 @@ figure.plot canvas {
 .validity-details summary {
   cursor: pointer;
   font-weight: 600;
+}
+
+.restore-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0 0 8px;
+}
+
+[hidden] {
+  display: none !important;
 }

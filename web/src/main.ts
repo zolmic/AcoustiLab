@@ -565,13 +565,30 @@ function updateCursorPos(): void {
 
 // ----- wiring -----------------------------------------------------------------
 
+// Loading an example over an edited netlist keeps the edits one click away
+// instead of asking first: embedded viewers (such as a published artifact)
+// suppress window.confirm, which would make the example picker silently do
+// nothing.
+const restoreNote = $<HTMLParagraphElement>('restore-note');
+const restoreText = $<HTMLSpanElement>('restore-text');
+const restoreBtn = $<HTMLButtonElement>('restore-btn');
+let replacedText: string | null = null;
+
+function hideRestore(): void {
+  replacedText = null;
+  restoreNote.hidden = true;
+}
+
 function loadExample(name: string): void {
   const ex = EXAMPLES.find((e) => e.name === name);
   if (!ex) return;
   const edited = editor.value.trim() !== '' && !EXAMPLES.some((e) => e.text === editor.value);
-  if (edited && !window.confirm(`Replace the edited netlist with the example "${name}"?`)) {
-    exampleSelect.value = store.get('example') ?? '';
-    return;
+  if (edited) {
+    replacedText = editor.value;
+    restoreText.textContent = `Loaded the example "${name}" over your edited netlist.`;
+    restoreNote.hidden = false;
+  } else {
+    hideRestore();
   }
   editor.value = ex.text;
   store.set('example', name);
@@ -596,7 +613,19 @@ cancelBtn.addEventListener('click', () => {
 errorGoto.addEventListener('click', gotoError);
 
 let saveTimer = 0;
+restoreBtn.addEventListener('click', () => {
+  if (replacedText === null) return;
+  editor.value = replacedText;
+  hideRestore();
+  store.set('netlist', editor.value);
+  updateCursorPos();
+  scheduleCheck();
+  editor.focus();
+  void run();
+});
+
 editor.addEventListener('input', () => {
+  hideRestore();
   scheduleCheck();
   updateCursorPos();
   clearTimeout(saveTimer);

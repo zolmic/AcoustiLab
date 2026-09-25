@@ -483,18 +483,32 @@ test('a worker script that cannot load is reported once, not respawned in a loop
   expect(made).toBeLessThanOrEqual(4);
 });
 
-test('loading an example asks before replacing an edited netlist', async ({ page }) => {
+test('loading an example over an edited netlist keeps the edits restorable', async ({ page }) => {
+  // No dialog is used: embedded viewers suppress window.confirm.
+  let dialogs = 0;
+  page.on('dialog', (d) => {
+    dialogs += 1;
+    void d.dismiss();
+  });
   await page.goto('/');
   await solved(page);
   const edited = (await page.locator('#netlist').inputValue()).replace('"V_V": 1.0', '"V_V": 2.0');
   await setNetlist(page, edited);
-  page.once('dialog', (d) => void d.dismiss());
-  await page.selectOption('#example-select', 'sealed_cup');
-  await expect(page.locator('#netlist')).toHaveValue(edited);
-  page.once('dialog', (d) => void d.accept());
-  await page.selectOption('#example-select', 'sealed_cup');
+  await expect(page.locator('#restore-note')).toBeHidden();
+  await page.selectOption('#example-select', 'open_back');
   await expect(page.locator('#netlist')).not.toHaveValue(edited);
+  await expect(page.locator('#restore-note')).toBeVisible();
   await solved(page);
+  await page.getByRole('button', { name: 'Restore your edits' }).click();
+  await expect(page.locator('#netlist')).toHaveValue(edited);
+  await expect(page.locator('#restore-note')).toBeHidden();
+  await solved(page);
+  // Switching between unedited examples needs no restore.
+  await page.selectOption('#example-select', 'sealed_cup');
+  await expect(page.locator('#restore-note')).toBeVisible();
+  await page.selectOption('#example-select', 'open_back');
+  await expect(page.locator('#restore-note')).toBeHidden();
+  expect(dialogs).toBe(0);
 });
 
 test('a long solve runs in the worker: the page stays responsive and can cancel', async ({ page }) => {

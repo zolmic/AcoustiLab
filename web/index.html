@@ -35,6 +35,10 @@
           <button type="button" id="run-btn" class="primary" aria-keyshortcuts="Control+Enter">Run</button>
           <button type="button" id="cancel-btn" disabled>Cancel</button>
         </div>
+        <p id="restore-note" class="hint restore-note" role="status" hidden>
+          <span id="restore-text"></span>
+          <button type="button" id="restore-btn">Restore your edits</button>
+        </p>
         <label for="netlist" class="visually-hidden">Netlist JSON</label>
         <textarea id="netlist" spellcheck="false" autocomplete="off" autocapitalize="off"
           aria-describedby="editor-help check-status"></textarea>
