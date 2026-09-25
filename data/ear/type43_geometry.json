@@ -1,0 +1,168 @@
+{
+  "source": "ITU-T P.57 (06/2021), clause 6.4.3.4, Table 6 and Annex B Table B.2; https://www.itu.int/rec/T-REC-P.57-202106-I",
+  "derived_by": "tools/ear/p57_geometry.py (shoelace area and perimeter of each Table B.2 polygon; positions up to 28 mm are the Recommendation's plane labels along the curved centre line, measured from the canal tip; the concha-bottom planes labelled 29.5, 31 and 32.5 mm sit at 28 + i*D/3 with D the distance between the two points of Table B.1 (Annex B.1))",
+  "note": "Areas and perimeters are computed from the tabulated periphery points; the Recommendation's point lists themselves are not reproduced here.",
+  "positions_measured_from": "tip of the ear canal (centre-line origin, Table 6)",
+  "ref_plane_mm": 17.33,
+  "eep_mm": 30.682,
+  "eep_note": "EEP taken at the concha plane labelled 31 mm, the plane nearest to it",
+  "concha_plane_spacing_mm": 1.3409,
+  "drp_axial_mm": 4.021,
+  "drp_to_tip_distance_mm": 4.484,
+  "centre_line_polyline_length_0_to_28_mm": 27.919,
+  "centre_line_stretch_factor": 0.9971,
+  "sections": [
+    {
+      "position_mm": 0.5,
+      "label_mm": 0.5,
+      "area_mm2": 4.503,
+      "perimeter_mm": 8.604,
+      "points": 25,
+      "ref_plane": false
+    },
+    {
+      "position_mm": 2.0,
+      "label_mm": 2.0,
+      "area_mm2": 11.797,
+      "perimeter_mm": 14.071,
+      "points": 25,
+      "ref_plane": false
+    },
+    {
+      "position_mm": 4.0,
+      "label_mm": 4.0,
+      "area_mm2": 20.829,
+      "perimeter_mm": 18.124,
+      "points": 25,
+      "ref_plane": false
+    },
+    {
+      "position_mm": 6.0,
+      "label_mm": 6.0,
+      "area_mm2": 24.18,
+      "perimeter_mm": 19.489,
+      "points": 25,
+      "ref_plane": false
+    },
+    {
+      "position_mm": 8.0,
+      "label_mm": 8.0,
+      "area_mm2": 29.385,
+      "perimeter_mm": 20.369,
+      "points": 25,
+      "ref_plane": false
+    },
+    {
+      "position_mm": 10.0,
+      "label_mm": 10.0,
+      "area_mm2": 33.689,
+      "perimeter_mm": 21.387,
+      "points": 25,
+      "ref_plane": false
+    },
+    {
+      "position_mm": 12.0,
+      "label_mm": 12.0,
+      "area_mm2": 38.249,
+      "perimeter_mm": 22.605,
+      "points": 25,
+      "ref_plane": false
+    },
+    {
+      "position_mm": 14.0,
+      "label_mm": 14.0,
+      "area_mm2": 40.883,
+      "perimeter_mm": 23.195,
+      "points": 25,
+      "ref_plane": false
+    },
+    {
+      "position_mm": 16.0,
+      "label_mm": 16.0,
+      "area_mm2": 42.492,
+      "perimeter_mm": 23.722,
+      "points": 25,
+      "ref_plane": false
+    },
+    {
+      "position_mm": 17.33,
+      "label_mm": null,
+      "area_mm2": 41.624,
+      "perimeter_mm": 23.481,
+      "points": 25,
+      "ref_plane": true
+    },
+    {
+      "position_mm": 18.0,
+      "label_mm": 18.0,
+      "area_mm2": 42.478,
+      "perimeter_mm": 23.786,
+      "points": 25,
+      "ref_plane": false
+    },
+    {
+      "position_mm": 20.0,
+      "label_mm": 20.0,
+      "area_mm2": 44.146,
+      "perimeter_mm": 24.37,
+      "points": 25,
+      "ref_plane": false
+    },
+    {
+      "position_mm": 22.0,
+      "label_mm": 22.0,
+      "area_mm2": 42.476,
+      "perimeter_mm": 24.022,
+      "points": 25,
+      "ref_plane": false
+    },
+    {
+      "position_mm": 24.0,
+      "label_mm": 24.0,
+      "area_mm2": 43.863,
+      "perimeter_mm": 24.441,
+      "points": 25,
+      "ref_plane": false
+    },
+    {
+      "position_mm": 26.0,
+      "label_mm": 26.0,
+      "area_mm2": 49.281,
+      "perimeter_mm": 25.617,
+      "points": 25,
+      "ref_plane": false
+    },
+    {
+      "position_mm": 28.0,
+      "label_mm": 28.0,
+      "area_mm2": 56.827,
+      "perimeter_mm": 27.554,
+      "points": 25,
+      "ref_plane": false
+    },
+    {
+      "position_mm": 29.341,
+      "label_mm": 29.5,
+      "area_mm2": 67.977,
+      "perimeter_mm": 30.243,
+      "points": 31,
+      "ref_plane": false
+    },
+    {
+      "position_mm": 30.682,
+      "label_mm": 31.0,
+      "area_mm2": 99.778,
+      "perimeter_mm": 36.583,
+      "points": 37,
+      "ref_plane": false
+    },
+    {
+      "position_mm": 32.023,
+      "label_mm": 32.5,
+      "area_mm2": 154.358,
+      "perimeter_mm": 45.876,
+      "points": 46,
+      "ref_plane": false
+    }
+  ]
+}

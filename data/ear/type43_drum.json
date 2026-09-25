@@ -1,0 +1,23 @@
+{
+  "source": "Fitted by tools/ear/fit_type43.py to ITU-T P.57 (06/2021) Table 5-c (transfer impedance times f relative to 500 Hz, with tolerances) and to 27.7 MPa s/m^3 at 500 Hz (clause 6.4.3.3 NOTE 2).",
+  "model": "Z = Z_cav + 1/(jw C_m + 1/(R_o + jw M_o)); Z_cav = 1/(jw C_t + 1/(R_a + 1/(jw C_a))); C = V/(gamma P0)",
+  "canal": "data/ear/type43_geometry.json, 48 conical segments tip..EEP, air standard_23C",
+  "status": "fitted surrogate of the Type 4.3 drum simulator; the physical network of commercial Type 4.3 simulators is not published",
+  "parameters": {
+    "C_m_volume_cm3": 0.08970698640182243,
+    "R_o_Pa_s_per_m3": 21093674.867116723,
+    "M_o_kg_per_m4": 418.4215057382778,
+    "C_t_volume_cm3": 1.4290182956433888,
+    "R_a_Pa_s_per_m3": 731637932.7727909,
+    "C_a_volume_cm3": 30.55297583048643
+  },
+  "fit": {
+    "points_within_tolerance": 121,
+    "points": 121,
+    "max_deviation_over_tolerance": 0.875,
+    "rms_deviation_dB": 0.753,
+    "transfer_impedance_500Hz_MPa_s_per_m3": 28.21,
+    "effective_volume_500Hz_cm3": 1.6006,
+    "cost": 1.3536
+  }
+}
