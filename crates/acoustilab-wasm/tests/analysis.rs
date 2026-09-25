@@ -226,6 +226,15 @@ fn monte_carlo_in_chunks_equals_one_run() {
         "",
     );
     assert_eq!(kind(&bad), "options");
+    // Out-of-range and huge ranges are clamped, never a panic.
+    for which in [
+        json!({"plan": spec, "first": 1, "count": 4294967295u64}),
+        json!({"plan": spec, "first": u64::MAX, "count": u64::MAX}),
+        json!({"plan": spec, "first": 9, "count": 1}),
+    ] {
+        let c = wa::mc_run_value(&t, "", &which.to_string(), r#"{"metrics": false}"#);
+        assert!(c["samples"].as_array().unwrap().len() <= 4, "{which}");
+    }
     let chunk = json!({"engine": one.engine, "frequencies_Hz": freqs, "samples": all});
     let env = wa::mc_envelope_value(&chunk.to_string());
     assert_eq!(env["runs"], 5);

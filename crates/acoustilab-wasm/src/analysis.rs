@@ -21,6 +21,8 @@ use acoustilab::analysis::sensitivity::{self, SensitivityOptions};
 use acoustilab::analysis::tornado::{self, TornadoOptions};
 use acoustilab::analysis::{parse_options, Design};
 use serde_json::{json, Value};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 fn options_error(msg: impl std::fmt::Display) -> Value {
     json!({"error": msg.to_string(), "kind": "options"})
@@ -111,12 +113,20 @@ pub fn mc_plan_value(netlist: &str, overrides: &str, spec: &str) -> Value {
     to_value!(mc::plan(&d, &s))
 }
 
+thread_local! {
+    /// The samples of the last plan run by `{plan, first, count}`, keyed by
+    /// netlist, overrides and plan spec, so that a worker's successive chunk
+    /// calls plan once (planning is deterministic, so this changes no
+    /// result).
+    static LAST_PLAN: RefCell<Option<(String, Rc<Vec<Sample>>)>> = const { RefCell::new(None) };
+}
+
 /// Solves one chunk of runs and returns a [`mc::RunChunk`]. `which` is
-/// either `{"plan": <plan spec>, "first": i, "count": k}`, which re-plans
-/// (deterministically, in microseconds) and runs samples i..i+k, or a JSON
-/// array of samples `{index, overrides}`. Prefer the first form: sampled
-/// values then never pass through a JSON parser (serde_json's float parsing
-/// is best effort and may move a value by one ulp).
+/// either `{"plan": <plan spec>, "first": i, "count": k}`, which plans (once
+/// for successive chunks of the same plan) and runs samples i..i+k, or a
+/// JSON array of samples `{index, overrides}`. Prefer the first form:
+/// sampled values then never pass through a JSON parser (serde_json's float
+/// parsing is best effort and may move a value by one ulp).
 pub fn mc_run_value(netlist: &str, overrides: &str, which: &str, opts: &str) -> Value {
     let o = options!(RunOptions, "run", opts);
     tri!(o.validate().map_err(options_error));
@@ -131,23 +141,38 @@ pub fn mc_run_value(netlist: &str, overrides: &str, which: &str, opts: &str) -> 
             {
                 return options_error(format!("runs: unknown key '{k}'"));
             }
-            let spec: PlanSpec = tri!(serde_json::from_value(m["plan"].clone())
-                .map_err(|e| options_error(format!("plan: {e}"))));
-            tri!(spec.validate().map_err(options_error));
-            let plan = tri!(mc::plan(&d, &spec).map_err(|e| error_value(&e)));
-            let n = plan.samples.len();
+            let key = format!("{netlist}\u{1}{overrides}\u{1}{}", m["plan"]);
+            let cached = LAST_PLAN.with(|c| {
+                c.borrow()
+                    .as_ref()
+                    .filter(|(k, _)| *k == key)
+                    .map(|(_, v)| Rc::clone(v))
+            });
+            let all = match cached {
+                Some(v) => v,
+                None => {
+                    let spec: PlanSpec = tri!(serde_json::from_value(m["plan"].clone())
+                        .map_err(|e| options_error(format!("plan: {e}"))));
+                    tri!(spec.validate().map_err(options_error));
+                    let plan = tri!(mc::plan(&d, &spec).map_err(|e| error_value(&e)));
+                    let v = Rc::new(plan.samples);
+                    LAST_PLAN.with(|c| *c.borrow_mut() = Some((key, Rc::clone(&v))));
+                    v
+                }
+            };
+            let n = all.len();
             let index = |key: &str, default: usize| -> Result<usize, Value> {
                 match m.get(key) {
                     None => Ok(default),
                     Some(v) => v
                         .as_u64()
-                        .map(|x| x as usize)
+                        .map(|x| usize::try_from(x).unwrap_or(usize::MAX))
                         .ok_or_else(|| options_error(format!("runs: '{key}' must be an integer"))),
                 }
             };
             let first = tri!(index("first", 0)).min(n);
             let count = tri!(index("count", n));
-            plan.samples[first..(first + count).min(n)].to_vec()
+            all[first..first.saturating_add(count).min(n)].to_vec()
         }
         _ => tri!(serde_json::from_value(w).map_err(|e| options_error(format!("samples: {e}")))),
     };

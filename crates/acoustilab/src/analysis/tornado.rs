@@ -95,15 +95,25 @@ impl Metric {
                     unit,
                 )
             }
-            Metric::Readout { name } => {
-                let unit = name
-                    .rsplit_once('_')
-                    .map(|(_, u)| u.to_string())
-                    .filter(|u| ["Hz", "dB", "ohm", "mW", "V"].contains(&u.as_str()))
-                    .unwrap_or_default();
-                (format!("readout {name}"), unit)
-            }
+            Metric::Readout { name } => (format!("readout {name}"), readout_unit(name).into()),
         }
+    }
+}
+
+/// Unit of a scalar readout, from its name's suffix.
+pub fn readout_unit(name: &str) -> &'static str {
+    if name.ends_with("_dB_per_V") {
+        "dB SPL per V"
+    } else if name.ends_with("_dB_per_mW") {
+        "dB SPL per mW"
+    } else if name.ends_with("_dB") {
+        "dB SPL"
+    } else if name.ends_with("_Hz") {
+        "Hz"
+    } else if name.ends_with("_ohm") {
+        "ohm"
+    } else {
+        ""
     }
 }
 
@@ -286,26 +296,14 @@ pub fn tornado(design: &Design, opts: &TornadoOptions) -> Result<Tornado> {
     let metric = match &opts.metric {
         Some(m) => m.clone(),
         None => {
-            let c = &base.circuit;
-            let probe = ropts
-                .probe
-                .clone()
-                .or_else(|| {
-                    ui.clone()
-                        .filter(|u| c.probes.iter().any(|p| &p.id == u && p.is_pressure))
-                })
-                .or_else(|| {
-                    c.probes
-                        .iter()
-                        .find(|p| p.is_pressure)
-                        .map(|p| p.id.clone())
-                })
+            let (i, _) = super::pressure_probe(&base, ropts.probe.as_deref(), ui.as_deref())?
                 .ok_or_else(|| {
                     options_error(
                         "tornado",
                         "the netlist has no pressure probe; give a metric",
                     )
                 })?;
+            let probe = base.circuit.probes[i].id.clone();
             Metric::Level {
                 probe,
                 f_hz: 1000.0,
@@ -314,6 +312,12 @@ pub fn tornado(design: &Design, opts: &TornadoOptions) -> Result<Tornado> {
     };
     let (description, unit) = metric.describe(&base);
     let base_value = evaluate(&mut base, &metric, &ropts, ui.as_deref())?;
+    if !base_value.is_finite() {
+        return Err(options_error(
+            "tornado",
+            format!("{description} is undefined for the base design; choose another metric"),
+        ));
+    }
     let meta = base.solve_at_freqs(&[1000.0])?;
     let shading = match &metric {
         Metric::Level { f_hz, .. } => Some(meta.shading.band(*f_hz)),

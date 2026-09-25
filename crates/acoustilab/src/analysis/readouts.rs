@@ -416,32 +416,10 @@ impl Plan {
         let c = &point.circuit;
         let mut notes = Vec::new();
         let mut extras = Vec::new();
-        let pressure = if let Some(id) = &opts.probe {
-            let i = c
-                .probes
-                .iter()
-                .position(|p| &p.id == id)
-                .ok_or_else(|| Error::Probe {
-                    id: id.clone(),
-                    msg: "no such probe".into(),
-                })?;
-            if !c.probes[i].is_pressure {
-                return Err(Error::Probe {
-                    id: id.clone(),
-                    msg: "response readouts need an acoustic pressure probe".into(),
-                });
-            }
-            Some((i, "option"))
-        } else if let Some(i) =
-            ui_probe.and_then(|id| c.probes.iter().position(|p| p.id == id && p.is_pressure))
-        {
-            Some((i, "ui.primary_probe"))
-        } else if let Some(i) = c.probes.iter().position(|p| p.is_pressure) {
-            Some((i, "first pressure probe"))
-        } else {
+        let pressure = super::pressure_probe(point, opts.probe.as_deref(), ui_probe)?;
+        if pressure.is_none() {
             notes.push("no acoustic pressure probe: no response readouts".into());
-            None
-        };
+        }
         let impedance = if let Some(id) = &opts.impedance {
             let i = c
                 .probes
@@ -747,20 +725,20 @@ fn refine_max(
 
 /// The frequency between grid points `lo` and `lo + 1` where `g` crosses
 /// `level` (g(f[lo]) and g(f[lo+1]) on opposite sides).
-fn refine_crossing(
-    freqs: &[f64],
-    mag: &[f64],
-    lo: usize,
+/// The frequency between two points, (f, |g|) on opposite sides of
+/// `level`, where `g` crosses it.
+fn crossing(
+    (fa, ga): (f64, f64),
+    (fb, gb): (f64, f64),
     level: f64,
     g: &mut dyn FnMut(f64) -> Result<f64>,
 ) -> Result<f64> {
-    let (a, b) = (freqs[lo].ln(), freqs[lo + 1].ln());
     let u = illinois_root(
         &mut |u| Ok(g(u.exp())? - level),
-        a,
-        b,
-        mag[lo] - level,
-        mag[lo + 1] - level,
+        fa.ln(),
+        fb.ln(),
+        ga - level,
+        gb - level,
         LN_F_TOL,
     )?;
     Ok(u.exp())
@@ -846,20 +824,34 @@ fn q_estimate(
         return Ok(None);
     }
     let level = re * r0.sqrt();
-    let mut j = i;
-    while j > 0 && mag[j] > level {
-        j -= 1;
+    // Walk outwards from the refined peak (above the level; the grid point
+    // nearest to a sharp peak may not be) to the first grid point below the
+    // level on each side, and refine the crossing in between.
+    let peak = (res.f_hz, res.z);
+    let mut below = None;
+    let mut inner = peak;
+    for j in (0..=i).rev().filter(|&j| freqs[j] < res.f_hz) {
+        if mag[j] < level {
+            below = Some(((freqs[j], mag[j]), inner));
+            break;
+        }
+        inner = (freqs[j], mag[j]);
     }
-    let mut k = i;
-    while k + 1 < mag.len() && mag[k] > level {
-        k += 1;
+    let mut above = None;
+    let mut inner = peak;
+    for k in (i..mag.len()).filter(|&k| freqs[k] > res.f_hz) {
+        if mag[k] < level {
+            above = Some((inner, (freqs[k], mag[k])));
+            break;
+        }
+        inner = (freqs[k], mag[k]);
     }
-    if mag[j] > level || mag[k] > level {
+    let (Some((a1, b1)), Some((a2, b2))) = (below, above) else {
         notes.push("|Z| does not fall to Re*sqrt(r0) on both sides of the resonance within the sweep: no Q estimates".into());
         return Ok(None);
-    }
-    let f1 = refine_crossing(freqs, mag, j, level, g)?;
-    let f2 = refine_crossing(freqs, mag, k - 1, level, g)?;
+    };
+    let f1 = crossing(a1, b1, level, g)?;
+    let f2 = crossing(a2, b2, level, g)?;
     let qms = res.f_hz * r0.sqrt() / (f2 - f1);
     let mut q_notes = Vec::new();
     let fg = (f1 * f2).sqrt();

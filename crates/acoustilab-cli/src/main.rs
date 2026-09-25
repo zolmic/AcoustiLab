@@ -27,7 +27,8 @@ const USAGE: &str = "usage:
                    [--method complete_solves | forward_sensitivity] [--json | --csv]
                                                          sensitivities in dB per percent
   acoustilab tornado <netlist.json> [--probe ID] [--f HZ | --band LO HI | --readout NAME]
-                     [--param NAME]... [--json]          metric at each parameter's tolerance ends
+                     [--param NAME]... [--rated OHM] [--re OHM] [--driver ID] [--impedance ID] [--json]
+                                                         metric at each parameter's tolerance ends
   acoustilab explain <netlist.json> [--probe ID] [--top N] [--step PCT] [--threshold DB] [--json]
                                                          sentences generated from re-solves
   acoustilab readouts <netlist.json> [--probe ID] [--impedance ID] [--rated OHM] [--re OHM]

@@ -242,6 +242,13 @@ fn sens(design: &Design, a: &Args) -> Result<String, String> {
 
 fn tornado_cmd(design: &Design, a: &Args) -> Result<String, String> {
     let probe = a.probes.first().cloned();
+    let readouts = ReadoutOptions {
+        probe: probe.clone(),
+        impedance: a.text("--impedance"),
+        rated_ohm: a.num("--rated"),
+        re_ohm: a.num("--re"),
+        driver: a.text("--driver"),
+    };
     let metric = if let Some(name) = a.text("--readout") {
         Some(Metric::Readout { name })
     } else if let (Some(lo), Some(hi)) = (a.num("--band-lo"), a.num("--band-hi")) {
@@ -265,7 +272,7 @@ fn tornado_cmd(design: &Design, a: &Args) -> Result<String, String> {
         metric,
         parameters: some(&a.params),
         default_rel: None,
-        readouts: None,
+        readouts: Some(readouts),
     };
     let t = tornado::tornado(design, &opts).map_err(|e| e.to_string())?;
     if a.json {

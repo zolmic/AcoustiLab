@@ -224,6 +224,39 @@ impl Point {
     }
 }
 
+/// The acoustic pressure probe an analysis reads, and where the choice came
+/// from: `option`, which must name a pressure probe; else the netlist's
+/// `ui.primary_probe` when it is one; else its first pressure probe. `None`
+/// when the netlist has no pressure probe.
+pub fn pressure_probe(
+    point: &Point,
+    option: Option<&str>,
+    ui: Option<&str>,
+) -> Result<Option<(usize, &'static str)>> {
+    let probes = &point.circuit.probes;
+    if let Some(id) = option {
+        let perr = |msg: &str| Error::Probe {
+            id: id.to_string(),
+            msg: msg.into(),
+        };
+        let i = probes
+            .iter()
+            .position(|p| p.id == id)
+            .ok_or_else(|| perr("no such probe"))?;
+        if !probes[i].is_pressure {
+            return Err(perr("this analysis needs an acoustic pressure probe"));
+        }
+        return Ok(Some((i, "option")));
+    }
+    if let Some(i) = ui.and_then(|id| probes.iter().position(|p| p.id == id && p.is_pressure)) {
+        return Ok(Some((i, "ui.primary_probe")));
+    }
+    Ok(probes
+        .iter()
+        .position(|p| p.is_pressure)
+        .map(|i| (i, "first pressure probe")))
+}
+
 /// How a probe's curve is reported: dB SPL for acoustic pressures,
 /// magnitude and phase for impedances, magnitude otherwise.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -698,6 +698,48 @@ fn free_air_driver_readouts_recover_the_primary_set() {
 }
 
 #[test]
+fn q_readouts_of_a_sharp_peak_between_grid_points() {
+    // Qms = 100, Qes = 5: r0 = 21 and |Z| exceeds Re·√r0 only over
+    // fs·√r0/Qms = 3.7 Hz. With fs midway (geometrically) between two points
+    // of a 12-per-octave grid, 2.9 % either side, no grid point lies above
+    // that level: the crossings are bracketed from the refined peak.
+    let grid = acoustilab::grid::log_grid(1.0, 20_000.0, 12.0);
+    let k = grid.iter().position(|f| *f > 80.0).unwrap();
+    let fs = (grid[k - 1] * grid[k]).sqrt();
+    let doc = json!({
+        "sweep": {"f_min_Hz": 1, "f_max_Hz": 20000, "points_per_octave": 12},
+        "nodes": [{"id": "e", "domain": "electrical"}],
+        "elements": [
+            {"id": "amp", "type": "vsource", "node": "e"},
+            {"id": "drv", "type": "driver", "nodes": ["e", "gnd", "ambient"], "model": "D0",
+             "fs_Hz": fs, "Qms": 100, "Qes": 5, "Re_ohm": 6, "Mms_g": 0.3, "Sd_cm2": 10}
+        ],
+        "probes": []
+    });
+    assert_eq!(Circuit::from_json(&doc.to_string()).unwrap().freqs, grid);
+    // |Z| = |Re + (Re/Qes)/(1/Qms + j(w − 1/w))|, w = f/fs.
+    let z = |f: f64| {
+        let w = f / fs;
+        (6.0 + 1.2 / C64::new(0.01, w - 1.0 / w)).norm()
+    };
+    let level = 6.0 * 21f64.sqrt();
+    assert!(grid.iter().all(|f| z(*f) < level));
+    let r = readouts::readouts(
+        &design(&doc),
+        &ReadoutOptions {
+            re_ohm: Some(6.0),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let q = r.impedance.unwrap().q.unwrap();
+    assert!(close(q.fres, fs, 1e-7, 0.0) && close(q.r0, 21.0, 1e-9, 0.0));
+    assert!(close(q.qms, 100.0, 1e-6, 0.0), "Qms {}", q.qms);
+    assert!(close(q.qes, 5.0, 1e-6, 0.0), "Qes {}", q.qes);
+    assert!(q.f1 < q.fres && q.fres < q.f2);
+}
+
+#[test]
 fn coupled_resonance_matches_appendix_c2() {
     // Spec C2: 10 cm², 30 cm³, 1 mm/N, 0.1 g: f_c = (1/2π)·√((1/Cms +
     // Sd²ρc²/V)/Mms) = 1204 Hz. |v/i| = Bl/|Zm + Zb| peaks exactly there,
@@ -965,6 +1007,33 @@ fn tornado_band_and_readout_metrics() {
         ..Default::default()
     };
     assert!(tornado::tornado(&d, &bad).is_err());
+    assert_eq!(
+        tornado::readout_unit("sensitivity_1kHz_dB_per_V"),
+        "dB SPL per V"
+    );
+    assert_eq!(
+        tornado::readout_unit("sensitivity_500Hz_dB_per_mW"),
+        "dB SPL per mW"
+    );
+    assert_eq!(tornado::readout_unit("level_500Hz_dB"), "dB SPL");
+    assert_eq!(tornado::readout_unit("z_min_ohm"), "ohm");
+    assert_eq!(tornado::readout_unit("Qts"), "");
+    // A readout that the base design does not have is an error, not an
+    // empty chart: the template's level stays within 3 dB of 500 Hz down to
+    // 10 Hz, so it has no bass extension.
+    let t = Design::parse(TEMPLATE, &Overrides::new()).unwrap();
+    let e = tornado::tornado(
+        &t,
+        &TornadoOptions {
+            metric: Some(Metric::Readout {
+                name: "bass_extension_Hz".into(),
+            }),
+            ..Default::default()
+        },
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(e.contains("undefined for the base design"), "{e}");
     // The options parse from JSON with unit-suffixed keys.
     let o: TornadoOptions = serde_json::from_value(
         json!({"metric": {"kind": "level", "probe": "p", "f_Hz": 500}, "default_rel": 0.2}),

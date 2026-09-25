@@ -30,7 +30,7 @@ use super::readouts::{self, CoupledResonance};
 use super::{fmt_hz, fmt_hz_range, nan_vec, options_error, Design, Excluded, Point};
 use crate::circuit::Probe;
 use crate::drive::DriveInfo;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::expr::PValue;
 use crate::params::Overrides;
 use crate::solve::SolveResult;
@@ -289,13 +289,13 @@ pub fn explain(design: &Design, opts: &ExplainOptions) -> Result<Explanation> {
     let threshold = opts.threshold_db.unwrap_or(0.3);
     let top = opts.top.unwrap_or(5);
     let mut base = design.base_point()?;
-    let probe = pick_probe(&base, opts.probe.as_deref(), design.ui_primary_probe())?;
-    let pi = base
-        .circuit
-        .probes
-        .iter()
-        .position(|p| p.id == probe)
-        .expect("picked from the netlist");
+    let (pi, _) = super::pressure_probe(
+        &base,
+        opts.probe.as_deref(),
+        design.ui_primary_probe().as_deref(),
+    )?
+    .ok_or_else(|| options_error("explain", "the netlist has no pressure probe"))?;
+    let probe = base.circuit.probes[pi].id.clone();
     let tap = readouts::driver_tap(&base, opts.driver.as_deref())?;
     let b = solve(&mut base, &tap)?;
     let freqs = b.result.freqs_hz.clone();
@@ -480,28 +480,6 @@ pub fn explain(design: &Design, opts: &ExplainOptions) -> Result<Explanation> {
         hash: base.hash(),
         engine: crate::solve::ENGINE,
     })
-}
-
-/// The pressure probe to explain: the option, else `ui.primary_probe`,
-/// else the first pressure probe.
-fn pick_probe(point: &Point, option: Option<&str>, ui: Option<String>) -> Result<String> {
-    let probes = &point.circuit.probes;
-    if let Some(id) = option {
-        return match probes.iter().find(|p| p.id == id) {
-            Some(p) if p.is_pressure => Ok(id.to_string()),
-            Some(_) => Err(Error::Probe {
-                id: id.to_string(),
-                msg: "explain sentences need an acoustic pressure probe".into(),
-            }),
-            None => Err(Error::Probe {
-                id: id.to_string(),
-                msg: "no such probe".into(),
-            }),
-        };
-    }
-    ui.filter(|u| probes.iter().any(|p| &p.id == u && p.is_pressure))
-        .or_else(|| probes.iter().find(|p| p.is_pressure).map(|p| p.id.clone()))
-        .ok_or_else(|| options_error("explain", "the netlist has no pressure probe"))
 }
 
 #[cfg(test)]

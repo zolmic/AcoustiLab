@@ -64,8 +64,8 @@ The stepped designs can be evaluated in two ways (option `method`):
   update errs by −h²·A₀⁻¹A'A₀⁻¹r with the same sign at +h and −h, so the
   central difference keeps its O(h²) accuracy, and so does the one-sided
   formula. The drive factor and the probes are evaluated on each stepped
-  circuit, exactly as for a solve. On the template this method is 3.3 to
-  3.8 times faster. It agrees with complete solves to 4e-8 of each
+  circuit, exactly as for a solve. On the template this method is 3.7 to
+  4.4 times faster. It agrees with complete solves to 4e-8 of each
   parameter's largest sensitivity in the credible band, and to 3e-6 next to
   the lightly damped depth resonance in the shaded band, which is about
   either method's own truncation error there. The adjoint method (spec
@@ -312,11 +312,12 @@ mc_csv({engine, samples}, parameters)                    -> {"csv": "..."}
 
 Each call is bounded, so a worker can report progress and cancel between
 calls. Results are identical however the samples are chunked. `mc_run` also
-accepts a JSON array of samples. The plan-and-range form is preferred
-because it re-plans in Rust, which takes microseconds, so sampled values
-never pass through a JSON parser. serde_json's float parsing is best effort
-and can move a value by one ulp. The same applies to the numbers that
-`mc_envelope` and `mc_csv` read back; the hashes are unaffected.
+accepts a JSON array of samples. The plan-and-range form is preferred: the
+plan is made in Rust (once, and kept for the following calls with the same
+netlist, overrides and spec), so sampled values never pass through a JSON
+parser. serde_json's float parsing is best effort and can move a value by
+one ulp. The same applies to the numbers that `mc_envelope` and `mc_csv`
+read back; the hashes are unaffected.
 
 ### Plans
 
@@ -519,20 +520,20 @@ development container:
 |---|---|---|
 | one solve | 19 ms | 22 ms |
 | readouts (solve included) | 22 ms | 26 ms |
-| full sensitivity map, complete solves (39 solves) | 0.63 s | 0.84 s |
-| full sensitivity map, forward sensitivities | 0.18 s | 0.22 s |
-| tornado at a pinned frequency | 13 ms | 21 ms |
-| explain (default options) | 0.34 s | 0.43 s |
-| Monte Carlo plan, 200 runs | not measured | 8 ms |
-| 200 Monte Carlo runs with metrics | 4.1 s | 5.3 s (10 calls of 20 runs, 0.53 s each) |
-| envelope of 200 runs | not measured | 80 ms |
+| full sensitivity map, complete solves (39 solves) | 0.62 s | 0.82 s |
+| full sensitivity map, forward sensitivities | 0.15 s | 0.21 s |
+| tornado at a pinned frequency | 13 ms | 14 ms |
+| explain (default options) | 0.34 s | 0.41 s |
+| Monte Carlo plan, 200 runs | not measured | 4 ms |
+| 200 Monte Carlo runs with metrics | 4.1 s | 5.1 s (10 calls of 20 runs, 0.5 s each) |
+| envelope of 200 runs | not measured | 93 ms |
 
 A solve's time is 74 % LU factorisation and refinement and 26 % stamping.
 Forward sensitivities replace a parameter's two complete solves by the
 restamping of the elements it changes and two back substitutions against
-the base factors. Measured in process (best of five): 0.63 s against 0.18 s
-for the closed-back template (3.6×), 0.54 s against 0.14 s open-back (3.8×),
-and 0.33 s against 0.10 s at level 0 (3.3×). Both timings of the
+the base factors. Measured in process (best of five): 0.62 s against 0.15 s
+for the closed-back template (4.1×), 0.54 s against 0.12 s open-back (4.4×),
+and 0.32 s against 0.085 s at level 0 (3.7×). Both timings of the
 sensitivity map in the table include the base design's own solve.
 
 ## Known limits

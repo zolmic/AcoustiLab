@@ -47,7 +47,7 @@
 //! matrix is factored once, and each stepped solution is the first-order
 //! update x₀ + A₀⁻¹·(b − A·x₀), restamping only the elements whose records
 //! the step changes (see `forward_sensitivities`). On the template this is
-//! 3.3 to 3.8 times faster and agrees with complete solves to 1e-6 of each
+//! 3.7 to 4.4 times faster and agrees with complete solves to 1e-6 of each
 //! parameter's largest sensitivity in the credible band (4e-8 measured);
 //! both keep O(h²) accuracy. Complete solves stay the default: they are the
 //! reference the faster path is tested against. The adjoint method of spec
@@ -239,6 +239,7 @@ pub fn jacobian(design: &Design, opts: &SensitivityOptions) -> Result<Jacobian> 
     let r0 = base.solve()?;
     let pidx = select_probes(&r0, opts.probes.as_deref())?;
     let mut steps = Vec::new();
+    let mut parameters = Vec::new();
     let mut excluded = Vec::new();
     for def in design.selected(opts.parameters.as_deref())? {
         let value = match design.continuous_value(def) {
@@ -259,6 +260,15 @@ pub fn jacobian(design: &Design, opts: &SensitivityOptions) -> Result<Jacobian> 
             continue;
         }
         match prepare(design, &base, def, value, h) {
+            // Complete solves go one parameter at a time, so only two
+            // stepped designs are alive at once.
+            Ok(s) if method == Method::CompleteSolves => match complete_solves(&s, &pidx) {
+                Ok(y) => parameters.push(finish(&s, &r0, &pidx, &y, h)),
+                Err(reason) => excluded.push(Excluded {
+                    name: def.name.clone(),
+                    reason,
+                }),
+            },
             Ok(s) => steps.push(s),
             Err(reason) => excluded.push(Excluded {
                 name: def.name.clone(),
@@ -266,18 +276,16 @@ pub fn jacobian(design: &Design, opts: &SensitivityOptions) -> Result<Jacobian> 
             }),
         }
     }
-    let values = match method {
-        Method::CompleteSolves => steps.iter().map(|s| complete_solves(s, &pidx)).collect(),
-        Method::ForwardSensitivity => forward_sensitivities(&base, &steps, &pidx)?,
-    };
-    let mut parameters = Vec::new();
-    for (s, v) in steps.iter().zip(values) {
-        match v {
-            Ok(y) => parameters.push(finish(s, &r0, &pidx, &y, h)),
-            Err(reason) => excluded.push(Excluded {
-                name: s.def.name.clone(),
-                reason,
-            }),
+    if method == Method::ForwardSensitivity {
+        let values = forward_sensitivities(&base, &steps, &pidx)?;
+        for (s, v) in steps.iter().zip(values) {
+            match v {
+                Ok(y) => parameters.push(finish(s, &r0, &pidx, &y, h)),
+                Err(reason) => excluded.push(Excluded {
+                    name: s.def.name.clone(),
+                    reason,
+                }),
+            }
         }
     }
     Ok(Jacobian {
@@ -388,6 +396,11 @@ fn drive_factor(c: &Circuit) -> Result<DriveFactor> {
         return Ok(DriveFactor::Constant(1.0));
     };
     let v = drive::source_voltage(c)?;
+    if !(v.is_finite() && v != 0.0) {
+        return Err(Error::Netlist(
+            "drive: the vsource's V_V must be non-zero to scale from".into(),
+        ));
+    }
     Ok(match spec {
         DriveSpec::Voltage(t) => DriveFactor::Constant(t / v),
         DriveSpec::Power { watts, rated_ohm } => {
@@ -437,44 +450,67 @@ fn changed_elements(base: &Value, stepped: &Value) -> Option<Vec<usize>> {
     (a.len() == b.len()).then(|| (0..a.len()).filter(|&i| a[i] != b[i]).collect())
 }
 
-/// Residual b − A·x₀ of a stepped circuit at one frequency, given the base
-/// residual `res0` = b₀ − A₀·x₀: only the changed elements are stamped, at
-/// the stepped and at the base value, and their difference applied; with
-/// `changed` = `None` the whole stepped system is assembled.
+/// The part of b − A·x₀ that the listed elements contribute at one
+/// frequency.
+fn partial_residual(c: &Circuit, list: &[usize], f: f64, x0: &[C64]) -> Vec<C64> {
+    let cx = c.cx(f);
+    let mut m = Mna::new(c.nodes.len(), c.dim - c.nodes.len());
+    for &e in list {
+        c.elements[e].stamp(&cx, &mut m, &c.branches(e));
+    }
+    let ax = m.a.mul_vec(x0);
+    m.rhs.iter().zip(&ax).map(|(b, a)| b - a).collect()
+}
+
+/// Residual b − A·x₀ of a stepped circuit at one frequency. With a list of
+/// changed elements it is the base residual `res0` plus the difference of
+/// those elements' contributions at the stepped value and at the base
+/// value (`base_part`); without one the whole stepped system is assembled.
 fn residual(
-    c0: &Circuit,
     c: &Circuit,
     changed: &Option<Vec<usize>>,
     f: f64,
     x0: &[C64],
     res0: &[C64],
+    base_part: Option<&[C64]>,
 ) -> Vec<C64> {
-    let Some(list) = changed else {
-        let m = assemble(c, f);
-        let ax = m.a.mul_vec(x0);
-        return m.rhs.iter().zip(&ax).map(|(b, a)| b - a).collect();
-    };
-    if list.is_empty() {
-        return res0.to_vec();
-    }
-    let partial = |circuit: &Circuit| {
-        let cx = circuit.cx(f);
-        let mut m = Mna::new(circuit.nodes.len(), circuit.dim - circuit.nodes.len());
-        for &e in list {
-            circuit.elements[e].stamp(&cx, &mut m, &circuit.branches(e));
+    match (changed, base_part) {
+        (Some(list), Some(rb)) if !list.is_empty() => {
+            let rs = partial_residual(c, list, f, x0);
+            res0.iter()
+                .zip(rs.iter().zip(rb))
+                .map(|(r0, (s, b))| r0 + (s - b))
+                .collect()
         }
-        let ax = m.a.mul_vec(x0);
-        m.rhs
-            .iter()
-            .zip(&ax)
-            .map(|(b, a)| b - a)
-            .collect::<Vec<C64>>()
-    };
-    let (rs, rb) = (partial(c), partial(c0));
-    res0.iter()
-        .zip(rs.iter().zip(&rb))
-        .map(|(r0, (s, b))| r0 + (s - b))
-        .collect()
+        (Some(list), _) if list.is_empty() => res0.to_vec(),
+        _ => {
+            let m = assemble(c, f);
+            let ax = m.a.mul_vec(x0);
+            m.rhs.iter().zip(&ax).map(|(b, a)| b - a).collect()
+        }
+    }
+}
+
+/// A⁻¹·b with the factors of A and up to two steps of iterative
+/// refinement, as `linalg::solve` does it.
+fn solve_refined(lu: &Lu, a: &Matrix, b: &[C64]) -> Vec<C64> {
+    let mut x = lu.solve(b);
+    for _ in 0..2 {
+        let ax = a.mul_vec(&x);
+        let r: Vec<C64> = b.iter().zip(&ax).map(|(bi, ai)| bi - ai).collect();
+        let dx = lu.solve(&r);
+        let mut changed = false;
+        for (xi, di) in x.iter_mut().zip(&dx) {
+            if di.norm() > 1e-17 * xi.norm() {
+                changed = true;
+            }
+            *xi += di;
+        }
+        if !changed {
+            break;
+        }
+    }
+    x
 }
 
 /// A⁻¹·r with the factors of A and one step of iterative refinement
@@ -539,14 +575,19 @@ fn forward_sensitivities(
         }
     }
     for (k, &f) in c0.freqs.iter().enumerate() {
-        // The engine's own solve first: it names the unknown of a singular
-        // matrix. Its factorisation is then known to succeed.
-        let x0 = c0.solve_at(f)?;
         let m0 = assemble(c0, f);
-        let lu = Lu::factor(&m0.a).map_err(|s| Error::Singular {
-            f_hz: f,
-            unknown: format!("unknown {}", s.0),
-        })?;
+        let lu = match Lu::factor(&m0.a) {
+            Ok(lu) => lu,
+            // The engine's solve names the unknown of a singular matrix.
+            Err(s) => {
+                c0.solve_at(f)?;
+                return Err(Error::Singular {
+                    f_hz: f,
+                    unknown: format!("unknown {}", s.0),
+                });
+            }
+        };
+        let x0 = solve_refined(&lu, &m0.a, &m0.rhs);
         let a0x0 = m0.a.mul_vec(&x0);
         let res0: Vec<C64> = m0.rhs.iter().zip(&a0x0).map(|(b, a)| b - a).collect();
         for (si, s) in steps.iter().enumerate() {
@@ -554,9 +595,27 @@ fn forward_sensitivities(
                 continue;
             };
             let mut failure = None;
+            // The base value's contribution of the changed elements, shared
+            // by both stepped points when they change the same elements.
+            let mut base_parts: [Option<Vec<C64>>; 2] = [None, None];
+            for pt in 0..2 {
+                if let Some(list) = changed[si][pt].as_ref().filter(|l| !l.is_empty()) {
+                    base_parts[pt] = match (pt, &base_parts[0]) {
+                        (1, Some(b)) if changed[si][0].as_ref() == Some(list) => Some(b.clone()),
+                        _ => Some(partial_residual(c0, list, f, &x0)),
+                    };
+                }
+            }
             for (pt, p) in s.points.iter().enumerate() {
                 let c = &p.circuit;
-                let r = residual(c0, c, &changed[si][pt], f, &x0, &res0);
+                let r = residual(
+                    c,
+                    &changed[si][pt],
+                    f,
+                    &x0,
+                    &res0,
+                    base_parts[pt].as_deref(),
+                );
                 let d = refined_solve(&lu, &m0.a, &r);
                 let mut x: Vec<C64> = x0.iter().zip(&d).map(|(a, b)| a + b).collect();
                 let scale = match fac[pt] {
@@ -566,6 +625,12 @@ fn forward_sensitivities(
                         let i = c.elements[source]
                             .port_flow(&cx, &x, &c.branches(source), 0)
                             .unwrap_or_default();
+                        if i.norm() == 0.0 || !i.norm().is_finite() {
+                            failure = Some(format!(
+                                "drive: the source current is zero at {f} Hz; cannot hold it constant"
+                            ));
+                            break;
+                        }
                         C64::new(amps, 0.0) / i
                     }
                 };
