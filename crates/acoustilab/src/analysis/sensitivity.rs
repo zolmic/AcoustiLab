@@ -40,7 +40,8 @@
 //! frequency grid: they are reported as not differentiable. A kink or jump
 //! from `round`, `min`, `clamp`, `if` and the like that changes none of
 //! these is flagged when the two one-sided differences disagree by more
-//! than half the largest central derivative of that probe.
+//! than half the largest central derivative of that probe's complex
+//! logarithm, level and phase together (see `continuity`).
 //!
 //! **Forward sensitivities** (option `method: forward_sensitivity`) evaluate
 //! the same stepped designs without solving them: at each frequency the base
@@ -688,8 +689,17 @@ fn finish(s: &Step, r0: &SolveResult, pidx: &[usize], y: &StepValues, h: f64) ->
         }
         if scheme == Scheme::Central {
             let id = &r0.probes[pi].id;
-            for (what, a, b, sd) in [("level", &ga, &gb, &db[j]), ("phase", &pa, &pb, &deg[j])] {
-                if let Some(w) = continuity(&r0.freqs_hz, a, b, sd, h) {
+            // The largest central derivative of ln y per unit of ln p, level
+            // (nepers) and phase (radians) together, in each part's unit.
+            let s_ln = (0..nf)
+                .map(|k| (db[j][k] * 100.0 / DB_PER_NEPER).hypot(deg[j][k] * 100.0 / DEG_PER_RAD))
+                .filter(|x| x.is_finite())
+                .fold(0.0f64, f64::max);
+            for (what, a, b, unit) in [
+                ("level", &ga, &gb, DB_PER_NEPER),
+                ("phase", &pa, &pb, DEG_PER_RAD),
+            ] {
+                if let Some(w) = continuity(&r0.freqs_hz, a, b, s_ln * unit, h) {
                     warnings.push(format!("{what} of '{id}': {w}"));
                 }
             }
@@ -719,20 +729,32 @@ fn finish(s: &Step, r0: &SolveResult, pidx: &[usize], y: &StepValues, h: f64) ->
     }
 }
 
+/// dB per neper, 20/ln 10: a level change of ln|y| in nepers, in dB.
+const DB_PER_NEPER: f64 = 20.0 / std::f64::consts::LN_10;
+/// Degrees per radian.
+const DEG_PER_RAD: f64 = 180.0 / std::f64::consts::PI;
+
 /// Compares the forward and backward one-sided differences (g₊/h and
-/// −g₋/h, with g relative to the base point) with the central derivative
-/// `s` (per percent). A smooth response gives |D₊ − D₋| = h·|g''|, far below
-/// the derivative itself; a jump or kink inside the step gives a difference
-/// of the order of the derivative. Returns a warning when the difference
-/// exceeds half the largest central derivative of the probe (and 1e-6 per
-/// unit of ln p).
-fn continuity(freqs: &[f64], gp: &[f64], gm: &[f64], s: &[f64], h: f64) -> Option<String> {
-    let scale = s
-        .iter()
-        .filter(|x| x.is_finite())
-        .fold(0.0f64, |m, x| m.max(x.abs()))
-        * 100.0;
-    if scale == 0.0 {
+/// −g₋/h, with g relative to the base point) of the level or the phase with
+/// `scale`, the probe's largest central derivative of ln y (level and phase
+/// together) per unit of ln p, in the level's or the phase's unit. A smooth
+/// response gives |D₊ − D₋| = h·|g''|, far below the derivative; a jump or
+/// kink inside the step gives a difference of the order of the derivative.
+/// Returns a warning when the difference exceeds half of `scale` (and 1e-6).
+///
+/// The scale is that of ln y, not of the part tested: when a parameter
+/// scales a probe by a real factor, its phase derivative is zero to
+/// rounding, and h·|g''| of the phase, however small, would exceed half of
+/// it. Forward sensitivities make that certain: the chord step's error
+/// h²·A₀⁻¹A₁A₀⁻¹r₁ (see `forward_sensitivities`) cancels in the central
+/// difference but adds in D₊ − D₋. On the template, the coil resistance
+/// (Bl follows √Re at a fixed Qes, so Re only scales the level) was
+/// flagged at every frequency of the phase of `p_drp`, with a phase
+/// derivative of 9e-12 degrees per %. A kink shows in the part that
+/// carries it, which holds at least 1/√2 of |d ln y| somewhere, so it is
+/// still found.
+fn continuity(freqs: &[f64], gp: &[f64], gm: &[f64], scale: f64, h: f64) -> Option<String> {
+    if !(scale > 0.0) {
         return None;
     }
     let mut count = 0;

@@ -415,6 +415,38 @@ fn drive_case(method: Method) {
 }
 
 #[test]
+fn a_parameter_that_only_scales_the_level_raises_no_kink_warning() {
+    // The template's driver is given by fs, Qms, Qes and Re, so Bl follows
+    // √Re at a fixed Qes and Re scales every response by a real factor
+    // (−10/ln 10/100 dB per % under the power drive; the phase does not
+    // move). The phase's one-sided differences then disagree by h·|g''|
+    // (with forward sensitivities also by the chord step's h² error),
+    // which is far above half its zero derivative but far below that of
+    // ln y: no kink. The level derivative is checked to show the premise.
+    let d = design_with(
+        &serde_json::from_str::<Value>(TEMPLATE).unwrap(),
+        &[("points_per_octave", num(8.0))],
+    );
+    for m in METHODS {
+        let j = sensitivity::jacobian(
+            &d,
+            &SensitivityOptions {
+                parameters: Some(vec!["driver_Re_ohm".into()]),
+                probes: Some(vec!["p_drp".into()]),
+                ..with_method(m)
+            },
+        )
+        .unwrap();
+        let p = j.parameter("driver_Re_ohm").unwrap();
+        assert!(p.warnings.is_empty(), "{m:?}: {:?}", p.warnings);
+        for (db, deg) in p.db_per_pct[0].iter().zip(&p.deg_per_pct[0]) {
+            assert!((db + DB_PER_PCT / 2.0).abs() < 1e-8, "{m:?}: {db}");
+            assert!(deg.abs() < 1e-8, "{m:?}: {deg}");
+        }
+    }
+}
+
+#[test]
 fn forward_sensitivities_agree_with_complete_solves() {
     // The template under every drive convention (the forward method applies
     // the drive factor itself), at L1 and L0. The two methods have
