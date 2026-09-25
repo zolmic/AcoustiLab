@@ -20,6 +20,7 @@
 //! Build with `web/scripts/build-wasm.sh` (see docs/web.md).
 
 pub mod api;
+pub mod time;
 
 use std::sync::{Mutex, Once};
 use wasm_bindgen::prelude::*;
@@ -254,4 +255,47 @@ pub fn virtual_measure(netlist_json: &str, spec_json: &str) -> String {
 pub fn probe_curve(netlist_json: &str, overrides_json: &str, probe: &str) -> String {
     install_panic_hook();
     api::to_string(&fit::probe_curve_value(netlist_json, overrides_json, probe))
+}
+
+// ----- Time domain, vector fitting and isolation (docs/time-domain.md, docs/isolation.md)
+
+/// Impulse, step and energy-time curve (mixed and minimum phase), excess
+/// phase and group delay, the Section 16 phase decision and the E46
+/// impulse-length check of a probe (options: see `time::impulse_value`).
+#[wasm_bindgen]
+pub fn impulse(netlist_json: &str, overrides_json: &str, options_json: &str) -> String {
+    install_panic_hook();
+    debug_panic_hook(netlist_json);
+    api::to_string(&time::impulse_value(
+        netlist_json,
+        overrides_json,
+        options_json,
+    ))
+}
+
+/// Vector fit of a probe: poles/Q table, zeros, fit error, group delay and
+/// optionally the attribution of resonances to parameters (options: see
+/// `time::vector_fit_value`).
+#[wasm_bindgen]
+pub fn vector_fit(netlist_json: &str, overrides_json: &str, options_json: &str) -> String {
+    install_panic_hook();
+    debug_panic_hook(netlist_json);
+    api::to_string(&time::vector_fit_value(
+        netlist_json,
+        overrides_json,
+        options_json,
+    ))
+}
+
+/// Passive insertion loss at the drum and the bleed estimate (options: see
+/// `time::isolation_value`).
+#[wasm_bindgen]
+pub fn isolation(netlist_json: &str, overrides_json: &str, options_json: &str) -> String {
+    install_panic_hook();
+    debug_panic_hook(netlist_json);
+    api::to_string(&time::isolation_value(
+        netlist_json,
+        overrides_json,
+        options_json,
+    ))
 }

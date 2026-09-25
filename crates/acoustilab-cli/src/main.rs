@@ -10,6 +10,9 @@
 //! acoustilab convert IN OUT
 //! acoustilab export <netlist.json> --probe ID --out FILE
 //! acoustilab types
+//! acoustilab ir <netlist.json> [--probe ID] [--fs 48000] [--n 8192] [--wav FILE] ...
+//! acoustilab poles <netlist.json> [--probe ID] [--order 30] [--attribute] ...
+//! acoustilab isolation <netlist.json> [--probe ID] [--entrance NODE] [--csv] ...
 //! acoustilab help | --help | -h
 //! acoustilab version | --version | -V
 //! ```
@@ -23,6 +26,7 @@ use std::io::Write;
 use std::process::ExitCode;
 
 mod score;
+mod time;
 
 const USAGE: &str = "usage:
   acoustilab solve <netlist.json> [--csv] [--out FILE]   solve and print results (JSON by default)
@@ -34,7 +38,8 @@ const USAGE: &str = "usage:
     solve, check, params and score take --set NAME=VALUE (repeatable) to override a parameter
   acoustilab types                                       list element types
   acoustilab help                                        print this message
-  acoustilab version                                     print the engine version";
+  acoustilab version                                     print the engine version
+    ir, poles and isolation (below) also take --set NAME=VALUE";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -98,10 +103,19 @@ fn run(args: &[String]) -> Result<(), String> {
     };
     match cmd.as_str() {
         "help" | "--help" | "-h" => {
-            println!("{USAGE}\n{}", fit_cmd::USAGE);
+            println!("{USAGE}\n{}\n{}", fit_cmd::USAGE, time::USAGE);
             Ok(())
         }
         "fit" | "measure" | "convert" | "export" => fit_cmd::run(args, &overrides),
+        "ir" | "poles" | "isolation" => {
+            let path = args.get(1).ok_or(USAGE)?;
+            let rest = &args[2..];
+            match cmd.as_str() {
+                "ir" => time::ir(path, rest, &overrides),
+                "poles" => time::poles(path, rest, &overrides),
+                _ => time::isolation(path, rest, &overrides),
+            }
+        }
         "version" | "--version" | "-V" => {
             println!("{}", acoustilab::solve::ENGINE);
             Ok(())

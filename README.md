@@ -54,5 +54,7 @@ Measured curves (FRD, ZMA, REW text, CSV with a metadata sidecar), parameter
 identification with an identifiability report, and a virtual rig for
 synthetic measurements are described in `docs/fitting.md`.
 
+Impulse responses, pole/Q tables and passive isolation: `acoustilab ir | poles | isolation` (`docs/time-domain.md`, `docs/isolation.md`).
+
 To run the browser UI:
 `cd web && npm ci && npm run dev` (details in `docs/web.md`).
