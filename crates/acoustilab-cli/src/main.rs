@@ -9,6 +9,7 @@
 //! acoustilab measure <netlist.json> --probe ID --out FILE [--noise-db X --seed S]
 //! acoustilab convert IN OUT
 //! acoustilab export <netlist.json> --probe ID --out FILE
+//! acoustilab sens | tornado | explain | readouts | mc <netlist.json> [options]
 //! acoustilab types
 //! acoustilab ir <netlist.json> [--probe ID] [--fs 48000] [--n 8192] [--wav FILE] ...
 //! acoustilab poles <netlist.json> [--probe ID] [--order 30] [--attribute] ...
@@ -17,6 +18,7 @@
 //! acoustilab version | --version | -V
 //! ```
 
+mod analysis;
 mod fit_cmd;
 
 use acoustilab::expr::PValue;
@@ -36,6 +38,19 @@ const USAGE: &str = "usage:
                                                          error metrics and preference scores against a target
   acoustilab score --list                                list the bundled targets
     solve, check, params and score take --set NAME=VALUE (repeatable) to override a parameter
+  acoustilab sens <netlist.json> [--probe ID]... [--param NAME]... [--step H]
+                   [--method complete_solves | forward_sensitivity] [--json | --csv]
+                                                         sensitivities in dB per percent
+  acoustilab tornado <netlist.json> [--probe ID] [--f HZ | --band LO HI | --readout NAME]
+                     [--param NAME]... [--rated OHM] [--re OHM] [--driver ID] [--impedance ID] [--json]
+                                                         metric at each parameter's tolerance ends
+  acoustilab explain <netlist.json> [--probe ID] [--top N] [--step PCT] [--threshold DB] [--json]
+                                                         sentences generated from re-solves
+  acoustilab readouts <netlist.json> [--probe ID] [--impedance ID] [--rated OHM] [--re OHM]
+                      [--driver ID] [--json]             resonance, Q, impedance, sensitivity, bass
+  acoustilab mc <netlist.json> [-n N] [--seed S] [--param NAME]... [--probe ID]... [--chunk K]
+                [--csv | --json] [--out FILE]            Latin hypercube Monte Carlo over the tolerances
+    the analyses also take --set and --out; see docs/analysis.md
   acoustilab types                                       list element types
   acoustilab help                                        print this message
   acoustilab version                                     print the engine version
@@ -182,6 +197,9 @@ fn run(args: &[String]) -> Result<(), String> {
             std::io::stdout()
                 .write_all(text.as_bytes())
                 .map_err(|e| e.to_string())
+        }
+        "sens" | "tornado" | "explain" | "readouts" | "mc" => {
+            analysis::run(cmd, &args[1..], &overrides)
         }
         _ => Err(USAGE.into()),
     }

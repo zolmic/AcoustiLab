@@ -50,11 +50,20 @@ takes a parameter verbatim and both names carry a unit, the units must agree:
 instead, `"radius_mm": "=cup_radius_cm * 10"`.
 
 **Tolerance.** `{"rel": 0.05}` (±5 %) or `{"abs": 0.05}` (in the parameter's
-unit), with *`dist`*: `normal` (default; the tolerance is two standard
-deviations, 95 % coverage), `uniform` (flat over ± the tolerance) or `lognormal`
-(ln of the value is normal; needs `rel`), and *`source`* (where the number
-comes from). Monte Carlo analysis samples these. Samples outside `min`/`max`
-are clipped to the bounds.
+unit), with *`dist`* and *`source`* (where the number comes from). With μ the
+parameter's current value and t the half-width (`rel`·|μ| or `abs`):
+
+| `dist` | samples | tornado ends |
+|---|---|---|
+| `normal` (default) | μ + (t/2)·z: the tolerance is two standard deviations (95.4 % coverage) | μ ± t |
+| `uniform` | flat over μ ± t | μ ± t |
+| `lognormal` (needs `rel`) | μ·exp(σ·z), σ = ln(1 + rel)/2: ln x is normal with median μ, and its 2σ points are μ·(1 + rel) and μ/(1 + rel) | μ/(1 + rel), μ·(1 + rel) |
+
+z is a standard normal deviate. A lognormal tolerance is therefore +rel above
+and −rel/(1 + rel) below (for 0.5: 1.5μ and 0.667μ), which suits gaps and
+leaks that cannot go negative. Monte Carlo analysis samples these (Latin
+hypercube, `docs/analysis.md`); samples outside `min`/`max` are clipped to
+the bounds and counted.
 
 ## Expressions
 

@@ -44,6 +44,7 @@ parameters and use expressions (`docs/parameters.md`);
 ```sh
 cargo run -p acoustilab-cli -- params examples/design_over_ear.json
 cargo run -p acoustilab-cli -- solve examples/design_over_ear.json --set vent_count=3 --set rear=open --csv
+cargo run -p acoustilab-cli -- explain examples/design_over_ear.json   # also sens, tornado, readouts, mc: docs/analysis.md
 ```
 
 Target curves (with provenance and fixture), response error metrics and
