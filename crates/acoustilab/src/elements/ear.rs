@@ -20,8 +20,9 @@
 //! and `tools/ear/`. The only other numbers in this file are the Type 3.3
 //! extension defaults and the validity bands, each cited where it is used.
 
-use super::{Build, Constructor, Element, FreqCx, OnePort, TwoPort};
+use super::{Annotated, Build, Constructor, Element, FreqCx, OnePort, TwoPort};
 use crate::air::AirState;
+use crate::diag::{Note, Severity};
 use crate::error::{Error, Result};
 use crate::mna::{abcd_mul, abcd_series, abcd_shunt, potential, Mna, Unknown, ONE, ZERO};
 use crate::netlist::Domain;
@@ -316,12 +317,14 @@ fn canal_limits(element: &str, max_radius: f64, air: &AirState) -> Vec<ValidityL
             criterion: "canal: first transverse mode at the widest section",
             begin_hz: Some(0.7 * cut_on),
             deep_hz: Some(cut_on),
+            ..Default::default()
         },
         ValidityLimit {
             element: element.to_string(),
             criterion: "canal: Stinson low-reduced-frequency bound at the widest section",
             begin_hz: Some(0.8 * stinson),
             deep_hz: Some(stinson),
+            ..Default::default()
         },
     ]
 }
@@ -1217,6 +1220,7 @@ impl DrumModel {
                 criterion,
                 begin_hz: Some(begin),
                 deep_hz: deep,
+                ..Default::default()
             }]
         };
         match self {
@@ -1562,12 +1566,29 @@ fn coupler_model(b: &mut Build) -> Result<Iec711> {
 fn coupler_limits(id: &str, m: &Iec711, air: &AirState) -> Vec<ValidityLimit> {
     let mut v = vec![ValidityLimit {
         element: id.to_string(),
-        criterion: "IEC 60318-4 literature model: human-valid 100 Hz to 10 kHz, coupler-only above",
+        criterion:
+            "IEC 60318-4 literature model: human-valid 100 Hz to 10 kHz, coupler-only outside",
         begin_hz: Some(10_000.0),
         deep_hz: Some(16_000.0),
+        // The standard does not validate the simulator below 100 Hz: the
+        // 20-100 Hz band is coupler-extrapolated (spec Section 11).
+        low_begin_hz: Some(100.0),
+        low_deep_hz: None,
     }];
     v.extend(canal_limits(id, m.r0, air));
     v
+}
+
+/// The IEC 60318-4 macros are fitted to literature, not to the standard.
+fn coupler_note() -> Note {
+    Note {
+        code: "unverified_model",
+        severity: Severity::Info,
+        message:
+            "IEC 60318-4 simulator: literature model (Luan et al. 2019, fitted side volumes), \
+                  not verified against the standard's Table 1 (docs/ear-loads.md)"
+                .into(),
+    }
 }
 
 /// Adds the coupler (reference plane `rp` → microphone plane `drp`).
@@ -1614,7 +1635,10 @@ fn iec60318_4(mut b: Build) -> Result<Box<dyn Element>> {
     let mut mb = MacroBuilder::new(term);
     mb.short(&id, term, eep);
     add_coupler(&mut mb, &id, eep, drp, &m);
-    Ok(mb.finish(id, "iec60318_4", limits))
+    Ok(Annotated::with_notes(
+        mb.finish(id, "iec60318_4", limits),
+        vec![coupler_note()],
+    ))
 }
 
 fn type33(mut b: Build) -> Result<Box<dyn Element>> {
@@ -1654,7 +1678,10 @@ fn type33(mut b: Build) -> Result<Box<dyn Element>> {
         limits: Vec::new(),
     });
     add_coupler(&mut mb, &id, rp, drp, &m);
-    Ok(mb.finish(id, "type33", limits))
+    Ok(Annotated::with_notes(
+        mb.finish(id, "type33", limits),
+        vec![coupler_note()],
+    ))
 }
 
 fn type43(mut b: Build) -> Result<Box<dyn Element>> {
@@ -1695,6 +1722,7 @@ fn type43(mut b: Build) -> Result<Box<dyn Element>> {
         criterion: "ITU-T P.57 Type 4.3: specified 20 Hz to 20 kHz",
         begin_hz: Some(20_000.0),
         deep_hz: None,
+        ..Default::default()
     }];
     limits.extend(drum.limits(&id));
     let r_max = |c: &[Cone]| c.iter().map(|c| c.r1.max(c.r2)).fold(0.0, f64::max);

@@ -14,13 +14,48 @@
 //!   carries one, so the UI can point at it.
 
 use acoustilab::circuit::{Circuit, Probe, ProbeKind};
+use acoustilab::expr::PValue;
 use acoustilab::netlist::Domain;
+use acoustilab::params::{Overrides, Parametric};
 use acoustilab::{Error, C64};
 use serde_json::{json, Map, Value};
 
 /// Solves a netlist. Returns the result document or an error object.
 pub fn solve_value(netlist_json: &str) -> Value {
-    let circuit = match Circuit::from_json(netlist_json) {
+    solve_with_value(netlist_json, "")
+}
+
+/// Parses `{"name": value, ..}` parameter overrides ("" means none).
+pub fn parse_overrides(overrides_json: &str) -> Result<Overrides, Value> {
+    if overrides_json.trim().is_empty() {
+        return Ok(Overrides::new());
+    }
+    let v: Value = serde_json::from_str(overrides_json)
+        .map_err(|e| json!({"error": format!("overrides JSON: {e}"), "kind": "parameter"}))?;
+    let obj = v.as_object().ok_or_else(
+        || json!({"error": "overrides must be an object of parameter values", "kind": "parameter"}),
+    )?;
+    obj.iter()
+        .map(|(k, x)| {
+            PValue::from_json(x).map(|p| (k.clone(), p)).ok_or_else(|| {
+                json!({
+                    "error": format!("parameter '{k}': override must be a number, boolean or string"),
+                    "kind": "parameter",
+                    "parameter": k,
+                })
+            })
+        })
+        .collect()
+}
+
+/// Solves a netlist with parameter overrides (`{"name": value}` JSON, or
+/// "" for none).
+pub fn solve_with_value(netlist_json: &str, overrides_json: &str) -> Value {
+    let overrides = match parse_overrides(overrides_json) {
+        Ok(o) => o,
+        Err(e) => return e,
+    };
+    let circuit = match Circuit::from_json_with(netlist_json, &overrides) {
         Ok(c) => c,
         Err(e) => return error_value(&e),
     };
@@ -78,6 +113,21 @@ fn check_probes(c: &Circuit) -> acoustilab::Result<()> {
     Ok(())
 }
 
+/// Describes a netlist's parameters for a user interface: `{"parameters":
+/// [{name, kind, value, default, min, max, step, log, choices, label, group,
+/// unit, description, advanced, tolerance, expr}], "ui": ..}` with values
+/// resolved under the overrides (derived ones included).
+pub fn parameters_value(netlist_json: &str, overrides_json: &str) -> Value {
+    let overrides = match parse_overrides(overrides_json) {
+        Ok(o) => o,
+        Err(e) => return e,
+    };
+    match Parametric::parse(netlist_json).and_then(|p| p.describe(&overrides)) {
+        Ok(v) => v,
+        Err(e) => error_value(&e),
+    }
+}
+
 /// Element type names the engine accepts, as a JSON array.
 pub fn element_types_value() -> Value {
     json!(acoustilab::elements::known_types())
@@ -104,6 +154,7 @@ pub fn to_string(v: &Value) -> String {
 /// | `unknown_type` | `element`, `type` |
 /// | `singular` | `f_Hz`, `unknown`, and `node` or `element` when the undetermined unknown belongs to one |
 /// | `probe` | `probe` |
+/// | `parameter` | `parameter` |
 pub fn error_value(e: &Error) -> Value {
     let mut o = Map::new();
     o.insert("error".into(), json!(e.to_string()));
@@ -140,6 +191,10 @@ pub fn error_value(e: &Error) -> Value {
         Error::Probe { id, .. } => {
             o.insert("probe".into(), json!(id));
             "probe"
+        }
+        Error::Parameter { name, .. } => {
+            o.insert("parameter".into(), json!(name));
+            "parameter"
         }
         _ => "other",
     };

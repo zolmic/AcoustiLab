@@ -27,8 +27,11 @@
 //! embedded at compile time; `material: "<id>"` fills in their parameters.
 
 use super::ducts::{surface_resistance, EndResistance};
-use super::{Build, Constructor, Element, FreqCx, OnePort, TwoPort};
+use super::{
+    particle_velocity_check, Annotated, Build, Constructor, Element, FreqCx, OnePort, TwoPort,
+};
 use crate::air::AirState;
+use crate::diag::{Note, Operating, Severity};
 use crate::error::{Error, Result};
 use crate::mna::{potential, Mna, Unknown};
 use crate::netlist::Domain;
@@ -487,6 +490,7 @@ impl MeshModel {
                 criterion: "mesh pores: Stinson low-reduced-frequency bound",
                 begin_hz: Some(0.8 * validity::stinson_bound(p.radius)),
                 deep_hz: Some(validity::stinson_bound(p.radius)),
+                ..Default::default()
             })
             .into_iter()
             .collect()
@@ -547,18 +551,58 @@ impl Element for Mesh {
     fn validity(&self, _air: &AirState, _level: u8) -> Vec<ValidityLimit> {
         self.model.limits(&self.id)
     }
+    /// Pore velocity against the laminar-flow limit, when the pore geometry
+    /// is known.
+    fn operating(&self, cx: &FreqCx, x: &[C64], _br: &[usize], out: &mut Vec<Operating>) {
+        if let Some(v) = self.pore_velocity(cx, x) {
+            let mut c = particle_velocity_check(C64::new(v, 0.0), 1.0, "the mesh pores");
+            c.value = v;
+            c.limit = PORE_VELOCITY_WARNING;
+            out.push(c);
+        }
+    }
     fn as_any(&self) -> &dyn Any {
         self
     }
 }
 
+/// A note for a database entry whose values are not measured or from a
+/// datasheet.
+pub fn material_note(id: &str, kinds: &[&str]) -> Option<Note> {
+    let e = material(id, kinds).ok()?;
+    match e.status.as_str() {
+        "estimated" | "unverified" => Some(Note {
+            code: "material_data",
+            severity: Severity::Info,
+            message: format!(
+                "material '{}' is {} data ({}); treat results that depend on it as indicative",
+                e.id, e.status, e.source
+            ),
+        }),
+        _ => None,
+    }
+}
+
+/// Notes for the element's `material` key, if any.
+fn material_notes(b: &Build, kinds: &[&str]) -> Vec<Note> {
+    b.params
+        .peek_str("material")
+        .and_then(|m| material_note(m, kinds))
+        .into_iter()
+        .collect()
+}
+
 fn mesh(mut b: Build) -> Result<Box<dyn Element>> {
     let (n1, n2) = series_terminals(&b)?;
+    let notes = material_notes(&b, &["mesh", "fabric"]);
     let air = b.air;
     let model = MeshModel::from_params(&mut b.params, &air, None)?;
     let id = b.id.clone();
     b.finish()?;
-    Ok(Box::new(Mesh { id, n1, n2, model }))
+    Ok(Annotated::with_notes(
+        Box::new(Mesh { id, n1, n2, model }),
+        notes,
+    ))
 }
 
 // ----- Perforated plate -----------------------------------------------------------
@@ -678,6 +722,7 @@ fn perforated_plate(mut b: Build) -> Result<Box<dyn Element>> {
             criterion: "perforate holes: Stinson low-reduced-frequency bound",
             begin_hz: Some(0.8 * validity::stinson_bound(hole_radius)),
             deep_hz: Some(validity::stinson_bound(hole_radius)),
+            ..Default::default()
         },
     ];
     b.finish()?;
@@ -921,17 +966,27 @@ impl PorousLayer {
                 criterion: "lumped porous slab |Γ|t",
                 begin_hz: Some(self.freq_at_gamma_t(air, x10)),
                 deep_hz: Some(self.freq_at_gamma_t(air, x36)),
+                ..Default::default()
             });
         }
-        if let Some((_, hi)) = self.model.window() {
-            // The fitted range ends at f/σ = 1; shading deepens one octave
-            // beyond it. The lower end (f/σ = 0.01) is reported by
-            // `PorousModel::window`, as limits only express upper bounds.
+        if let Some((lo, hi)) = self.model.window() {
+            // The fitted range is 0.01 ≤ f/σ ≤ 1. Above it shading deepens
+            // one octave out. Below it, shading deepens one octave below the
+            // window or where the law's Im K_eq turns negative and is
+            // clipped (f/σ ≈ 0.0106 Delany–Bazley, 0.00105 Miki), whichever
+            // is higher: Delany–Bazley is clipped just inside its window.
+            let clip = match self.model {
+                PorousModel::DelanyBazley { sigma } => 0.0106 * sigma,
+                PorousModel::Miki { sigma } => 0.00105 * sigma,
+                _ => 0.5 * lo,
+            };
             v.push(ValidityLimit {
                 element: id.to_string(),
-                criterion: "one-parameter porous law: fitted range f/σ ≤ 1",
+                criterion: "one-parameter porous law: fitted range 0.01 ≤ f/σ ≤ 1",
                 begin_hz: Some(hi),
                 deep_hz: Some(2.0 * hi),
+                low_begin_hz: Some(lo),
+                low_deep_hz: Some(clip.max(0.5 * lo)),
             });
         }
         v
@@ -1018,7 +1073,12 @@ fn porous_model(p: &mut Params) -> Result<PorousModel> {
     }
 }
 
-fn porous_layer(mut b: Build) -> Result<Box<dyn Element>> {
+fn porous_layer(b: Build) -> Result<Box<dyn Element>> {
+    let notes = material_notes(&b, &["porous"]);
+    Ok(Annotated::with_notes(porous_layer_element(b)?, notes))
+}
+
+fn porous_layer_element(mut b: Build) -> Result<Box<dyn Element>> {
     let model = porous_model(&mut b.params)?;
     let p = &mut b.params;
     let thickness = p.positive("thickness", Dim::Length)?;

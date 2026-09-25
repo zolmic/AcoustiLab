@@ -45,6 +45,37 @@ pub enum Dim {
 }
 
 impl Dim {
+    /// Every dimension, for suffix lookups.
+    pub const ALL: [Dim; 27] = [
+        Dim::Length,
+        Dim::Area,
+        Dim::Volume,
+        Dim::Mass,
+        Dim::Time,
+        Dim::Frequency,
+        Dim::Temperature,
+        Dim::Pressure,
+        Dim::Voltage,
+        Dim::Current,
+        Dim::Power,
+        Dim::ElecResistance,
+        Dim::Inductance,
+        Dim::Capacitance,
+        Dim::ForceFactor,
+        Dim::Force,
+        Dim::MechCompliance,
+        Dim::MechStiffness,
+        Dim::MechResistance,
+        Dim::Velocity,
+        Dim::AcousticCompliance,
+        Dim::AcousticResistance,
+        Dim::AcousticInertance,
+        Dim::VolumeVelocity,
+        Dim::SpecificFlowResistance,
+        Dim::FlowResistivity,
+        Dim::Density,
+    ];
+
     /// (suffix, factor-to-SI). Temperature is special-cased.
     pub fn suffixes(self) -> &'static [(&'static str, f64)] {
         use Dim::*;
@@ -78,6 +109,24 @@ impl Dim {
             Density => &[("kg_per_m3", 1.0), ("g_per_cm3", 1e3)],
         }
     }
+}
+
+/// The unit suffix a key or parameter name ends with (`_mm`, `_mm_per_N`,
+/// ...), its dimension and its factor to SI; the longest match wins.
+/// `None` for names without a known suffix.
+pub fn unit_suffix(name: &str) -> Option<(&'static str, Dim, f64)> {
+    let mut best: Option<(&'static str, Dim, f64)> = None;
+    for dim in Dim::ALL {
+        for &(suffix, factor) in dim.suffixes() {
+            let matches = name.len() > suffix.len() + 1
+                && name.ends_with(suffix)
+                && name.as_bytes()[name.len() - suffix.len() - 1] == b'_';
+            if matches && best.is_none_or(|b| suffix.len() > b.0.len()) {
+                best = Some((suffix, dim, factor));
+            }
+        }
+    }
+    best
 }
 
 /// Reads parameters from an element's JSON object, tracking which keys were
@@ -254,6 +303,11 @@ impl Params {
                 Ok(Some(s))
             }
         }
+    }
+
+    /// A string value, without marking the key as consumed.
+    pub fn peek_str(&self, key: &str) -> Option<&str> {
+        self.map.get(key).and_then(Value::as_str)
     }
 
     /// Raw JSON value (for nested objects such as distributions).

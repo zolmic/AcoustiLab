@@ -373,3 +373,56 @@ fn panic_message_is_taken_once() {
     assert_eq!(acoustilab_wasm::take_last_panic(), "engine panic: test");
     assert_eq!(acoustilab_wasm::take_last_panic(), "");
 }
+
+#[test]
+fn parameters_are_described_and_overridable() {
+    let text = example("design_over_ear.json");
+    let d = api::parameters_value(&text, "");
+    let params = d["parameters"].as_array().unwrap();
+    let find = |n: &str| params.iter().find(|p| p["name"] == n).unwrap().clone();
+    let vc = find("vent_count");
+    assert_eq!(vc["kind"], "integer");
+    assert_eq!(vc["value"], json!(1));
+    assert_eq!(vc["group"], "Rear");
+    assert_eq!(find("front_volume_cm3")["kind"], "derived");
+    assert_eq!(find("ear")["choices"][1]["value"], "type43");
+    assert_eq!(d["ui"]["primary_probe"], "p_drp");
+    // Derived values follow overrides.
+    let d = api::parameters_value(&text, r#"{"front_radius_mm": 20}"#);
+    let fv = d["parameters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "front_volume_cm3")
+        .unwrap()["value"]
+        .as_f64()
+        .unwrap();
+    assert!((fv - PI * 400.0 * 15.0 / 1000.0).abs() < 1e-9);
+
+    let base = api::solve_with_value(&text, "");
+    let open = api::solve_with_value(&text, r#"{"rear": "open", "vent_count": 0}"#);
+    assert!(base["error"].is_null() && open["error"].is_null());
+    assert_eq!(open["meta"]["parameters"]["rear"], "open");
+    assert_ne!(
+        probe(&base, "p_drp")["spl_dB"],
+        probe(&open, "p_drp")["spl_dB"]
+    );
+    assert!(base["warnings"].as_array().is_some());
+    assert_eq!(base["meta"]["drive"]["convention"], "power");
+
+    // Bad overrides are parameter errors that name the parameter.
+    for (ov, name) in [
+        (r#"{"vent_count": 2.5}"#, "vent_count"),
+        (r#"{"front_volume_cm3": 3}"#, "front_volume_cm3"),
+        (r#"{"ear": "hats"}"#, "ear"),
+        (r#"{"nope": 1}"#, "nope"),
+        (r#"{"rear": [1]}"#, "rear"),
+    ] {
+        let e = api::solve_with_value(&text, ov);
+        assert_eq!(e["kind"], "parameter", "{ov}: {e}");
+        assert_eq!(e["parameter"], name, "{ov}: {e}");
+    }
+    assert_eq!(api::solve_with_value(&text, "[1]")["kind"], "parameter");
+    let parsed: Value = serde_json::from_str(&acoustilab_wasm::parameters(&text, "")).unwrap();
+    assert_eq!(parsed, api::parameters_value(&text, ""));
+}

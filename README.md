@@ -22,7 +22,7 @@ crates/acoustilab-wasm   wasm-bindgen wrapper used by the web UI
 web/                     browser UI (Vite + TypeScript), see docs/web.md
 data/                    driver records, ear-load and material parameters (with provenance)
 tools/                   Python generators for reference fixtures and fits
-docs/                    spec, errata, conventions, netlist reference, ear loads, web UI
+docs/                    spec, errata, conventions, netlist and parameter reference, ear loads, web UI
 examples/                example netlists
 ```
 
@@ -37,5 +37,14 @@ cargo run -p acoustilab-cli -- solve examples/sealed_cup.json --csv
 cargo build -p acoustilab --target wasm32-unknown-unknown --release
 ```
 
-The netlist format is described in `docs/netlist.md`. To run the browser UI:
+The netlist format is described in `docs/netlist.md`. Netlists can declare
+parameters and use expressions (`docs/parameters.md`);
+`examples/design_over_ear.json` is a parametric over-ear design:
+
+```sh
+cargo run -p acoustilab-cli -- params examples/design_over_ear.json
+cargo run -p acoustilab-cli -- solve examples/design_over_ear.json --set vent_count=3 --set rear=open --csv
+```
+
+To run the browser UI:
 `cd web && npm ci && npm run dev` (details in `docs/web.md`).

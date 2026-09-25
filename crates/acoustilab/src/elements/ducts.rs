@@ -22,8 +22,12 @@
 
 use super::materials::{Mesh, MeshModel};
 use super::radiation::{radiation_impedance, Baffle};
-use super::{Build, Composite, CompositePort, Constructor, Element, FreqCx, OnePort, TwoPort};
+use super::{
+    particle_velocity_check, Annotated, Build, Composite, CompositePort, Constructor, Element,
+    FreqCx, OnePort, TwoPort,
+};
 use crate::air::AirState;
+use crate::diag::Operating;
 use crate::error::Result;
 use crate::mna::{abcd_mul, abcd_series, potential, Mna, Unknown};
 use crate::netlist::Domain;
@@ -236,6 +240,7 @@ impl Duct {
             criterion: "lumped duct |Γ|l",
             begin_hz: at(validity::BEGIN_ERROR),
             deep_hz: at(validity::DEEP_ERROR),
+            ..Default::default()
         }
     }
 
@@ -269,12 +274,14 @@ impl Duct {
                 criterion: "duct: first transverse mode",
                 begin_hz: Some(0.7 * cut_on),
                 deep_hz: Some(cut_on),
+                ..Default::default()
             },
             ValidityLimit {
                 element: id.to_string(),
                 criterion: "duct: Stinson low-reduced-frequency bound",
                 begin_hz: Some(0.8 * stinson),
                 deep_hz: Some(stinson),
+                ..Default::default()
             },
         ]
     }
@@ -324,7 +331,14 @@ fn duct_part(
     level: u8,
     limits: Vec<ValidityLimit>,
 ) -> Box<dyn Element> {
-    if level == 0 {
+    let area = model.duct.section.area() * model.duct.count as f64;
+    let what = match (type_name, model.duct.section) {
+        ("vent", _) => "the vent hole",
+        (_, Section::Slit { .. }) => "the slit",
+        ("tube", _) => "the tube",
+        _ => "the duct",
+    };
+    let inner: Box<dyn Element> = if level == 0 {
         Box::new(OnePort {
             id,
             type_name,
@@ -342,7 +356,8 @@ fn duct_part(
             abcd: Box::new(move |cx: &FreqCx| model.abcd(cx.air, cx.omega)),
             limits,
         })
-    }
+    };
+    Annotated::aperture(inner, area, what)
 }
 
 /// Builds the element for a duct between the first two terminals.
@@ -480,6 +495,7 @@ fn area_step(mut b: Build) -> Result<Box<dyn Element>> {
         criterion: "area step: static inertance below the wide duct's first cut-on",
         begin_hz: Some(0.7 * cut),
         deep_hz: Some(cut),
+        ..Default::default()
     }];
     b.finish()?;
     Ok(Box::new(OnePort {
@@ -576,11 +592,12 @@ fn vent(mut b: Build) -> Result<Box<dyn Element>> {
             criterion: "unflanged radiation approximation (ka < 0.5)",
             begin_hz: Some(f),
             deep_hz: Some(2.0 * f),
+            ..Default::default()
         });
     }
     let mut parts: Vec<Box<dyn Element>> = vec![duct_part(
         format!("{id}.tube"),
-        "tube",
+        "vent",
         inner,
         mouth,
         model,
@@ -722,6 +739,31 @@ impl Element for Leak {
         } else {
             -(0..n).map(|i| x[br[2 * i + 1]]).sum::<C64>()
         })
+    }
+    /// Particle velocity in the fastest segment (laminar-flow check).
+    fn operating(&self, cx: &FreqCx, x: &[C64], br: &[usize], out: &mut Vec<Operating>) {
+        let dp = potential(x, self.n1) - potential(x, self.n2);
+        let worst = self
+            .segments
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                let u = if self.level == 0 {
+                    dp / d.lumped_impedance(cx.air, cx.omega)
+                } else {
+                    let (a, b) = (x[br[2 * i]], x[br[2 * i + 1]]);
+                    if a.norm() > b.norm() {
+                        a
+                    } else {
+                        b
+                    }
+                };
+                u.norm() / (d.section.area() * d.count as f64)
+            })
+            .fold(0.0, f64::max);
+        let mut c = particle_velocity_check(C64::new(worst, 0.0), 1.0, "the leak gap");
+        c.value = worst;
+        out.push(c);
     }
     fn validity(&self, air: &AirState, level: u8) -> Vec<ValidityLimit> {
         // The widest gap sets the Stinson bound; all segments share the

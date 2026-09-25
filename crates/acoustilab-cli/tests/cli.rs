@@ -304,3 +304,35 @@ fn errors_exit_nonzero_and_name_the_culprit() {
         let _ = std::fs::remove_file(f);
     }
 }
+
+#[test]
+fn set_overrides_parameters_and_params_lists_them() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/design_over_ear.json");
+    let path = path.to_str().unwrap();
+    let o = cli(&["params", path, "--set", "front_radius_mm=20"]);
+    assert!(o.status.success(), "{}", stderr(&o));
+    let text = stdout(&o);
+    assert!(text.contains("front_radius_mm = 20 mm"), "{text}");
+    assert!(
+        text.contains("front_volume_cm3 = 18.84955592153876 cm3 (derived)"),
+        "{text}"
+    );
+    assert!(text.contains("ear = 'iec60318_4'"), "{text}");
+
+    let o = cli(&["solve", path, "--set", "rear=open", "--set=vent_count=0"]);
+    assert!(o.status.success(), "{}", stderr(&o));
+    let v: Value = serde_json::from_str(&stdout(&o)).unwrap();
+    assert_eq!(v["meta"]["parameters"]["rear"], "open");
+    assert_eq!(v["meta"]["parameters"]["vent_count"], 0);
+
+    let o = cli(&["solve", path, "--set", "vent_count=2.5"]);
+    assert!(!o.status.success());
+    assert!(
+        stderr(&o).contains("parameter 'vent_count'"),
+        "{}",
+        stderr(&o)
+    );
+    let o = cli(&["check", path, "--set", "novalue"]);
+    assert!(!o.status.success());
+    assert!(stderr(&o).contains("NAME=VALUE"), "{}", stderr(&o));
+}

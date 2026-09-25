@@ -104,6 +104,146 @@ impl Drive {
     }
 }
 
+/// The netlist's `drive` key (docs/netlist.md, "Drive"): exactly one of
+///
+/// * `{"voltage_V": 1}` (or `voltage_mV`): open-circuit source voltage;
+/// * `{"power_mW": 1, "rated_ohm": 32}` (or `power_W`): power into the
+///   rated impedance;
+/// * `{"characteristic": "<pressure probe>"}`, optionally with `level_dB`
+///   (94) and `f_Hz` (500): the IEC 60268-7 characteristic voltage;
+/// * `{"current_mA": 10}` (or `current_A`): constant source current, a
+///   diagnostic.
+///
+/// The netlist must then have exactly one independent source, a `vsource`;
+/// its `V_V` only sets the solve scale.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub enum DriveSpec {
+    Voltage(f64),
+    Power {
+        watts: f64,
+        rated_ohm: f64,
+    },
+    Characteristic {
+        probe: String,
+        level_db: f64,
+        f_hz: f64,
+    },
+    Current(f64),
+}
+
+impl DriveSpec {
+    pub fn from_json(v: &serde_json::Value) -> Result<DriveSpec> {
+        let map = v
+            .as_object()
+            .ok_or_else(|| Error::Netlist("'drive' must be an object".into()))?
+            .clone();
+        let as_netlist = |e: Error| match e {
+            Error::Element { msg, .. } => Error::Netlist(format!("drive: {msg}")),
+            e => e,
+        };
+        let mut p = crate::units::Params::new("drive", map);
+        let voltage = p
+            .quantity_opt("voltage", crate::units::Dim::Voltage)
+            .map_err(as_netlist)?;
+        let power = p
+            .quantity_opt("power", crate::units::Dim::Power)
+            .map_err(as_netlist)?;
+        let rated = p
+            .quantity_opt("rated", crate::units::Dim::ElecResistance)
+            .map_err(as_netlist)?;
+        let current = p
+            .quantity_opt("current", crate::units::Dim::Current)
+            .map_err(as_netlist)?;
+        let probe = p.string_opt("characteristic").map_err(as_netlist)?;
+        let level_db = p.number_opt("level_dB").map_err(as_netlist)?;
+        let f_hz = p
+            .quantity_opt("f", crate::units::Dim::Frequency)
+            .map_err(as_netlist)?;
+        p.finish().map_err(as_netlist)?;
+        let given = [
+            voltage.is_some(),
+            power.is_some(),
+            probe.is_some(),
+            current.is_some(),
+        ]
+        .iter()
+        .filter(|b| **b)
+        .count();
+        if given != 1 {
+            return Err(Error::Netlist(
+                "drive: give exactly one of 'voltage_V', 'power_mW' (+ 'rated_ohm'), 'characteristic' or 'current_mA'"
+                    .into(),
+            ));
+        }
+        if rated.is_some() && power.is_none() {
+            return Err(Error::Netlist(
+                "drive: 'rated_ohm' belongs with 'power_mW'".into(),
+            ));
+        }
+        if (level_db.is_some() || f_hz.is_some()) && probe.is_none() {
+            return Err(Error::Netlist(
+                "drive: 'level_dB' and 'f_Hz' belong with 'characteristic'".into(),
+            ));
+        }
+        let finite = |x: f64, what: &str| {
+            if x.is_finite() && x > 0.0 {
+                Ok(x)
+            } else {
+                Err(Error::Netlist(format!("drive: {what} must be positive")))
+            }
+        };
+        Ok(if let Some(v) = voltage {
+            DriveSpec::Voltage(finite(v, "the voltage")?)
+        } else if let Some(w) = power {
+            DriveSpec::Power {
+                watts: finite(w, "the power")?,
+                rated_ohm: finite(
+                    rated.ok_or_else(|| {
+                        Error::Netlist("drive: 'power_mW' needs 'rated_ohm'".into())
+                    })?,
+                    "the rated impedance",
+                )?,
+            }
+        } else if let Some(i) = current {
+            DriveSpec::Current(finite(i, "the current")?)
+        } else {
+            DriveSpec::Characteristic {
+                probe: probe.expect("counted above"),
+                level_db: level_db.unwrap_or(CHARACTERISTIC_LEVEL_DB),
+                f_hz: finite(f_hz.unwrap_or(CHARACTERISTIC_FREQUENCY_HZ), "f_Hz")?,
+            }
+        })
+    }
+
+    pub fn convention(&self) -> &'static str {
+        match self {
+            DriveSpec::Voltage(_) => "voltage",
+            DriveSpec::Power { .. } => "power",
+            DriveSpec::Characteristic { .. } => "characteristic",
+            DriveSpec::Current(_) => "current",
+        }
+    }
+}
+
+/// How a result was driven, reported in `meta.drive`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DriveInfo {
+    /// `voltage`, `power`, `characteristic`, `current`, or `netlist` (the
+    /// sources as written, no `drive` key).
+    pub convention: &'static str,
+    pub label: String,
+    /// Open-circuit (EMF) voltage of the source, V RMS; `None` for a
+    /// constant-current drive or a netlist without a single `vsource`.
+    #[serde(rename = "source_voltage_V")]
+    pub source_voltage_v: Option<f64>,
+    #[serde(rename = "source_impedance_ohm")]
+    pub source_impedance_ohm: Option<f64>,
+    #[serde(rename = "rated_ohm")]
+    pub rated_ohm: Option<f64>,
+    /// Pressure probe of a characteristic drive.
+    pub probe: Option<String>,
+}
+
 /// Voltage that dissipates `watts` in `rated_ohm`: sqrt(P·Z).
 pub fn voltage_for_power(watts: f64, rated_ohm: f64) -> f64 {
     (watts * rated_ohm).sqrt()

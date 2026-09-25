@@ -1,13 +1,16 @@
 //! `acoustilab` command-line runner.
 //!
 //! ```text
-//! acoustilab solve <netlist.json> [--csv] [--out FILE]
-//! acoustilab check <netlist.json>
+//! acoustilab solve <netlist.json> [--csv] [--out FILE] [--set NAME=VALUE]...
+//! acoustilab check <netlist.json> [--set NAME=VALUE]...
+//! acoustilab params <netlist.json> [--set NAME=VALUE]...
 //! acoustilab types
 //! acoustilab help | --help | -h
 //! acoustilab version | --version | -V
 //! ```
 
+use acoustilab::expr::PValue;
+use acoustilab::params::{Overrides, Parametric};
 use acoustilab::Circuit;
 use std::io::Write;
 use std::process::ExitCode;
@@ -15,6 +18,8 @@ use std::process::ExitCode;
 const USAGE: &str = "usage:
   acoustilab solve <netlist.json> [--csv] [--out FILE]   solve and print results (JSON by default)
   acoustilab check <netlist.json>                        parse and validate only
+  acoustilab params <netlist.json>                       list the parameters and their values
+    solve, check and params take --set NAME=VALUE (repeatable) to override a parameter
   acoustilab types                                       list element types
   acoustilab help                                        print this message
   acoustilab version                                     print the engine version";
@@ -30,12 +35,52 @@ fn main() -> ExitCode {
     }
 }
 
-fn load(path: &str) -> Result<Circuit, String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
-    Circuit::from_json(&text).map_err(|e| e.to_string())
+fn read(path: &str) -> Result<String, String> {
+    std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))
+}
+
+fn load(path: &str, overrides: &Overrides) -> Result<Circuit, String> {
+    Circuit::from_json_with(&read(path)?, overrides).map_err(|e| e.to_string())
+}
+
+/// Parses `NAME=VALUE`: a number, `true`/`false`, or else a string.
+fn parse_set(arg: &str) -> Result<(String, PValue), String> {
+    let (name, value) = arg
+        .split_once('=')
+        .ok_or_else(|| format!("--set needs NAME=VALUE, got '{arg}'"))?;
+    let v = match value {
+        "true" => PValue::Bool(true),
+        "false" => PValue::Bool(false),
+        _ => value
+            .parse::<f64>()
+            .map(PValue::Num)
+            .unwrap_or_else(|_| PValue::Str(value.to_string())),
+    };
+    Ok((name.trim().to_string(), v))
+}
+
+/// Splits `--set` options from the other arguments.
+fn split_sets(args: &[String]) -> Result<(Vec<String>, Overrides), String> {
+    let mut rest = Vec::new();
+    let mut ov = Overrides::new();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "--set" {
+            let (k, v) = parse_set(it.next().ok_or("--set needs NAME=VALUE")?)?;
+            ov.insert(k, v);
+        } else if let Some(kv) = a.strip_prefix("--set=") {
+            let (k, v) = parse_set(kv)?;
+            ov.insert(k, v);
+        } else {
+            rest.push(a.clone());
+        }
+    }
+    Ok((rest, ov))
 }
 
 fn run(args: &[String]) -> Result<(), String> {
+    let (args, overrides) = split_sets(args)?;
+    let args = args.as_slice();
     let Some(cmd) = args.first() else {
         return Err(USAGE.into());
     };
@@ -56,7 +101,7 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         "check" => {
             let path = args.get(1).ok_or(USAGE)?;
-            let c = load(path)?;
+            let c = load(path, &overrides)?;
             println!(
                 "ok: {} nodes, {} elements, {} unknowns, {} probes, {} frequencies, level {}",
                 c.nodes.len(),
@@ -66,6 +111,17 @@ fn run(args: &[String]) -> Result<(), String> {
                 c.freqs.len(),
                 c.level
             );
+            Ok(())
+        }
+        "params" => {
+            let path = args.get(1).ok_or(USAGE)?;
+            let p = Parametric::parse(&read(path)?).map_err(|e| e.to_string())?;
+            let values = p.values(&overrides).map_err(|e| e.to_string())?;
+            for (d, (_, v)) in p.defs.iter().zip(&values) {
+                let unit = d.display_unit().unwrap_or_default();
+                let kind = if d.is_derived() { " (derived)" } else { "" };
+                println!("{} = {v} {unit}{kind}", d.name);
+            }
             Ok(())
         }
         "solve" => {
@@ -80,7 +136,7 @@ fn run(args: &[String]) -> Result<(), String> {
                     other => return Err(format!("unknown option '{other}'\n{USAGE}")),
                 }
             }
-            let c = load(path)?;
+            let c = load(path, &overrides)?;
             let r = c.solve().map_err(|e| e.to_string())?;
             let text = if csv {
                 to_csv(&r)

@@ -7,7 +7,7 @@ keys without a unit suffix, and duplicate spellings of the same quantity.
 
 ```json
 {
-  "schema": "acoustilab-netlist/0.1",
+  "schema": "acoustilab-netlist/0.2",
   "air": {"preset": "standard_23C"},
   "sweep": {"f_min_Hz": 10, "f_max_Hz": 40000, "points_per_octave": 48},
   "level": 1,
@@ -21,12 +21,20 @@ keys without a unit suffix, and duplicate spellings of the same quantity.
 
 | Key | Meaning |
 |---|---|
+| `parameters` | named parameters used by `=expression` values anywhere in the document; see `docs/parameters.md` |
+| `drive` | the drive convention every level refers to; see "Drive" below. Default: the sources as written |
+| `ui` | presentation hints for user interfaces; ignored by the engine |
+| `title`, `description` | free text |
 | `air` | `{"preset": "standard_23C" \| "spec_reference"}` or `{"T_C": .., "P_kPa": .., "RH": ..}`. Default: standard_23C |
 | `sweep` | `{"f_min_Hz", "f_max_Hz", "points_per_octave"}` or `{"frequencies_Hz": [..]}`. Default: 10 Hz–40 kHz at 48 points per octave |
 | `level` | `0` lumped, `1` distributed (default) |
 | `nodes` | `{"id", "domain": "electrical" \| "mechanical" \| "acoustic"}` |
 | `elements` | `{"id", "type", "nodes": [..]` or `"node": ".."`, then parameters `}` |
 | `probes` | `{"id", "quantity", "node" \| "element", "port"}` |
+
+Items of `nodes`, `elements` and `probes` may carry `"enabled"` (a boolean or
+an expression); see `docs/parameters.md`. Schema `acoustilab-netlist/0.1`
+documents are still accepted.
 
 Ground names: `gnd` is valid in any domain. Domain-specific aliases are
 `e_gnd`, `m_gnd` or `frame`, and `a_amb`, `a_gnd` or `ambient`. Terminals that
@@ -91,6 +99,57 @@ sources are the exception: they report the flow they deliver, so an
 
 Results report every probe as complex RMS values, plus magnitude and phase.
 Acoustic pressures also report dB SPL re 20 µPa.
+
+## Drive
+
+Every SPL figure states its drive (spec Section 4). The top-level `drive` key
+takes exactly one of:
+
+| key | convention |
+|---|---|
+| `{"voltage_V": 1}` (or `voltage_mV`) | open-circuit (EMF) source voltage, V RMS |
+| `{"power_mW": 1, "rated_ohm": 32}` (or `power_W`) | power into the rated impedance: V = sqrt(P·Z_rated) |
+| `{"characteristic": "<pressure probe>"}`, *`level_dB`* (94), *`f_Hz`* (500) | IEC 60268-7 characteristic voltage: the voltage giving 94 dB SPL at 500 Hz at that probe, through the source impedance |
+| `{"current_mA": 10}` (or `current_A`) | constant source current, a diagnostic |
+
+With a `drive` key the netlist must have exactly one independent source, a
+`vsource`; its `V_V` only sets the scale of the solve, and its `Zs_ohm` stays in
+the circuit. Impedance probes are ratios and do not change. Without a `drive`
+key the sources are used as written. Every result carries `meta.drive`:
+`convention` (`voltage`, `power`, `characteristic`, `current` or `netlist`),
+`label`, `source_voltage_V` (null for constant current), `source_impedance_ohm`,
+`rated_ohm` and `probe`.
+
+## Warnings
+
+`warnings` in a result lists:
+
+* **notes** that elements make about their data, such as a driver record
+  that fails a consistency check (`record_consistency`), estimated record
+  values (`estimated_data`), material entries that are estimated or
+  unverified (`material_data`), and the IEC 60318-4 literature model
+  (`unverified_model`);
+* **operating limits** exceeded at the stated drive. Each is one warning with
+  the frequency range (`f_min_Hz`, `f_max_Hz`), the worst `value`, where it
+  occurs (`at_Hz`), the `limit` and the `unit`:
+
+| code | element | limit |
+|---|---|---|
+| `particle_velocity` | `tube`, `slit`, `rect_duct`, `vent`, `leak`, `mesh` (pores, when the pore geometry is known) | RMS velocity \|U\|/area of 1 m/s: above it the laminar, linear-resistance assumption fails (spec Section 10) |
+| `excursion` | `driver` with `Xmax_mm` or a record with Xmax | peak displacement √2·\|x\| above Xmax |
+| `coil_power` | `driver` with `rated_power_mW` or a record with a rated power | Re·\|I\|² above the rated power |
+
+Each warning has `code`, `severity` (`info` or `warning`), `element` and a
+`message`.
+
+## Validity limits and shading
+
+Each element reports limits of its representation (`validity` in a result).
+Upper limits shade above `begin_hz` (light) and `deep_hz` (dark). Lower limits
+shade below `low_begin_hz` (light) and `low_deep_hz` (dark), for example the IEC
+60318-4 simulator below 100 Hz, which the standard does not validate there, or a
+one-parameter porous law below its fitted range. `shading` aggregates them: the
+lowest upper limits and the highest lower limits.
 
 ## Radiation loads and duct cross-sections
 
@@ -317,9 +376,14 @@ record fails the electrical-Q identity (0.864 against 1.01, E5) and flags
 Thiele–Small conversions, the sqrt(R0) extraction and the Levenberg–Marquardt
 impedance fit (creep and LR-2) are in `acoustilab::ts`. Drive conventions
 (characteristic voltage, 1 mW into the rated impedance, 1 V, constant
-current) and sensitivity readouts in dB/V and dB/mW, converted with the rated
-impedance (E32), are in `acoustilab::drive`; they scale a solve and do not
-use netlist keys yet.
+current) are chosen with the top-level `drive` key (see "Drive"). Sensitivity
+readouts in dB/V and dB/mW, converted with the rated impedance (E32), are in
+`acoustilab::drive`.
+
+Operating limits: *`Xmax_mm`* (peak linear excursion) and
+*`rated_power_mW`* (or `rated_power_W`) on the element, otherwise the record's
+datasheet `Xmax_mm` and `rated_power_mW`. Without them the driver reports no
+`excursion` or `coil_power` warnings.
 
 ## Ear loads
 

@@ -58,6 +58,7 @@ use super::couplers::{Motor, Piston};
 use super::electrical::CoilModel;
 use super::{Build, Composite, Constructor, Element, FreqCx, OnePort};
 use crate::air::AirState;
+use crate::diag::{Note, Operating, Severity};
 use crate::error::Result;
 use crate::mna::{potential, Mna, Unknown};
 use crate::netlist::Domain;
@@ -1186,6 +1187,11 @@ pub struct Driver {
     pub two_dof: Option<TwoDof>,
     /// Record the parameters came from, if any.
     pub record: Option<String>,
+    /// Linear excursion limit (peak, m) and rated input power (W), from
+    /// `Xmax_mm` / `rated_power_mW` or the record's datasheet.
+    pub xmax: Option<f64>,
+    pub rated_power: Option<f64>,
+    notes: Vec<Note>,
     parts: Composite,
     offsets: Vec<usize>,
     ports: Vec<TapPort>,
@@ -1298,8 +1304,41 @@ impl Element for Driver {
             criterion: "rigid piston (ka < 1)",
             begin_hz: Some(air.c / (2.0 * PI * a)),
             deep_hz: None,
+            ..Default::default()
         });
         v
+    }
+    fn notes(&self) -> Vec<Note> {
+        let mut v = self.notes.clone();
+        v.extend(self.parts.notes());
+        v
+    }
+    /// Peak excursion against Xmax and coil dissipation (Re·|I|², RMS)
+    /// against the rated power, when the driver has them.
+    fn operating(&self, cx: &FreqCx, x: &[C64], br: &[usize], out: &mut Vec<Operating>) {
+        if let (Some(xmax), Some(node)) = (self.xmax, self.ports[2].plus) {
+            let peak = std::f64::consts::SQRT_2 * (x[node] / cx.jw()).norm();
+            out.push(Operating {
+                code: "excursion",
+                what: "peak diaphragm excursion".into(),
+                value: peak * 1e3,
+                limit: xmax * 1e3,
+                unit: "mm",
+                reason: "the driver's linear excursion limit Xmax",
+            });
+        }
+        if let Some(p_rated) = self.rated_power {
+            if let Some(i) = self.port_flow(cx, x, br, 0) {
+                out.push(Operating {
+                    code: "coil_power",
+                    what: "power dissipated in the voice coil".into(),
+                    value: self.params.re * i.norm_sqr() * 1e3,
+                    limit: p_rated * 1e3,
+                    unit: "mW",
+                    reason: "the driver's rated input power",
+                });
+            }
+        }
     }
     fn as_any(&self) -> &dyn Any {
         self
@@ -1375,11 +1414,34 @@ fn driver(mut b: Build) -> Result<Box<dyn Element>> {
             .ok_or_else(|| err(format!("unknown model '{s}' (D0, D1, D2)")))?,
     };
     let record_name = inline.string_opt("record")?;
+    let mut notes: Vec<Note> = Vec::new();
+    let mut sheet: Option<Datasheet> = None;
     let record = match &record_name {
         None => None,
         Some(name) => {
             let rec = record(name).map_err(&err)?;
             let report = governance(&rec);
+            for c in report.failures() {
+                notes.push(Note {
+                    code: "record_consistency",
+                    severity: Severity::Info,
+                    message: format!(
+                        "record '{name}' fails the {} check: {} (the network uses the primary set)",
+                        c.id, c.description
+                    ),
+                });
+            }
+            if !rec.estimated.is_empty() {
+                notes.push(Note {
+                    code: "estimated_data",
+                    severity: Severity::Info,
+                    message: format!(
+                        "record '{name}': {} are estimates, not datasheet or measured values",
+                        rec.estimated.join(", ")
+                    ),
+                });
+            }
+            sheet = Some(rec.datasheet.clone());
             if report.primary_anomaly().is_some() {
                 // List every candidate: when two fields repair the same
                 // identities the data cannot say which one is misprinted.
@@ -1474,6 +1536,16 @@ fn driver(mut b: Build) -> Result<Box<dyn Element>> {
             c.validate().map_err(&err)?;
             Some(c)
         }
+    };
+
+    // Operating limits: inline keys, else the record's datasheet.
+    let xmax = match src.inline.positive_opt("Xmax", Dim::Length)? {
+        Some(x) => Some(x),
+        None => sheet.as_ref().and_then(|d| d.xmax),
+    };
+    let rated_power = match src.inline.positive_opt("rated_power", Dim::Power)? {
+        Some(p) => Some(p),
+        None => sheet.as_ref().and_then(|d| d.rated_power),
     };
 
     // D2 keys.
@@ -1668,6 +1740,9 @@ fn driver(mut b: Build) -> Result<Box<dyn Element>> {
         creep,
         two_dof,
         record: record_name,
+        xmax,
+        rated_power,
+        notes,
         parts: Composite {
             id,
             type_name: "driver",

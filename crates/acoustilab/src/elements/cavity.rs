@@ -254,6 +254,7 @@ impl Element for Cavity {
                 criterion: "cavity depth line: first transverse mode",
                 begin_hz: cut.map(|f| 0.7 * f),
                 deep_hz: cut,
+                ..Default::default()
             }]
         } else {
             vec![validity::lumped_cavity(&self.id, self.max_distance, air.c)]
@@ -732,6 +733,7 @@ impl Element for ModalCavity {
                 criterion: "modal cavity: mode truncation (3x highest analysed wavenumber)",
                 begin_hz: Some(self.f_max),
                 deep_hz: Some(MODAL_TRUNCATION_FACTOR * self.f_max),
+                ..Default::default()
             }]
         }
     }

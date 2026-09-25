@@ -1,11 +1,14 @@
 //! A compiled network: nodes, elements with their branch unknowns, probes.
 
 use crate::air::AirState;
+use crate::drive::DriveSpec;
 use crate::elements::{self, Element, FreqCx};
 use crate::error::{Error, Result};
+use crate::expr::PValue;
 use crate::linalg;
 use crate::mna::{potential, Mna, Unknown};
 use crate::netlist::{Document, Domain, NodeTable, RawProbe};
+use crate::params::{Overrides, Parametric};
 use crate::validity::{self, Shading, ValidityLimit};
 use crate::{grid, C64};
 use std::f64::consts::PI;
@@ -41,6 +44,10 @@ pub struct Circuit {
     pub air: AirState,
     pub freqs: Vec<f64>,
     pub level: u8,
+    /// The `drive` key, if any (see [`DriveSpec`]).
+    pub drive: Option<DriveSpec>,
+    /// Resolved parameter values (derived included), in declaration order.
+    pub parameters: Vec<(String, PValue)>,
     pub nodes: NodeTable,
     pub elements: Vec<Box<dyn Element>>,
     /// Global unknown index of each element's first branch unknown.
@@ -50,13 +57,28 @@ pub struct Circuit {
 }
 
 impl Circuit {
+    /// Compiles a netlist with its parameters at their defaults.
     pub fn from_json(text: &str) -> Result<Circuit> {
-        Self::from_document(Document::parse(text)?)
+        Self::from_json_with(text, &Overrides::new())
+    }
+
+    /// Compiles a netlist with some parameters overridden.
+    pub fn from_json_with(text: &str, overrides: &Overrides) -> Result<Circuit> {
+        Self::from_parametric(&Parametric::parse(text)?, overrides)
+    }
+
+    /// Compiles a parsed parametric netlist with some parameters overridden.
+    pub fn from_parametric(p: &Parametric, overrides: &Overrides) -> Result<Circuit> {
+        let r = p.resolve(overrides)?;
+        let mut c = Self::from_document(Document::from_expanded(r.doc)?)?;
+        c.parameters = r.values;
+        Ok(c)
     }
 
     pub fn from_document(doc: Document) -> Result<Circuit> {
         let air = AirState::from_json(doc.air.as_ref())?;
         let freqs = grid::from_json(doc.sweep.as_ref())?;
+        let drive = doc.drive.as_ref().map(DriveSpec::from_json).transpose()?;
         let mut nodes = NodeTable::default();
         for (name, domain) in &doc.nodes {
             nodes.add(name, *domain)?;
@@ -82,6 +104,8 @@ impl Circuit {
             air,
             freqs,
             level: doc.level,
+            drive,
+            parameters: Vec::new(),
             nodes,
             elements,
             branch_offsets,
@@ -99,6 +123,27 @@ impl Circuit {
                     id: p.id.clone(),
                     msg: "duplicate probe id".into(),
                 });
+            }
+        }
+        if let Some(d) = &c.drive {
+            // Fail at compile time, not at the first solve.
+            crate::drive::source_voltage(&c)?;
+            if let DriveSpec::Characteristic { probe, .. } = d {
+                match c.probes.iter().find(|p| &p.id == probe) {
+                    None => {
+                        return Err(Error::Probe {
+                            id: probe.clone(),
+                            msg: "the characteristic drive names no such probe".into(),
+                        })
+                    }
+                    Some(p) if !p.is_pressure => {
+                        return Err(Error::Probe {
+                            id: probe.clone(),
+                            msg: "the characteristic drive needs an acoustic pressure probe".into(),
+                        })
+                    }
+                    Some(_) => {}
+                }
             }
         }
         Ok(c)

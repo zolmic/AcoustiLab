@@ -18,8 +18,11 @@ pub const DEEP_ERROR: f64 = 0.36;
 /// Error below which a representation counts as trusted (continuity checks).
 pub const TRUST_ERROR: f64 = 0.03;
 
-/// One element's validity limit for one criterion.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+/// One element's validity limit for one criterion. Upper limits shade
+/// above `begin_hz` (light) and `deep_hz` (dark); lower limits shade below
+/// `low_begin_hz` (light) and `low_deep_hz` (dark), e.g. a coupler that its
+/// standard does not validate below 100 Hz, or a fitted law below its data.
+#[derive(Debug, Clone, PartialEq, Serialize, Default)]
 pub struct ValidityLimit {
     pub element: String,
     pub criterion: &'static str,
@@ -27,22 +30,46 @@ pub struct ValidityLimit {
     pub begin_hz: Option<f64>,
     /// Frequency where shading deepens (36 % error or hard limit).
     pub deep_hz: Option<f64>,
+    /// Frequency below which light shading applies.
+    pub low_begin_hz: Option<f64>,
+    /// Frequency below which dark shading applies.
+    pub low_deep_hz: Option<f64>,
 }
 
-/// Shading bands aggregated over all elements in the network.
+/// Shading bands aggregated over all elements in the network: the lowest
+/// upper limits and the highest lower limits.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Default)]
 pub struct Shading {
     pub begin_hz: Option<f64>,
     pub deep_hz: Option<f64>,
+    pub low_begin_hz: Option<f64>,
+    pub low_deep_hz: Option<f64>,
+}
+
+impl Shading {
+    /// 0 unshaded, 1 light, 2 dark at frequency `f`.
+    pub fn band(&self, f: f64) -> u8 {
+        let above = |x: Option<f64>| x.is_some_and(|l| f >= l);
+        let below = |x: Option<f64>| x.is_some_and(|l| f < l);
+        if above(self.deep_hz) || below(self.low_deep_hz) {
+            2
+        } else if above(self.begin_hz) || below(self.low_begin_hz) {
+            1
+        } else {
+            0
+        }
+    }
 }
 
 pub fn aggregate(limits: &[ValidityLimit]) -> Shading {
-    let min = |it: &mut dyn Iterator<Item = f64>| {
-        it.fold(None, |m: Option<f64>, f| Some(m.map_or(f, |m| m.min(f))))
+    let fold = |it: &mut dyn Iterator<Item = f64>, pick: fn(f64, f64) -> f64| {
+        it.fold(None, |m: Option<f64>, f| Some(m.map_or(f, |m| pick(m, f))))
     };
     Shading {
-        begin_hz: min(&mut limits.iter().filter_map(|l| l.begin_hz)),
-        deep_hz: min(&mut limits.iter().filter_map(|l| l.deep_hz)),
+        begin_hz: fold(&mut limits.iter().filter_map(|l| l.begin_hz), f64::min),
+        deep_hz: fold(&mut limits.iter().filter_map(|l| l.deep_hz), f64::min),
+        low_begin_hz: fold(&mut limits.iter().filter_map(|l| l.low_begin_hz), f64::max),
+        low_deep_hz: fold(&mut limits.iter().filter_map(|l| l.low_deep_hz), f64::max),
     }
 }
 
@@ -92,6 +119,7 @@ pub fn lumped_cavity(element: &str, l: f64, c: f64) -> ValidityLimit {
         criterion: "lumped cavity kL",
         begin_hz: Some(freq_at_kl(kl_at_error(cavity_error, BEGIN_ERROR, PI), l, c)),
         deep_hz: Some(freq_at_kl(kl_at_error(cavity_error, DEEP_ERROR, PI), l, c)),
+        ..Default::default()
     }
 }
 
@@ -110,6 +138,7 @@ pub fn lumped_duct(element: &str, l: f64, c: f64) -> ValidityLimit {
             l,
             c,
         )),
+        ..Default::default()
     }
 }
 

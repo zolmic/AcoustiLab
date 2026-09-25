@@ -21,6 +21,9 @@ pub enum Error {
 
     #[error("probe '{id}': {msg}")]
     Probe { id: String, msg: String },
+
+    #[error("parameter '{name}': {msg}")]
+    Parameter { name: String, msg: String },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

@@ -2,8 +2,9 @@
 //!
 //! Top-level shape (see docs/netlist.md):
 //! ```json
-//! { "schema": "acoustilab-netlist/0.1", "air": {..}, "sweep": {..},
-//!   "level": 1, "nodes": [{"id": "a_front", "domain": "acoustic"}, ..],
+//! { "schema": "acoustilab-netlist/0.2", "parameters": {..}, "air": {..},
+//!   "sweep": {..}, "drive": {..}, "level": 1,
+//!   "nodes": [{"id": "a_front", "domain": "acoustic"}, ..],
 //!   "elements": [{"id": "..", "type": "..", "nodes": [..], ..}, ..],
 //!   "probes": [{"id": "..", "quantity": "..", "node" | "element": ..}] }
 //! ```
@@ -14,7 +15,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
-pub const SCHEMA: &str = "acoustilab-netlist/0.1";
+pub const SCHEMA: &str = "acoustilab-netlist/0.2";
 
 /// Physical domain of a node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -161,6 +162,8 @@ pub struct RawProbe {
 pub struct Document {
     pub air: Option<Value>,
     pub sweep: Option<Value>,
+    /// The `drive` key (see `drive::DriveSpec`).
+    pub drive: Option<Value>,
     pub level: u8,
     pub nodes: Vec<(String, Domain)>,
     pub elements: Vec<RawElement>,
@@ -175,12 +178,22 @@ fn str_field(obj: &Map<String, Value>, key: &str, ctx: &str) -> Result<String> {
 }
 
 impl Document {
+    /// Parses a document, resolving its parameters at their defaults.
     pub fn parse(text: &str) -> Result<Document> {
         let v: Value = serde_json::from_str(text)?;
         Self::from_value(v)
     }
 
+    /// Reads a document, resolving its parameters at their defaults.
     pub fn from_value(v: Value) -> Result<Document> {
+        let p = crate::params::Parametric::from_value(v)?;
+        let r = p.resolve(&crate::params::Overrides::new())?;
+        Self::from_expanded(r.doc)
+    }
+
+    /// Reads a document whose parameters are already resolved
+    /// ([`crate::params::Parametric::resolve`]).
+    pub fn from_expanded(v: Value) -> Result<Document> {
         let mut top = match v {
             Value::Object(m) => m,
             _ => return Err(Error::Netlist("top level must be an object".into())),
@@ -193,8 +206,14 @@ impl Document {
                 )));
             }
         }
+        if top.contains_key("parameters") {
+            return Err(Error::Netlist(
+                "'parameters' must be resolved before the document is read".into(),
+            ));
+        }
         let air = top.remove("air");
         let sweep = top.remove("sweep");
+        let drive = top.remove("drive");
         let level = match top.remove("level") {
             None => 1,
             Some(l) => match l.as_u64() {
@@ -208,6 +227,8 @@ impl Document {
         };
         let _ = top.remove("title");
         let _ = top.remove("description");
+        // Presentation hints for user interfaces; the engine ignores them.
+        let _ = top.remove("ui");
 
         let mut nodes = Vec::new();
         for n in take_array(&mut top, "nodes")? {
@@ -302,6 +323,7 @@ impl Document {
         Ok(Document {
             air,
             sweep,
+            drive,
             level,
             nodes,
             elements,

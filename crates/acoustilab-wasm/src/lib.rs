@@ -6,6 +6,10 @@
 //! * `solve(netlist_json)`: the engine's result document (see
 //!   `acoustilab::SolveResult::to_json`) with per-probe `domain` and filled
 //!   `unit`, or `{"error": .., "kind": .., ..}`.
+//! * `solve_with(netlist_json, overrides_json)`: as `solve`, with parameter
+//!   overrides `{"name": value}`.
+//! * `parameters(netlist_json, overrides_json)`: the parameter descriptions
+//!   for a design panel, with resolved values, and the netlist's `ui` block.
 //! * `check(netlist_json)`: `{"ok": true, "nodes": .., ..}` or an error.
 //! * `element_types()`: a JSON array of element type names.
 //! * `engine_version()`: the engine's name and version.
@@ -71,6 +75,23 @@ pub fn solve(netlist_json: &str) -> String {
     install_panic_hook();
     debug_panic_hook(netlist_json);
     api::to_string(&api::solve_value(netlist_json))
+}
+
+/// Solves a netlist with parameter overrides given as `{"name": value}`
+/// JSON ("" for none).
+#[wasm_bindgen]
+pub fn solve_with(netlist_json: &str, overrides_json: &str) -> String {
+    install_panic_hook();
+    debug_panic_hook(netlist_json);
+    api::to_string(&api::solve_with_value(netlist_json, overrides_json))
+}
+
+/// Describes the netlist's parameters (with values under the overrides)
+/// and its `ui` block.
+#[wasm_bindgen]
+pub fn parameters(netlist_json: &str, overrides_json: &str) -> String {
+    install_panic_hook();
+    api::to_string(&api::parameters_value(netlist_json, overrides_json))
 }
 
 /// Parses and compiles a netlist without solving it.

@@ -19,6 +19,7 @@ pub mod ear;
 pub mod materials;
 
 use crate::air::AirState;
+use crate::diag::{Note, Operating};
 use crate::error::{Error, Result};
 use crate::mna::{Mna, Unknown};
 use crate::netlist::{Domain, NodeTable, RawElement};
@@ -90,6 +91,17 @@ pub trait Element: Send + Sync {
     fn validity(&self, _air: &AirState, _level: u8) -> Vec<ValidityLimit> {
         Vec::new()
     }
+
+    /// Static remarks about this element's data: estimated values, models
+    /// not verified against their source (see [`crate::diag`]).
+    fn notes(&self) -> Vec<Note> {
+        Vec::new()
+    }
+
+    /// Operating quantities checked against limits at one frequency, on the
+    /// solution at the stated drive (particle velocity, excursion, coil
+    /// power; see [`crate::diag`]).
+    fn operating(&self, _cx: &FreqCx, _x: &[C64], _br: &[usize], _out: &mut Vec<Operating>) {}
 
     fn as_any(&self) -> &dyn Any;
 }
@@ -384,7 +396,116 @@ impl Element for Composite {
             .flat_map(|p| p.validity(air, level))
             .collect()
     }
+    fn notes(&self) -> Vec<Note> {
+        self.parts.iter().flat_map(|p| p.notes()).collect()
+    }
+    fn operating(&self, cx: &FreqCx, x: &[C64], br: &[usize], out: &mut Vec<Operating>) {
+        for (p, o) in self.parts.iter().zip(self.offsets()) {
+            p.operating(cx, x, &br[o..o + p.branch_count()], out);
+        }
+    }
     fn as_any(&self) -> &dyn Any {
         self
+    }
+}
+
+/// Wraps an element to add notes and, when its flow passes through an
+/// aperture of known total area, the RMS particle-velocity check |U|/area at
+/// its ports against [`PARTICLE_VELOCITY_LIMIT`] (spec Section 10: above
+/// about 1 m/s the laminar, linear-resistance assumption fails). Everything
+/// else, including `as_any`, is delegated to the inner element.
+pub struct Annotated {
+    pub inner: Box<dyn Element>,
+    /// Total open area of all parallel copies (m²) and its name in
+    /// messages, e.g. "the slit".
+    pub aperture: Option<(f64, &'static str)>,
+    pub notes: Vec<Note>,
+}
+
+impl Annotated {
+    pub fn aperture(inner: Box<dyn Element>, area: f64, what: &'static str) -> Box<dyn Element> {
+        Box::new(Annotated {
+            inner,
+            aperture: Some((area, what)),
+            notes: Vec::new(),
+        })
+    }
+
+    /// Adds notes to an element (returns it unchanged when there are none).
+    pub fn with_notes(inner: Box<dyn Element>, notes: Vec<Note>) -> Box<dyn Element> {
+        if notes.is_empty() {
+            return inner;
+        }
+        Box::new(Annotated {
+            inner,
+            aperture: None,
+            notes,
+        })
+    }
+}
+
+/// RMS particle velocity above which the laminar-flow assumption of ducts,
+/// leaks and meshes is flagged, m/s (spec Section 10, "about 1 m/s").
+pub const PARTICLE_VELOCITY_LIMIT: f64 = 1.0;
+
+/// The laminar-flow check for a volume velocity through an area.
+pub fn particle_velocity_check(u: C64, area: f64, what: &str) -> Operating {
+    Operating {
+        code: "particle_velocity",
+        what: format!("RMS particle velocity in {what}"),
+        value: u.norm() / area,
+        limit: PARTICLE_VELOCITY_LIMIT,
+        unit: "m/s",
+        reason: "laminar-flow assumption; the orifice resistance becomes flow-dependent",
+    }
+}
+
+impl Element for Annotated {
+    fn id(&self) -> &str {
+        self.inner.id()
+    }
+    fn type_name(&self) -> &'static str {
+        self.inner.type_name()
+    }
+    fn branch_count(&self) -> usize {
+        self.inner.branch_count()
+    }
+    fn stamp(&self, cx: &FreqCx, mna: &mut Mna, br: &[usize]) {
+        self.inner.stamp(cx, mna, br)
+    }
+    fn port_count(&self) -> usize {
+        self.inner.port_count()
+    }
+    fn is_source(&self) -> bool {
+        self.inner.is_source()
+    }
+    fn port_potential(&self, x: &[C64], port: usize) -> Option<C64> {
+        self.inner.port_potential(x, port)
+    }
+    fn port_flow(&self, cx: &FreqCx, x: &[C64], br: &[usize], port: usize) -> Option<C64> {
+        self.inner.port_flow(cx, x, br, port)
+    }
+    fn validity(&self, air: &AirState, level: u8) -> Vec<ValidityLimit> {
+        self.inner.validity(air, level)
+    }
+    fn notes(&self) -> Vec<Note> {
+        let mut v = self.inner.notes();
+        v.extend(self.notes.iter().cloned());
+        v
+    }
+    fn operating(&self, cx: &FreqCx, x: &[C64], br: &[usize], out: &mut Vec<Operating>) {
+        self.inner.operating(cx, x, br, out);
+        if let Some((area, what)) = self.aperture {
+            let u = (0..self.inner.port_count())
+                .filter_map(|p| self.inner.port_flow(cx, x, br, p))
+                .fold(
+                    C64::new(0.0, 0.0),
+                    |m, u| if u.norm() > m.norm() { u } else { m },
+                );
+            out.push(particle_velocity_check(u, area, what));
+        }
+    }
+    fn as_any(&self) -> &dyn Any {
+        self.inner.as_any()
     }
 }

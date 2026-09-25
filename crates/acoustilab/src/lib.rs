@@ -11,14 +11,17 @@
 
 pub mod air;
 pub mod circuit;
+pub mod diag;
 pub mod drive;
 pub mod elements;
 pub mod error;
+pub mod expr;
 pub mod grid;
 pub mod linalg;
 pub mod mna;
 pub mod modes;
 pub mod netlist;
+pub mod params;
 pub mod solve;
 pub mod special;
 pub mod thermoviscous;

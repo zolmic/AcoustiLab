@@ -83,6 +83,7 @@ fn radiation(mut b: Build) -> Result<Box<dyn Element>> {
             criterion: "unflanged pipe radiation: first axisymmetric cut-on (ka = 3.83)",
             begin_hz: Some(FREE_SHADING_BEGIN * f),
             deep_hz: Some(f),
+            ..Default::default()
         }]
     } else {
         Vec::new()
