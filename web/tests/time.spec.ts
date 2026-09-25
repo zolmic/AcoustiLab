@@ -217,8 +217,11 @@ test('time: attribution runs as a job with the engine’s numbers, and a cancel 
     await expect(t.locator('tbody tr').first().locator('th')).toHaveText(first.parameter);
     await expect(t.locator('tbody tr').first().locator('td').first()).toHaveText(first.dlnf_dlnp.toPrecision(3));
   }
-  // docs/time-domain.md: the 936 Hz coupled resonance goes to the diaphragm area first.
-  expect(ref.poles[0].parameters[0].parameter).toBe('driver_Sd_cm2');
+  // docs/time-domain.md: the template's damping cloth leaves no resonant pole
+  // below 2 kHz; the lowest, the ear simulator's 7.0 kHz resonance, is moved
+  // most (and only a little) by the front depth, whose half-wave lies near it.
+  expect(ref.poles[0].f_Hz).toBeGreaterThan(2000);
+  expect(ref.poles[0].parameters[0].parameter).toBe('front_depth_mm');
   await expect(panel.getByText(`Perturbed: ${ref.perturbed.join(', ')}.`, { exact: false })).toBeAttached();
 });
 

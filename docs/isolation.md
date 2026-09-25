@@ -80,8 +80,10 @@ wavelength apart are reached with independent phases, and the paths then
 add in power: `insertion_loss_incoherent_dB` =
 10·log10(|p_open|²/Σ|p_path|²) (reported when there are two or more
 paths). Where the in-phase paths cancel, the coherent IL is optimistic: in
-the design template the leak and vent contributions cancel near 1.16 kHz,
-40.5 dB coherent against 28.3 dB in power. Neither is the measured diffuse-
+the design template without its damping cloth the leak and vent
+contributions cancel near 1.12 kHz, 45.7 dB coherent against 33.6 dB in
+power. (With the cloth the vent path is 12 dB weaker than the leak's below
+2 kHz, and nothing cancels there.) Neither is the measured diffuse-
 field loss, which lies between them depending on the openings' separation;
 below about 1 kHz (openings a few centimetres apart) the coherent value
 applies.
@@ -150,15 +152,15 @@ retrieval date. The figures are lower bounds on the self-insertion loss.
 The report lists the frequencies where the predicted loss exceeds them
 (`fixture_self_insertion_loss.exceeded_at_Hz`): there a measurement on
 that fixture is not guaranteed to resolve the prediction. For the design
-template these are 5.0–6.9 kHz and 15.9–18.3 kHz.
+template these are 4.0 kHz, 5.0–5.3 kHz and 12.3–13.8 kHz.
 
 That is a statement about the model more than about the fixture. The
 design template has no `shell` path (no cup moving on its cushion, no wall
 transmission) and no porous pad path, so its IL is an upper bound set by
-the leak and the vent alone: 41–61 dB from 1.25 to 8 kHz in 1/3-octave
+the leak and the vent alone: 30–66 dB from 1.25 to 8 kHz in 1/3-octave
 bands, where real closed over-ear headphones measure a few tens of dB. The
-84 dB peak at 5.8 kHz is the front cavity's depth line acting as a
-quarter-wave side branch at the ear entrance (c/(4·15 mm) = 5.7 kHz): the
+82 dB peak at 4.2 kHz is the front cavity's depth line acting as a
+quarter-wave side branch at the ear entrance (c/(4·20 mm) = 4.3 kHz): the
 leak path's own zero, a feature of the one-dimensional cavity model with
 a point leak. `examples/closed_cup_isolation.json` adds the cushion and
 wall paths.

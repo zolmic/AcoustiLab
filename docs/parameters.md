@@ -7,7 +7,10 @@ for each parameter, and sensitivities, fits, tolerance analysis and optimisers
 act on the same names. The netlist stays the single source of truth (spec
 Section 2): a parameter value only changes the numbers the netlist resolves to.
 
-`examples/design_over_ear.json` is a complete template.
+Three complete templates ship: `examples/design_over_ear.json`,
+`examples/design_on_ear.json` and `examples/design_in_ear.json`.
+docs/templates.md describes them, the conventions they share and where
+their numbers come from.
 
 ## Declaring parameters
 
@@ -128,5 +131,6 @@ load that was chosen.
 ## The `ui` block
 
 The engine ignores the top-level `ui` object; user interfaces read it for
-presentation hints. The template sets `template`, `primary_probe`, `ear_load`
-and a `sketch` binding; see `docs/web.md` for the keys the web UI understands.
+presentation hints. The templates set `template`, `primary_probe`, `ear_load`
+and a `sketch` binding whose kind (`over_ear`, `on_ear`, `in_ear`) names the
+drawing; see `docs/web.md` for the keys and slots the web UI understands.

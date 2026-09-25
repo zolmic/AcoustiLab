@@ -35,8 +35,8 @@ web/
     views/                result views (below): registry, parameter table,
                           sensitivity, tolerance and target views, and their
                           shared pieces (analysis-ui.ts, analysis.css)
-  tests/                  Playwright tests (smoke, design mode, scanner,
-                          views, analysis views)
+  tests/                  Playwright tests (smoke, design mode, templates,
+                          scanner, views, analysis views)
   dist/                   production build (not committed)
 ```
 
@@ -244,24 +244,47 @@ serde_json does not.
 
 ### Cross-section sketch
 
-`sketch.ts` draws an SVG section through the cup axis from the resolved
-parameter values, bound by the netlist's `ui.sketch` block (below): the
-front cavity (radius, depth, volume), the diaphragm spanning its effective
-diameter, the pads with the leak gap under them, the closed rear cavity with
-its wall and vents (a hatch over each vent when it has a mesh) or the open
-grille, and the ear-load surface with its label. Dimensions are labelled in
-millimetres, with a scale bar. Nothing is invented: a slot left unbound is
-not drawn. Every dimension is to scale (the tests check the front and rear
-cavities, pad, diaphragm and vent widths against the parameters) except what
-the caption lists: the leak gap (tenths of a millimetre, drawn 3 to 10 px
-high with its true value, and labelled "drawn enlarged" only when that is
-larger than to scale), the positions of the vents along the section, and
-symbols that carry no dimension: the diaphragm's dome, the side walls (drawn
-as thick as the vented top wall, `vent_length_mm`), the open-back grille's
-height above the driver, and the head surface. The scale covers the template's
-geometry, so it stays put while you edit and only zooms out when the design
-grows beyond it; the sketch's height depends only on the panel width, so the
-controls below it never move during a drag.
+`sketch.ts` draws an SVG section of the design from the resolved parameter
+values, bound by the netlist's `ui.sketch` block (below). Its `kind` picks
+the drawing:
+
+- `over_ear`: a section through the cup axis, the head at the bottom: the
+  front cavity (radius, depth, volume), the diaphragm spanning its effective
+  diameter, the damping cloth behind it, the pads with the leak gap under
+  them, the closed rear cavity with its wall and vents (a hatch over each
+  vent when it has a mesh) or the open grille, and the ear-load surface with
+  its label.
+- `on_ear`: the same cup resting on the compressed pinna, with the concha
+  opening under the front chamber; the leak slit is drawn under one pad, as
+  deep as the modelled slit from the pad's inner edge, and
+  the rear cavity is as wide as the cup (`cup_radius_mm`), wider than the
+  front chamber.
+- `in_ear`: a section along the earphone's axis, the ear on the right: the
+  vents through the back wall, the rear volume, the damping and the air
+  space behind the diaphragm, the diaphragm, the front volume, the nozzle
+  bore (a hatch at its outlet when it has a mesh), the ear tip, the canal
+  bore of the ear load, and the leak tube past the tip. The tube keeps its
+  diameter and length to scale along a schematic route: through the tip, out
+  along the ear's surface and on under the earphone.
+
+Dimensions are labelled in millimetres, with a scale bar. Nothing is
+invented: a slot left unbound is not drawn. Every dimension is to scale (the
+tests check the drawn lengths against the parameters) except what the
+caption lists for the kind, which the text alternative repeats. Over- and
+on-ear: the leak gap (tenths of a millimetre, drawn 3 to 10 px high with its
+true value, and labelled "drawn enlarged" only when that is larger than to
+scale; on-ear, its position too), the positions of the vents along the
+section, and symbols that carry no dimension: the diaphragm's dome, the side
+walls (drawn as thick as the vented top wall, `vent_length_mm`), the damping
+cloth's thickness, the open-back grille's height above the driver, the head
+surface, and on-ear the pinna and concha. In-ear: the shell and nozzle walls,
+the ear tip, the length of canal shown, the vent positions, the dome and the
+damping's thickness. The scale covers the template's geometry, so it stays
+put while you edit and only zooms out when the design grows beyond it; the
+sketch's height depends only on the panel width, so the controls below it
+never move during a drag. Labels are kept inside the drawing; in-ear labels
+sit on rows above and below it, the leftmost part on the row farthest from
+the drawing, so no leader crosses a label.
 
 Pointing at or focusing a control glows the parts it drives, directly or
 through derived parameters (the rear depth follows the cup radius at fixed
@@ -789,8 +812,9 @@ the curve's frequencies from its sidecar budget averaged over its seatings
 
 - **Examples.** Every `examples/*.json` of the repository is bundled at build
   time (`import.meta.glob`). The picker groups those whose `ui` block names a
-  `template` as "Design templates" and the rest as "Example netlists" (any
-  example that declares parameters still opens in the Design tab); the first visit
+  `template` as "Design templates" (`design_in_ear`, `design_on_ear`,
+  `design_over_ear`; docs/templates.md) and the rest as "Example netlists"
+  (any example that declares parameters still opens in the Design tab); the first visit
   opens `design_over_ear`. Loading one over an edited netlist keeps the edits
   one click away ("Restore your edits"; no dialog, since embedded viewers
   suppress `window.confirm`).
@@ -825,12 +849,15 @@ these keys (all optional, unknown keys are ignored):
 | `ear_load` | name of a choice parameter whose chosen label names the ear load in the strip and the sketch |
 | `sketch` | `{"kind", "bind", "parts"}`, below |
 
-`sketch.kind` selects a drawing; `over_ear` is the only one so far (another
+`sketch.kind` selects a drawing: `over_ear`, `on_ear` or `in_ear` (another
 kind shows a note instead of a sketch). `sketch.bind` maps the drawing's
 slots to **parameter names only** (no expressions: a dimension that needs
-computing is a derived parameter of the netlist). `cup_radius_mm` and
-`front_depth_mm` are required; every other slot is optional and not drawn
-when unbound.
+computing is a derived parameter of the netlist). The required slots are
+listed per kind; every other slot is optional and not drawn when unbound. A
+slot the kind does not know, or a missing required one, shows a note naming
+it instead of a sketch.
+
+`over_ear` (required: `cup_radius_mm`, `front_depth_mm`):
 
 | slot | meaning | parts |
 |---|---|---|
@@ -847,15 +874,50 @@ when unbound.
 | `vent_length_mm` | vent length, drawn as the rear wall's thickness | vents, shell |
 | `vent_mesh_rayl` | a hatch over each vent when > 0 | vents |
 | `grille_rayl` | label of the open-back grille | grille |
+| `damping_rayl` | a damping cloth behind the diaphragm when > 0 (thickness schematic) | damping |
+
+`on_ear` (required: `pad_inner_radius_mm`, `front_depth_mm`) has the
+`over_ear` slots except `cup_radius_mm`, which here is the rear cavity's
+radius, plus:
+
+| slot | meaning | parts |
+|---|---|---|
+| `pad_inner_radius_mm` | radius of the pad's opening and of the front chamber | front, pad |
+| `front_depth_mm` | diaphragm to the compressed pinna; the pad height | front, pad |
+| `cup_radius_mm` | radius of the rear cavity and shell | rear, shell |
+| `concha_volume_cm3` | named in the text alternative with the front volume | pinna, front |
+| `fit` | choice: its label names the leak state in the text alternative | leak |
+| `leak_gap_mm` | height of the leak slit, drawn under one pad (0: sealed) | leak |
+| `leak_depth_mm` | depth of the leak slit, drawn from the pad's inner edge (unbound: the whole pad face) | leak |
+
+`in_ear` (required: `driver_diameter_mm`, `front_depth_mm`,
+`nozzle_diameter_mm`, `nozzle_length_mm`):
+
+| slot | meaning | parts |
+|---|---|---|
+| `driver_diameter_mm` | diaphragm diameter; the cavities are drawn this wide | driver, front, rear, shell |
+| `front_depth_mm` | depth of the front volume | front |
+| `front_volume_cm3` | label of the front volume | front |
+| `nozzle_diameter_mm`, `nozzle_length_mm` | the nozzle bore | nozzle (and tip) |
+| `nozzle_mesh_rayl` | a hatch at the nozzle outlet when > 0 | nozzle |
+| `canal_diameter_mm` | bore of the ear load's canal | ear, tip |
+| `back_depth_mm` | depth of the air space between diaphragm and damping | damping |
+| `damping_rayl` | the damping behind the diaphragm when > 0 | damping |
+| `rear_depth_mm`, `rear_volume_cm3` | the rear volume | rear, shell |
+| `vent_count`, `vent_diameter_mm`, `vent_length_mm`, `vent_mesh_rayl` | vents through the back wall, as for `over_ear` | vents |
+| `fit` | choice: its label names the tip fit | leak |
+| `leak_diameter_mm`, `leak_length_mm` | the leak tube (diameter 0: sealed) | leak |
 
 `sketch.parts` maps a part to further parameters that drive it without
-shaping it, for the hover link (the template lists the driver's
-Thiele-Small parameters under `driver`). The ear-load surface (part `ear`)
-is labelled from `ui.ear_load`.
+shaping it, for the hover link (the templates list the driver's
+Thiele-Small parameters under `driver`, the damping cloth's area and air
+space under `damping`, and the custom leak's sizes under `leak`). The
+ear-load surface (part `ear`) is labelled from `ui.ear_load`.
 
-`examples/design_over_ear.json` binds every slot; it adds two derived
-parameters for the purpose: `driver_diameter_mm` (`2·sqrt(Sd/π)`) and
-`open_back` (`rear == 'open'`, detailed view only).
+The templates bind every slot of their kind (docs/templates.md). They add
+derived parameters for the purpose, such as `driver_diameter_mm`
+(`2·sqrt(Sd/π)`), `open_back` (`rear == 'open'`, detailed view only), and the
+in-ear template's depths (volume over the diaphragm's area).
 
 ### Keyboard
 
@@ -947,9 +1009,10 @@ and a name given twice to `setParams` takes its last value.
 5. 41 input events in one task cause at most two worker solves, and the last
    value is the one solved.
 6. The template's solve time in Chromium (reported, loosely bounded).
-7. At 300 mW the coil-power and vent and leak particle-velocity limits are
-   listed; pressing one draws its range on the plots (pixels inside and
-   outside the band) and moves the crosshair to the worst point.
+7. At 1000 mW the coil-power and vent particle-velocity limits are listed
+   (the damped template's vent exceeds 1 m/s only near full drive); pressing
+   one draws its range on the plots (pixels inside and outside the band) and
+   moves the crosshair to the worst point.
 8. The IEC 60318-4 ear shades below 100 Hz (pixels, readout, data table,
    validity table's lower columns); the Type 4.3 ear does not.
 9. Baselines: default names, Δ readout, difference plot, rename, remove.
@@ -971,6 +1034,33 @@ and a name given twice to `setParams` takes its last value.
 14. axe-core in light and dark themes with every panel open, and Tab reaches
     every kind of control. Resets keep the keyboard focus; entries announce
     their bounds; exceeded limits are announced with the solve.
+
+`templates.spec.ts` (the on-ear and in-ear templates, docs/templates.md):
+
+1. Each opens in Design mode from the picker with its groups, its fit
+   control (a select: four states), the strip's ear load and drive, and
+   derived values checked against their formulas (the on-ear front volume
+   with the concha, the in-ear Qes from Bl).
+2. The sketch draws every part of its kind, its caption names the schematic
+   parts, and its text alternative states the dimensions. Drawn lengths
+   against the parameters: on-ear, the front chamber's aspect 2·r/d, and the
+   pad, leak slit depth, rear cavity (width and depth), vent and diaphragm
+   relative to it;
+   in-ear, the front, air space, rear, nozzle bore (length and diameter),
+   canal and vent relative to the diaphragm's diameter, and the leak tube's
+   path length and stroke width (its diameter). 6 digits (single-precision
+   SVG), 3 for the diaphragm's path.
+3. Fit states: the on-ear high leak and sealed states (no slit drawn, no
+   leak probe), the in-ear loose fit (tube drawn and described, leak probe
+   present), and a nozzle mesh drawn and described.
+4. Hover and focus link controls and parts through derived parameters (the
+   pad's inner radius glows the rear cavity, the diaphragm area every depth
+   drawn from it), and a click on a part focuses its control.
+5. For all three templates, at 390 px and on a desktop, every sketch label
+   lies inside the drawing, clear of the other labels and of the shell's
+   walls, and at 390 px nothing scrolls sideways. For the on-ear and in-ear
+   templates, axe-core finds nothing in light and dark themes with the
+   detailed view and the template description open.
 
 `smoke.spec.ts` (the netlist editor and plots, on `sealed_cup` and
 closed-form netlists):
@@ -1092,8 +1182,9 @@ through the page.
   frequencies equals (1/(ω0Q))·(1 + x²)/((1 − x²)² + x²/Q²) within 1e-3;
   "Mark" sets the highlight on both frequency plots, and every pixel it
   changes lies within 6 px of x(1 kHz). Attribution on the template equals
-  the export's (top parameter and d ln f/d ln p per pole; the 936 Hz pole
-  goes to the diaphragm area); a cancel at once leaves the reports in
+  the export's (top parameter and d ln f/d ln p per pole; the damped
+  template has no resonant pole below 2 kHz, and its lowest, 7.0 kHz, goes
+  to the front depth); a cancel at once leaves the reports in
   place. Every tick label drawn on the time plots reads as its tick's value
   (ticks every 2.5 ms and 2.5 Pa on the template; `tickDecimals` of
   `format.ts` also checked alone). Keyboard crosshair, zoom, reset and Esc;
@@ -1148,12 +1239,10 @@ ends, per-seating terms averaged down).
 
 ## Not implemented yet
 
-- **Ear-load element types.** Without a `ui.ear_load` hint the strip can
-  only name ear-load elements enabled unconditionally; the engine does not
-  report the element types of the resolved netlist.
-- **Sketch.** Only the `over_ear` kind; no canal drawn to scale (the ear
-  models do not expose their canal geometry as parameters), no pinna, liner,
-  baffle or fixture geometry.
+- **Sketch.** Three kinds (`over_ear`, `on_ear`, `in_ear`); the ear loads'
+  canals are not drawn to scale (the ear models do not expose their canal
+  geometry as parameters; the in-ear sketch draws the canal's bore only), and
+  the pinna, liner, baffle and fixture are symbols or absent.
 - **Analysis views.** The Monte Carlo is a Latin hypercube over the
   parameters' tolerances only (no factorial or explicit-runs plans in the
   UI, no choice of the varied parameters), and its runs stay in the page.

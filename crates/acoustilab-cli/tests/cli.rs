@@ -314,7 +314,7 @@ fn set_overrides_parameters_and_params_lists_them() {
     let text = stdout(&o);
     assert!(text.contains("front_radius_mm = 20 mm"), "{text}");
     assert!(
-        text.contains("front_volume_cm3 = 18.84955592153876 cm3 (derived)"),
+        text.contains("front_volume_cm3 = 25.13274122871835 cm3 (derived)"),
         "{text}"
     );
     assert!(text.contains("ear = 'iec60318_4'"), "{text}");

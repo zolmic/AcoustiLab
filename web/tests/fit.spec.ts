@@ -135,7 +135,10 @@ test('fit: a virtual-rig measurement, downloaded and read back, recovers the per
   // Another change to the netlist: the fitted values belong to the earlier
   // text, so Apply no longer proposes them.
   await page.getByRole('tab', { name: 'Netlist', exact: true }).click();
-  await page.locator('#netlist').fill(expected.replace('"front_depth_mm": {"value": 15,', '"front_depth_mm": {"value": 16,'));
+  const depth = JSON.parse(TEMPLATE).parameters.front_depth_mm.value;
+  const moved = expected.replace(`"front_depth_mm": {"value": ${depth},`, `"front_depth_mm": {"value": ${depth + 1},`);
+  expect(moved).not.toBe(expected);
+  await page.locator('#netlist').fill(moved);
   await page.getByRole('button', { name: 'Run', exact: true }).click();
   await expect(page.locator('body')).toHaveAttribute('data-state', 'solved', { timeout: 30_000 });
   await openView(page, 'Fit');
