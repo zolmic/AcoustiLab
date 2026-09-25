@@ -35,7 +35,11 @@
 //!
 //! **Paths.** By superposition, each element with an ambient terminal is
 //! driven alone (the others' ambient terminals held at the reference); the
-//! contributions sum to p_occluded.
+//! contributions sum to p_occluded. Their power sum gives a second IL,
+//! 10·log10(|p_open|²/Σ|p_path|²), for openings reached with independent
+//! phases (a diffuse field, openings far apart compared with the
+//! wavelength); in-phase paths can cancel, and the coherent IL then
+//! exceeds it (by 12 dB near 1.2 kHz in the design template).
 //!
 //! **Bleed.** At the netlist's drive, the volume velocity U leaving through
 //! the ambient terminals (read from a 0 Pa source on the rewired outside
@@ -89,6 +93,7 @@ const PATH_TYPES: &[(&str, usize)] = &[
     ("acoustic_inertance", 2),
     ("acoustic_impedance", 2),
     ("driver", 4),
+    ("piston", 4),
 ];
 
 /// Independent sources and the (base key, dimension) of their value.
@@ -182,7 +187,8 @@ pub struct FixtureNote {
     pub url: String,
     pub status: String,
     /// Frequencies where the predicted loss exceeds the fixture's stated
-    /// self-insertion loss: a measurement on it could not confirm them.
+    /// self-insertion loss (a lower bound on it): a measurement on that
+    /// fixture is not guaranteed to resolve the prediction there.
     #[serde(rename = "exceeded_at_Hz")]
     pub exceeded_at_hz: Vec<f64>,
 }
@@ -194,6 +200,12 @@ pub struct Isolation {
     pub p_occluded: Vec<C64>,
     pub p_open: Vec<C64>,
     pub insertion_loss_db: Vec<f64>,
+    /// IL with the paths added in power, 10·log10(|p_open|²/Σ|p_path|²):
+    /// the diffuse-field limit when the openings are far apart compared
+    /// with the wavelength, so that the outside pressure reaches them with
+    /// independent phases. `None` unless the paths were solved (two or
+    /// more ambient elements).
+    pub insertion_loss_incoherent_db: Option<Vec<f64>>,
     pub bands: Vec<Band>,
     pub summary: Option<Summary>,
     /// Elements with an ambient terminal.
@@ -313,9 +325,15 @@ pub fn undriven_paths(doc: &Value) -> Vec<IsoWarning> {
                 .chain(str_list(o.get("node")));
             let t: Vec<String> = t.collect();
             let omitted = t.len() < *count;
+            // A driver's or piston's first two terminals are electrical or
+            // mechanical; only its acoustic faces open to the air.
             let at_reference = t
                 .iter()
-                .skip(if ty == "driver" { 2 } else { 0 })
+                .skip(if matches!(ty, "driver" | "piston") {
+                    2
+                } else {
+                    0
+                })
                 .any(|n| REFERENCE.contains(&n.as_str()));
             if omitted || at_reference {
                 out.push(IsoWarning {
@@ -328,6 +346,16 @@ pub fn undriven_paths(doc: &Value) -> Vec<IsoWarning> {
                     ),
                 });
             }
+        }
+        if ty == "acoustic_compliance" && terminals(o).iter().any(|n| is_ambient(n)) {
+            out.push(IsoWarning {
+                code: "compliance_to_ambient",
+                element: Some(id_of(e).to_string()),
+                message: format!(
+                    "acoustic_compliance '{}' ends at 'ambient', so isolation drives it with the outside pressure: right for a flexible wall, wrong for the air of a closed volume, whose compressibility is referred to the static pressure (put it on 'gnd' or omit the terminal)",
+                    id_of(e)
+                ),
+            });
         }
         if ty == "modal_cavity" {
             if let Some(Value::Array(ports)) = o.get("ports") {
@@ -690,6 +718,14 @@ pub fn insertion_loss(
             });
         }
     }
+    let il_incoherent = (!paths.is_empty()).then(|| {
+        (0..freqs.len())
+            .map(|i| {
+                let power: f64 = paths.iter().map(|p| p.p[i].norm_sqr()).sum();
+                10.0 * (p_open[i].norm_sqr() / power).log10()
+            })
+            .collect()
+    });
     let bands = third_octave_bands(&freqs, &p_open, &p_occ);
     let summary = summarise(&bands);
     let fixture = fixture_note(&freqs, &il);
@@ -699,6 +735,7 @@ pub fn insertion_loss(
         p_occluded: p_occ,
         p_open,
         insertion_loss_db: il,
+        insertion_loss_incoherent_db: il_incoherent,
         bands,
         summary,
         driven,
@@ -844,6 +881,7 @@ impl Isolation {
             "ambient_Pa": AMBIENT_PA,
             "ear": self.ear,
             "insertion_loss_dB": self.insertion_loss_db,
+            "insertion_loss_incoherent_dB": self.insertion_loss_incoherent_db,
             "p_occluded": cx(&self.p_occluded),
             "p_open": cx(&self.p_open),
             "third_octave_bands": self.bands,
@@ -859,7 +897,7 @@ impl Isolation {
             "shading": self.shading,
             "parameters": self.parameters,
             "fixture_self_insertion_loss": self.fixture,
-            "convention": "IL = 20 log10(|p_open|/|p_occluded|) at the drum; 1 Pa at every 'ambient'/'a_amb' terminal (same phase); sources zeroed with their impedances kept; open ear = the ear load driven at its entrance by 1 Pa (no head or pinna diffraction)",
+            "convention": "IL = 20 log10(|p_open|/|p_occluded|) at the drum; 1 Pa at every 'ambient'/'a_amb' terminal (same phase); sources zeroed with their impedances kept; open ear = the ear load driven at its entrance by 1 Pa (no head or pinna diffraction); insertion_loss_incoherent_dB adds the paths in power (independent phases at the openings)",
         })
     }
 }

@@ -16,6 +16,10 @@
 //! band means the response is not minimum phase there (spec Section 17:
 //! minimum phase is asserted only after checking the zeros of the fit).
 //!
+//! **Samples.** At most [`MAX_FIT_SAMPLES`] samples are fitted; a denser
+//! sweep is thinned evenly by index (a note says so) and the error is
+//! still measured over every sample.
+//!
 //! **Impulse length (E46).** A pole's envelope falls by 80 dB in
 //! ln(10⁴)/|Re a| = (4·ln 10/π)·Q/f = 2.93·Q/f. The buffer must hold that
 //! in its causal half: N/(2·fs) ≥ 2.93·Q/f for every resonant pole, so that
@@ -23,7 +27,9 @@
 //! rounds the factor to 2.9, which leaves −79.1 dB on a Q = 20 resonator
 //! (`tools/time/ir_refs.py`). The check reports the lowest-frequency
 //! resonant pole, the binding one (largest 2.93·Q/f), and the smallest
-//! power-of-two N that covers it.
+//! power-of-two N that covers it. Only resonant poles count: the slow
+//! decay of a response that vanishes at DC (a leak corner below the band)
+//! is reported beside it by the impulse report ([`super::report::DcTail`]).
 //!
 //! **Attribution.** For a parametric netlist each continuous parameter
 //! that some enabled element depends on (directly or through derived
@@ -37,7 +43,9 @@
 //! depend on no perturbed parameter, such as an ear simulator with fixed
 //! values. Cost: one solve and one short fit per parameter.
 
-use super::vfit::{pole_term, vector_fit, Asymptote, FitReport, Pole, RationalModel, VfOptions};
+use super::vfit::{
+    fit_error, pole_term, vector_fit, Asymptote, FitReport, Pole, RationalModel, VfOptions,
+};
 use crate::circuit::Circuit;
 use crate::drive::DriveInfo;
 use crate::error::{Error, Result};
@@ -57,6 +65,11 @@ pub const E46_FACTOR: f64 = 4.0 * std::f64::consts::LN_10 / PI;
 pub const N_AUDITION_MAX: usize = 16384;
 /// Smallest FFT length the spec offers.
 pub const N_AUDITION_MIN: usize = 4096;
+/// Most samples a fit uses. A longer sweep (the engine accepts up to a
+/// million points) is thinned evenly by index, which bounds the
+/// least-squares matrices of the relocation at (2k + 1) × (2·order + 3)
+/// reals, 5 MB at order 80, where a million samples would need gigabytes.
+pub const MAX_FIT_SAMPLES: usize = 2048;
 
 #[derive(Debug, Clone)]
 pub struct PoleFitOptions {
@@ -214,11 +227,27 @@ pub fn fit_values(
     if freqs.len() < 4 {
         return Err("fewer than 4 frequencies in the fitted band".into());
     }
-    let (model, report) = vector_fit(freqs, &[values.to_vec()], &opts.vf)?;
+    let mut notes = Vec::new();
+    let (model, report) = if freqs.len() > MAX_FIT_SAMPLES {
+        let last = freqs.len() - 1;
+        let pick: Vec<usize> = (0..MAX_FIT_SAMPLES)
+            .map(|i| (i as f64 * last as f64 / (MAX_FIT_SAMPLES - 1) as f64).round() as usize)
+            .collect();
+        let f: Vec<f64> = pick.iter().map(|&i| freqs[i]).collect();
+        let v: Vec<C64> = pick.iter().map(|&i| values[i]).collect();
+        let (model, mut report) = vector_fit(&f, &[v], &opts.vf)?;
+        report.error = fit_error(&model, freqs, &[values.to_vec()]);
+        notes.push(format!(
+            "the {} samples of the band were thinned to {MAX_FIT_SAMPLES} for the fit; the error is over all of them",
+            freqs.len()
+        ));
+        (model, report)
+    } else {
+        vector_fit(freqs, &[values.to_vec()], &opts.vf)?
+    };
     let (f_lo, f_hi) = (freqs[0], freqs[freqs.len() - 1]);
     let poles = pole_rows(&model, f_lo, f_hi, opts);
     let peak = values.iter().map(|v| v.norm()).fold(0.0, f64::max);
-    let mut notes = Vec::new();
     if let Some(s) = &report.stopped {
         notes.push(format!(
             "pole relocation stopped early ({s}); the best model so far is kept"

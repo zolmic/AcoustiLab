@@ -4,7 +4,14 @@
 //! Bins are f_k = k·fs/N, k = 0..N/2. Every bin in the solved band
 //! [f_lo, f_hi] is an exact solve of the network at that frequency, never
 //! an interpolation of the log grid. By default f_lo is the first bin
-//! (fs/N) and f_hi = min(netlist sweep maximum, fs/2). Outside the band:
+//! (fs/N) and f_hi = min(netlist sweep maximum, 0.9·fs/2), so that the
+//! taper below always has a guard band of at least a tenth of Nyquist
+//! (Section 16, mode 2: "a Tukey window and a guard band"). Without one, a
+//! response still strong at Nyquist is cut off there, and its IR is a
+//! sampled sinc with 1/n tails unless its phase at Nyquist happens to be
+//! that of a whole-sample delay (`tests/time.rs`: −27 dB of the energy
+//! more than 2 ms from the peak for a 13.5-sample delay, −76 dB with the
+//! guard band). An explicit `f_max_Hz` may reach Nyquist. Outside the band:
 //!
 //! * **Below f_lo** (only when `f_min_Hz` raises it above the first bin):
 //!   the power law |H| ∝ f^n with the phase of the lowest solved bin, n
@@ -67,6 +74,9 @@ pub const DC_PROBE_DIVISOR: f64 = 1024.0;
 pub const HF_BASELINE_OCTAVES: f64 = 1.0 / 6.0;
 /// Clamp on the high-frequency asymptotic exponent.
 pub const HF_SLOPE_RANGE: (f64, f64) = (-4.0, 1.0);
+/// Default top of the solved band as a fraction of Nyquist (the guard
+/// band of Section 16, mode 2).
+pub const GUARD_FRACTION: f64 = 0.9;
 
 #[derive(Debug, Clone)]
 pub struct UniformOptions {
@@ -76,7 +86,8 @@ pub struct UniformOptions {
     /// Lowest directly solved frequency (default: the first bin, fs/N).
     pub f_min_hz: Option<f64>,
     /// Highest directly solved frequency (default: the netlist sweep's
-    /// maximum, capped at Nyquist).
+    /// maximum, capped at [`GUARD_FRACTION`] of Nyquist; an explicit value
+    /// is capped at Nyquist).
     pub f_max_hz: Option<f64>,
 }
 
@@ -272,7 +283,10 @@ pub fn uniform_responses(
     let df = opts.df();
     let nyquist = opts.fs_hz / 2.0;
     let sweep_max = circuit.freqs.iter().copied().fold(0.0, f64::max);
-    let f_hi = opts.f_max_hz.unwrap_or(sweep_max).min(nyquist);
+    let f_hi = opts
+        .f_max_hz
+        .unwrap_or_else(|| sweep_max.min(GUARD_FRACTION * nyquist))
+        .min(nyquist);
     let f_lo = opts.f_min_hz.unwrap_or(df).max(df);
     let k_lo = (f_lo / df - 1e-9).ceil().max(1.0) as usize;
     let k_hi = ((f_hi / df + 1e-9).floor() as usize).min(half);

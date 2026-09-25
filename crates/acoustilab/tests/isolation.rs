@@ -394,6 +394,67 @@ fn transformation_and_warnings() {
         .warnings
         .iter()
         .any(|w| w.code == "undriven_path" && w.element.as_deref() == Some("vent")));
+    // A separate piston whose rear face is 'gnd' is not driven either, and
+    // an air compliance written "to ambient" (as conventions.md phrases a
+    // cavity) would be driven with the outside pressure: both warned.
+    let doc = json!({
+        "sweep": {"frequencies_Hz": [100.0, 1000.0]},
+        "ui": {"primary_probe": "p_cup"},
+        "nodes": [{"id": "m", "domain": "mechanical"}, {"id": "a_cup", "domain": "acoustic"}],
+        "elements": [
+            {"id": "susp", "type": "suspension", "node": "m", "Mms_g": 0.3, "Cms_mm_per_N": 1, "Rms_Ns_per_m": 0.1},
+            {"id": "dia", "type": "piston", "nodes": ["m", "gnd", "a_cup", "gnd"], "Sd_cm2": 10},
+            {"id": "air", "type": "acoustic_compliance", "nodes": ["a_cup", "ambient"], "C_m3_per_Pa": 1e-10}
+        ],
+        "probes": [{"id": "p_cup", "quantity": "pressure", "node": "a_cup"}]
+    });
+    let w = acoustilab::isolation::undriven_paths(&doc);
+    assert!(w
+        .iter()
+        .any(|w| w.code == "undriven_path" && w.element.as_deref() == Some("dia")));
+    assert!(w
+        .iter()
+        .any(|w| w.code == "compliance_to_ambient" && w.element.as_deref() == Some("air")));
+    let front = json!(["m", "gnd", "a_cup", "ambient"]);
+    let mut open_rear = doc.clone();
+    open_rear["elements"][1]["nodes"] = front;
+    open_rear["elements"][2]["nodes"] = json!(["a_cup"]);
+    assert!(acoustilab::isolation::undriven_paths(&open_rear).is_empty());
+}
+
+/// With two or more paths the paths are also added in power (independent
+/// phases at the openings, the diffuse-field limit for openings far apart):
+/// that IL can only be finite where the coherent sum cancels, and it is
+/// the coherent IL itself when one path dominates.
+#[test]
+fn incoherent_insertion_loss() {
+    let text = example("design_over_ear.json");
+    let p = Parametric::parse(&text).unwrap();
+    let iso = insertion_loss(&p, &Overrides::new(), &IsolationOptions::default()).unwrap();
+    let inc = iso.insertion_loss_incoherent_db.as_ref().unwrap();
+    for (i, f) in iso.freqs_hz.iter().enumerate() {
+        let open = iso.p_open[i].norm_sqr();
+        let power: f64 = iso.paths.iter().map(|p| p.p[i].norm_sqr()).sum();
+        let want = 10.0 * (open / power).log10();
+        assert!((inc[i] - want).abs() < 1e-9, "{f} Hz");
+        // |Σp|² ≤ n·Σ|p|² (Cauchy–Schwarz): the coherent IL is at least
+        // the incoherent one less 10·log10(n).
+        let n = iso.paths.len() as f64;
+        assert!(iso.insertion_loss_db[i] >= inc[i] - 10.0 * n.log10() - 1e-9);
+    }
+    // In the template the leak and vent contributions cancel near 1.16 kHz
+    // when driven in phase: 40.5 dB coherent against 28.3 dB in power.
+    let k = iso
+        .freqs_hz
+        .iter()
+        .position(|f| (*f / 1156.0 - 1.0).abs() < 0.01)
+        .unwrap();
+    assert!(
+        iso.insertion_loss_db[k] > inc[k] + 10.0,
+        "{} vs {}",
+        iso.insertion_loss_db[k],
+        inc[k]
+    );
 }
 
 /// Ear identification: a `canal` + `eardrum` ear on user nodes is entered

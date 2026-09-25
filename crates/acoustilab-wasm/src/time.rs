@@ -4,8 +4,11 @@
 //! value}`, "" for none) and an options object ("" for defaults) and
 //! returns the engine's report (`acoustilab::time::report`,
 //! `acoustilab::isolation`) or `{"error", "kind", ..}`. Unknown option keys
-//! are rejected (kind `options`). Runtime is bounded: at most 16384 FFT
-//! points, order 80, 64 perturbed parameters.
+//! are rejected (kind `options`). Runtime and memory are bounded: at most
+//! 16384 FFT points, an analysis cepstrum of 2^20 points, order 80, 2048
+//! fitted samples (longer sweeps are thinned, `time::poles`), 64 perturbed
+//! parameters. The netlist's own sweep (up to the engine's 10^6 points)
+//! still sets the cost of each solve over it.
 //!
 //! * [`impulse_value`] options: `probe`, `fs_Hz` (48000), `n` (8192),
 //!   `f_min_Hz`, `f_max_Hz`, `pre_samples` (n/32), `refine` (4), `extend`
@@ -35,6 +38,11 @@ pub const N_LIMIT: usize = 16384;
 pub const ORDER_LIMIT: usize = 80;
 /// Largest number of parameters an attribution may perturb.
 pub const PARAMETER_LIMIT: usize = 64;
+/// Largest analysis cepstrum (n·refine·extend, each rounded up to a power
+/// of two): 2^20 points, about 0.2 s natively and 16 MB per buffer. The
+/// engine alone allows 2^22 (1 s, 64 MB buffers). The defaults use 2^19
+/// at n = 16384.
+pub const CEPSTRUM_LIMIT: usize = 1 << 20;
 
 fn options_error(msg: impl Into<String>) -> Value {
     json!({"error": msg.into(), "kind": "options"})
@@ -178,6 +186,14 @@ pub fn impulse_value(netlist_json: &str, overrides_json: &str, options_json: &st
         req.align_delay = o.bool("align_delay")?.unwrap_or(false);
         let spectrum = o.bool("spectrum")?.unwrap_or(true);
         o.finish()?;
+        let cepstrum = req.uniform.n.saturating_mul(
+            req.min_phase.refine.next_power_of_two() * req.min_phase.extend.next_power_of_two(),
+        );
+        if cepstrum > CEPSTRUM_LIMIT {
+            return Err(options_error(format!(
+                "n·refine·extend = {cepstrum} exceeds the cepstrum limit of {CEPSTRUM_LIMIT} points"
+            )));
+        }
         let (p, _, c) = load(netlist_json, overrides_json)?;
         let probe = match &req.probe {
             Some(id) => id.clone(),
@@ -256,6 +272,12 @@ pub fn vector_fit_value(netlist_json: &str, overrides_json: &str, options_json: 
         if let Some(n) = o.usize("n")? {
             req.n = n;
         }
+        let check = acoustilab::time::UniformOptions {
+            fs_hz: req.fs_hz,
+            n: req.n,
+            ..Default::default()
+        };
+        check.check().map_err(|e| options_error(e.to_string()))?;
         req.state_space = o.bool("state_space")?.unwrap_or(false);
         o.finish()?;
         let (p, ov, c) = load(netlist_json, overrides_json)?;

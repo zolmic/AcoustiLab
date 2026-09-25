@@ -14,6 +14,7 @@ use super::uniform::{uniform_response, UniformOptions, UniformResponse};
 use crate::circuit::Circuit;
 use crate::error::{Error, Result};
 use crate::params::{Overrides, Parametric};
+use serde::Serialize;
 use serde_json::{json, Value};
 use std::f64::consts::PI;
 
@@ -88,8 +89,54 @@ pub struct Impulses {
     pub group_delay: Vec<f64>,
     pub ir_length: Option<IrLengthCheck>,
     pub fit_error: Option<String>,
+    /// Right-half-plane zeros of the rational fit inside the decision band,
+    /// Hz (Section 17: minimum phase is asserted only after checking the
+    /// fit's zeros); `None` when the fit did not run.
+    pub fit_rhp_zeros_hz: Option<Vec<f64>>,
+    /// The decay a zero at DC leaves (see [`DcTail`]).
+    pub dc_tail: Option<DcTail>,
     /// Delay removed from the mixed-phase IR, s (0 unless aligned).
     pub delay_removed_s: f64,
+}
+
+/// The slow decay of a response that vanishes at DC. Below its corner f_c
+/// (`extrapolation.dc_corner_Hz`, from the low-frequency probe) the
+/// response behaves as (s/(s + ω_c))^m, whose impulse response carries a
+/// tail with time constant τ = 1/(2π·f_c): a leak working against a
+/// compliance. It falls 80 dB in ln(10⁴)·τ = 9.21·τ (for m = 1; longer
+/// for m > 1). The E46 check covers resonant poles only, so this is
+/// reported beside it: a tail longer than N/(2·fs) wraps around the
+/// buffer and shows in the late energy of both IRs.
+#[derive(Debug, Clone, Serialize)]
+pub struct DcTail {
+    pub order: i32,
+    #[serde(rename = "corner_Hz")]
+    pub corner_hz: f64,
+    #[serde(rename = "time_constant_s")]
+    pub time_constant_s: f64,
+    /// ln(10⁴)·τ, s.
+    #[serde(rename = "needed_s")]
+    pub needed_s: f64,
+    /// N/(2·fs) ≥ needed_s.
+    pub covered: bool,
+}
+
+impl DcTail {
+    pub fn of(r: &UniformResponse) -> Option<DcTail> {
+        let e = &r.extrapolation;
+        let fc = e.dc_corner_hz?;
+        (e.dc_order > 0 && fc > 0.0).then(|| {
+            let tau = 1.0 / (2.0 * PI * fc);
+            let needed = 1e4f64.ln() * tau;
+            DcTail {
+                order: e.dc_order,
+                corner_hz: fc,
+                time_constant_s: tau,
+                needed_s: needed,
+                covered: r.n as f64 / (2.0 * r.fs_hz) >= needed,
+            }
+        })
+    }
 }
 
 pub fn impulses(circuit: &Circuit, probe: &str, req: &ImpulseRequest) -> Result<Impulses> {
@@ -132,17 +179,32 @@ pub fn impulses(circuit: &Circuit, probe: &str, req: &ImpulseRequest) -> Result<
         impulse(&response.values, response.fs_hz, pre)
     };
     let group_delay = group_delay_dense(&response.values, response.fs_hz);
-    let (ir_length, fit_error) = if req.length_check {
+    let (ir_length, fit_error, fit_rhp_zeros_hz) = if req.length_check {
         match fit_probe(circuit, probe, &req.fit) {
-            Ok(fit) => (
-                Some(ir_length_check(&fit, response.fs_hz, response.n)),
-                None,
-            ),
-            Err(e) => (None, Some(e.to_string())),
+            Ok(fit) => {
+                let rhp = fit
+                    .zeros
+                    .iter()
+                    .filter(|z| {
+                        z.rhp
+                            && decision
+                                .band_hz
+                                .is_some_and(|(lo, hi)| z.f_hz >= lo && z.f_hz <= hi)
+                    })
+                    .map(|z| z.f_hz)
+                    .collect();
+                (
+                    Some(ir_length_check(&fit, response.fs_hz, response.n)),
+                    None,
+                    Some(rhp),
+                )
+            }
+            Err(e) => (None, Some(e.to_string()), None),
         }
     } else {
-        (None, None)
+        (None, None, None)
     };
+    let dc_tail = DcTail::of(&response);
     Ok(Impulses {
         response,
         mixed,
@@ -154,6 +216,8 @@ pub fn impulses(circuit: &Circuit, probe: &str, req: &ImpulseRequest) -> Result<
         group_delay,
         ir_length,
         fit_error,
+        fit_rhp_zeros_hz,
+        dc_tail,
         delay_removed_s: delay_removed,
     })
 }
@@ -208,6 +272,8 @@ impl Impulses {
             "extrapolation": r.extrapolation,
             "ir_length": self.ir_length,
             "ir_length_error": self.fit_error,
+            "dc_tail": self.dc_tail,
+            "fit_rhp_zeros_in_decision_band_Hz": self.fit_rhp_zeros_hz,
             "drive": r.drive,
             "shading": r.shading,
             "warnings": r.warnings,

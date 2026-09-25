@@ -75,6 +75,8 @@ fn impulse_export_options() {
         (r#"{"probe": "nope"}"#, "probe"),
         (r#"[1]"#, "options"),
         (r#"{"order": 0}"#, "options"),
+        // A 2^21-point cepstrum (8192·16·16) is over the 2^20 limit.
+        (r#"{"refine": 16, "extend": 16}"#, "options"),
     ] {
         let e = impulse_value(&text, "", opts);
         assert_eq!(e["kind"], kind, "{opts}: {e}");
@@ -110,6 +112,8 @@ fn vector_fit_export() {
         r#"{"weighting": "log"}"#,
         r#"{"max_parameters": 65}"#,
         r#"{"step": 0.9}"#,
+        r#"{"fs_Hz": 0}"#,
+        r#"{"n": 1000}"#,
     ] {
         assert_eq!(
             vector_fit_value(&text, "", opts)["kind"],

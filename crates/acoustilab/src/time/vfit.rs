@@ -695,7 +695,23 @@ pub fn vector_fit(
         .iter()
         .map(|f| C64::new(0.0, 2.0 * PI * f / w_max))
         .collect();
-    let w: Vec<Vec<f64>> = responses
+    // Values are normalised by their largest magnitude, so that products
+    // such as |H|² neither overflow nor underflow whatever the unit.
+    let h_scale = responses
+        .iter()
+        .flatten()
+        .map(|v| v.norm())
+        .fold(0.0, f64::max);
+    let h_scale = if h_scale > 0.0 && h_scale.is_finite() {
+        h_scale
+    } else {
+        1.0
+    };
+    let scaled: Vec<Vec<C64>> = responses
+        .iter()
+        .map(|r| r.iter().map(|v| v / h_scale).collect())
+        .collect();
+    let w: Vec<Vec<f64>> = scaled
         .iter()
         .map(|h| {
             h.iter()
@@ -715,7 +731,7 @@ pub fn vector_fit(
         .collect();
     let prob = Problem {
         s,
-        h: responses,
+        h: &scaled,
         w,
         asym: opts.asymptote,
     };
@@ -751,12 +767,20 @@ pub fn vector_fit(
         Some(b) => b,
         None => prob.residues(&poles),
     };
-    // Back to rad/s: c/(s − a) = (c̃·ω)/(s − ã·ω); e·s = (ẽ/ω)·s.
+    // Back to rad/s: c/(s − a) = (c̃·ω)/(s − ã·ω); e·s = (ẽ/ω)·s; and
+    // back to the values' unit.
     model.poles = model.poles.iter().map(|p| p.scaled(w_max)).collect();
     for r in &mut model.residues {
-        r.iter_mut().for_each(|c| *c *= w_max);
+        r.iter_mut().for_each(|c| *c *= w_max * h_scale);
     }
-    model.e.iter_mut().for_each(|e| *e /= w_max);
+    model.d.iter_mut().for_each(|d| *d *= h_scale);
+    model.e.iter_mut().for_each(|e| *e *= h_scale / w_max);
+    let finite = model.poles.iter().all(|p| p.value().is_finite())
+        && model.residues.iter().flatten().all(|c| c.is_finite())
+        && model.d.iter().chain(&model.e).all(|x| x.is_finite());
+    if !finite {
+        return Err("vector fitting: the fit has non-finite coefficients".into());
+    }
     let error = fit_error(&model, freqs_hz, responses);
     Ok((
         model,
@@ -771,22 +795,31 @@ pub fn vector_fit(
     ))
 }
 
-/// Error of a model against sampled responses.
+/// Error of a model against sampled responses. A non-finite ratio makes
+/// every figure NaN (never a spuriously perfect 0 dB).
 pub fn fit_error(model: &RationalModel, freqs_hz: &[f64], responses: &[Vec<C64>]) -> FitError {
     let (mut sq, mut sq_db, mut n) = (0.0, 0.0, 0usize);
     let (mut max_db, mut max_deg) = (0.0f64, 0.0f64);
+    let nan_max = |a: f64, b: f64| {
+        if a.is_nan() || b.is_nan() {
+            f64::NAN
+        } else {
+            a.max(b)
+        }
+    };
     for (m, h) in responses.iter().enumerate() {
         for (&f, &v) in freqs_hz.iter().zip(h) {
             let fit = model.eval(m, C64::new(0.0, 2.0 * PI * f));
             if v.norm() == 0.0 {
                 continue;
             }
-            let ratio = fit / v;
+            // `fdiv` scales before dividing, so |v|² cannot underflow.
+            let ratio = fit.fdiv(v);
             sq += (ratio - 1.0).norm_sqr();
             let db = 20.0 * ratio.norm().log10();
             sq_db += db * db;
-            max_db = max_db.max(db.abs());
-            max_deg = max_deg.max(ratio.arg().to_degrees().abs());
+            max_db = nan_max(max_db, db.abs());
+            max_deg = nan_max(max_deg, ratio.arg().to_degrees().abs());
             n += 1;
         }
     }
@@ -839,5 +872,38 @@ mod tests {
         for (p, q) in m.poles.iter().zip(&poles) {
             assert!((p.value() - q.value()).norm() < 1e-8 * q.value().norm());
         }
+        // The unit of the values does not matter: at 1e±200 the products
+        // |H|² would underflow or overflow without the normalisation (the
+        // error then read NaN, and its dB and degree maxima a false 0).
+        for k in [1e-200, 1e200] {
+            let hk: Vec<C64> = f
+                .iter()
+                .map(|&f| truth.eval(0, C64::new(0.0, 2.0 * PI * f)) * k)
+                .collect();
+            let opts = VfOptions {
+                order: 5,
+                iterations: 8,
+                ..Default::default()
+            };
+            let (mk, rk) = vector_fit(&f, &[hk], &opts).unwrap();
+            assert!(rk.error.rms_relative < 1e-12, "{k}: {:?}", rk.error);
+            assert!(rk.error.max_db < 1e-10, "{k}: {:?}", rk.error);
+            for (p, q) in mk.poles.iter().zip(&poles) {
+                assert!((p.value() - q.value()).norm() < 1e-8 * q.value().norm());
+            }
+            assert!((mk.d[0] / k - 0.5).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn fit_error_propagates_nan() {
+        let model = RationalModel {
+            poles: vec![Pole::Real(-1.0)],
+            residues: vec![vec![C64::new(f64::NAN, 0.0)]],
+            d: vec![0.0],
+            e: vec![0.0],
+        };
+        let e = fit_error(&model, &[1.0, 2.0], &[vec![C64::new(1.0, 0.0); 2]]);
+        assert!(e.max_db.is_nan() && e.max_deg.is_nan() && e.rms_relative.is_nan());
     }
 }

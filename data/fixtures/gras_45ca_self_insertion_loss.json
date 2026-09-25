@@ -1,6 +1,6 @@
 {
   "fixture": "GRAS 45CA headphone/hearing-protector test fixture (configurations 45CA-1, 45CA-2)",
-  "quantity": "self-insertion loss: the lower bound of any passive insertion loss the fixture can measure",
+  "quantity": "self-insertion loss: the fixture's own isolation, which caps the insertion loss it can measure; the datasheet gives lower bounds on it ('>')",
   "condition": "measured with closed ear simulators (manufacturer's statement)",
   "bands": [
     {"f_min_Hz": 80, "f_max_Hz": 250, "exceeds_dB": 50},

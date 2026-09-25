@@ -315,9 +315,12 @@ fn eigenvalues_match_numpy() {
 
 // ----- Uniform re-solve and impulse responses -----------------------------------
 
+/// N points at 48 kHz with the band solved up to Nyquist (explicitly: the
+/// default stops at 0.9 of Nyquist to keep a guard band).
 fn options(n: usize) -> UniformOptions {
     UniformOptions {
         n,
+        f_max_hz: Some(24_000.0),
         ..Default::default()
     }
 }
@@ -582,7 +585,10 @@ fn impulse_length_rule_e46() {
 fn minimum_phase_system_is_causal() {
     let lp = Lp::new(100.0, 5.0, 1e-5);
     let req = ImpulseRequest {
-        uniform: options(16384),
+        uniform: UniformOptions {
+            n: 16384,
+            ..Default::default()
+        },
         ..Default::default()
     };
     let r = impulses(&lp.circuit(20_000.0), "out", &req).unwrap();
@@ -1207,4 +1213,143 @@ fn minimum_phase_energy_concentration() {
     let m = 48;
     let head = |h: &[f64]| h[..m].iter().map(|v| v * v).sum::<f64>() / total;
     assert!(head(&minimum) > head(&mixed) + 0.01);
+}
+
+// ----- Review additions ---------------------------------------------------------
+
+/// A matched tube swept to 40 kHz whose delay, 96.47 mm/c = 281.25 µs, is
+/// 13.5 samples at 48 kHz: a half-sample delay is the worst case for a
+/// spectrum cut off at Nyquist, whose IR is then a sampled sinc with 1/n
+/// tails. By default the solved band stops at 0.9 of Nyquist and the taper
+/// above is the guard band of Section 16 (mode 2). Energy more than 2 ms
+/// from the peak (numpy, `served` rules on e^{−jωτ}): −27 dB cut at
+/// Nyquist, −76 dB with the guard band. Asserted: above −40 dB and below
+/// −60 dB (the tube's small thermoviscous dispersion aside).
+#[test]
+fn default_band_keeps_a_guard_band_below_nyquist() {
+    let air = acoustilab::AirState::spec_reference();
+    let zc = air.rho_c() / (PI * 1e-4);
+    let length_mm = 13.5 / 48_000.0 * 343.0 * 1e3;
+    let doc = json!({
+        "air": {"preset": "spec_reference"},
+        "sweep": {"f_min_Hz": 10, "f_max_Hz": 40000, "points_per_octave": 24},
+        "nodes": [{"id": "s", "domain": "acoustic"}, {"id": "a", "domain": "acoustic"}],
+        "elements": [
+            {"id": "src", "type": "pressure_source", "node": "s", "p_Pa": 2.0, "Zs_Pa_s_per_m3": zc},
+            {"id": "tube", "type": "tube", "nodes": ["s", "a"], "radius_mm": 10, "length_mm": length_mm},
+            {"id": "end", "type": "acoustic_resistance", "node": "a", "R_Pa_s_per_m3": zc}
+        ],
+        "probes": [{"id": "p", "quantity": "pressure", "node": "a"}]
+    });
+    let c = Circuit::from_json(&doc.to_string()).unwrap();
+    let far = |opts: &UniformOptions| {
+        let u = uniform_response(&c, "p", opts).unwrap();
+        let h = u.impulse();
+        let n = h.len();
+        let pk = h
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.abs().total_cmp(&b.1.abs()))
+            .unwrap()
+            .0;
+        let total: f64 = h.iter().map(|v| v * v).sum();
+        let far: f64 = (0..n)
+            .filter(|&i| (i + n - pk) % n > 96 && (pk + n - i) % n > 96)
+            .map(|i| h[i] * h[i])
+            .sum();
+        (u, 10.0 * (far / total).log10())
+    };
+    let (u, guarded) = far(&UniformOptions::default());
+    assert_eq!(u.solved.1, (0.9 * 24_000.0 / u.df()).floor() as usize);
+    assert!(u.extrapolation.taper_hz.is_some());
+    let (u, cut) = far(&options(8192));
+    assert!(u.extrapolation.taper_hz.is_none());
+    assert!(guarded < -60.0, "with the guard band: {guarded}");
+    assert!(cut > -40.0, "cut at Nyquist: {cut}");
+}
+
+/// The tail a zero at DC leaves: the leaky ladder's 0.2 Hz corner (far
+/// below the 5.86 Hz bins) is a time constant of 1/(2π·0.2 Hz) = 0.80 s,
+/// which needs ln(10⁴)·τ = 7.3 s for an 80 dB decay; an 8192-point buffer
+/// does not hold it although no resonant pole asks for more. The corner
+/// comes from the DC probe (within 0.1 %, see the DC-rule test).
+#[test]
+fn dc_tail_is_reported_beside_the_e46_check() {
+    let leaky = Leaky::new();
+    let r = impulses(&leaky.circuit(20_000.0), "out", &ImpulseRequest::default()).unwrap();
+    let t = r.dc_tail.as_ref().unwrap();
+    assert_eq!(t.order, 1);
+    let tau = 1.0 / (2.0 * PI * 0.2);
+    assert!((t.time_constant_s / tau - 1.0).abs() < 2e-3, "{t:?}");
+    assert!((t.needed_s / (1e4f64.ln() * tau) - 1.0).abs() < 2e-3);
+    assert!(!t.covered);
+    assert!(r.ir_length.as_ref().unwrap().covered);
+    // A flat response has no such tail.
+    let lp = Lp::new(1000.0, 5.0, 1e-6);
+    let r = impulses(&lp.circuit(20_000.0), "out", &ImpulseRequest::default()).unwrap();
+    assert!(r.dc_tail.is_none());
+    assert_eq!(r.fit_rhp_zeros_hz.as_deref(), Some(&[][..]));
+}
+
+/// A sweep of 11 000 points (1000 per octave) is thinned to
+/// `MAX_FIT_SAMPLES` for the fit, which bounds its memory; the error is
+/// still measured over every sample, and the resonator is recovered.
+#[test]
+fn dense_sweeps_are_thinned_for_the_fit() {
+    let lp = Lp::new(1000.0, 5.0, 1e-6);
+    let nodes: Vec<Value> = ["in", "a", "out"]
+        .iter()
+        .map(|n| json!({"id": n, "domain": "electrical"}))
+        .collect();
+    let doc = json!({
+        "schema": "acoustilab-netlist/0.2",
+        "sweep": {"f_min_Hz": 10, "f_max_Hz": 20000, "points_per_octave": 1000},
+        "nodes": nodes,
+        "elements": lp.elements(),
+        "probes": [probe_out("out")],
+    });
+    let c = Circuit::from_json(&doc.to_string()).unwrap();
+    assert!(c.freqs.len() > 10_000);
+    let opts = PoleFitOptions {
+        vf: VfOptions {
+            order: 2,
+            asymptote: Asymptote::Zero,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let fit = fit_probe(&c, "out", &opts).unwrap();
+    assert_eq!(fit.freqs_hz.len(), c.freqs.len());
+    assert!(
+        fit.notes.iter().any(|n| n.contains("thinned to 2048")),
+        "{:?}",
+        fit.notes
+    );
+    assert!(
+        fit.report.error.rms_relative < 1e-9,
+        "{:?}",
+        fit.report.error
+    );
+    let b = &fit.poles[fit.resonant()[0]];
+    assert!((b.f_hz / 1000.0 - 1.0).abs() < 1e-6 && (b.q.unwrap() / 5.0 - 1.0).abs() < 1e-6);
+}
+
+/// A known limit of the cepstral test: a minimum-phase notch narrower than
+/// the bin spacing (zeros at Q_z = 1000, 1 Hz wide at 1 kHz, bins 5.86 Hz)
+/// is not resolved by the magnitude on the grid, and its excess group delay
+/// spikes above 0.5 ms at the notch, so the decision reads "mixed". The
+/// rational fit resolves it: it finds no right-half-plane zero, which the
+/// report states beside the decision (Section 17). The same notch at
+/// Q_z = 30 is resolved and passes.
+#[test]
+fn a_notch_narrower_than_a_bin_and_the_fit_cross_check() {
+    let notch = Notch::new(1000.0, 1000.0, 2.0);
+    let r = impulses(&notch.circuit(20_000.0), "out", &ImpulseRequest::default()).unwrap();
+    assert_eq!(r.decision.mode, "mixed");
+    let at = r.decision.at_hz.unwrap();
+    assert!((at / 1000.0 - 1.0).abs() < 0.02, "{at}");
+    assert_eq!(r.fit_rhp_zeros_hz.as_deref(), Some(&[][..]));
+    let notch = Notch::new(1000.0, 30.0, 2.0);
+    let r = impulses(&notch.circuit(20_000.0), "out", &ImpulseRequest::default()).unwrap();
+    assert_eq!(r.decision.mode, "minimum");
 }

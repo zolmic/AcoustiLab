@@ -47,6 +47,14 @@
 //! networks (`tests/time.rs`; numpy study: `tools/time/minphase_study.py`). Both
 //! spectra have the magnitude of H at every bin.
 //!
+//! **Limit.** The cepstrum knows |H| only on the grid. A notch whose zeros
+//! lie closer to the jω axis than about a bin spacing (Q_z = 1000 at 1 kHz
+//! against 5.86 Hz bins) is not resolved: the phase errs by degrees next
+//! to it and the excess group delay spikes to milliseconds, so the
+//! decision reads `mixed` for a minimum-phase network. The impulse report
+//! lists the rational fit's right-half-plane zeros beside the decision for
+//! that reason (`docs/time-domain.md`).
+//!
 //! **Polarity.** The excess phase is referred to the all-pass with unit DC
 //! gain: when the excess phase at the lowest solved bin is nearer ±π than
 //! 0 the counterpart's sign is inverted (`polarity` −1), i.e. the network
