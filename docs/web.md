@@ -893,8 +893,9 @@ through the page.
   frequencies equals (1/(ω0Q))·(1 + x²)/((1 − x²)² + x²/Q²) within 1e-3;
   "Mark" sets the highlight on both frequency plots, and every pixel it
   changes lies within 6 px of x(1 kHz). Attribution on the template equals
-  the export's (top parameter and d ln f/d ln p per pole; the 936 Hz pole
-  goes to the diaphragm area); a cancel at once leaves the reports in
+  the export's (top parameter and d ln f/d ln p per pole; the damped
+  template has no resonant pole below 2 kHz, and its lowest, 7.0 kHz, goes
+  to the front depth); a cancel at once leaves the reports in
   place. Every tick label drawn on the time plots reads as its tick's value
   (ticks every 2.5 ms and 2.5 Pa on the template; `tickDecimals` of
   `format.ts` also checked alone). Keyboard crosshair, zoom, reset and Esc;
