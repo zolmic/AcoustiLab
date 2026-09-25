@@ -232,6 +232,15 @@ fn truncation_keeps_the_e27_mode_counts() {
             .as_u64()
             .unwrap()
     );
+    // The Weyl estimate behind the element's mode budget tracks the counts.
+    for s in [shape, cyl] {
+        for fmax in [5_000.0, 20_000.0, 40_000.0] {
+            let k = 3.0 * 2.0 * PI * fmax / 343.0;
+            let n = s.modes_below(k).len() as f64;
+            let est = s.mode_count_estimate(k);
+            assert!((est / n - 1.0).abs() < 0.03, "{s:?} {fmax}: {est} vs {n}");
+        }
+    }
 }
 
 #[test]
@@ -718,14 +727,15 @@ fn network_transfer_is_reciprocal() {
 // ----- Against the independent mixed-representation reference ------------------
 
 /// Errors of Z against the reference, per pair, normalised by
-/// |Z_ref,ij| + 0.01·sqrt(s_i·s_j), s_i = ρc/A_i: a relative error, except
-/// that near a zero of Z_ij it is measured against 1 % of the ports' own
-/// characteristic impedance.
+/// |Z_ref,ij| + floor·sqrt(s_i·s_j), s_i = ρc/A_i: a relative error, except
+/// that near a zero of Z_ij it is measured against a fraction `floor` of the
+/// ports' own characteristic impedance.
 fn compare_to_reference(
     shape_json: Value,
     ports: &[Value],
     zref: &Value,
     residual: bool,
+    floor: f64,
 ) -> Vec<(f64, Vec<Vec<f64>>)> {
     let n = ports.len();
     let recs: Vec<Value> = ports
@@ -755,7 +765,7 @@ fn compare_to_reference(
             for j in 0..n {
                 let want = C64::new(0.0, row[j]);
                 let s = air.rho_c() / (area[i] * area[j]).sqrt();
-                e[i][j] = (z[i * n + j] - want).norm() / (want.norm() + 0.01 * s);
+                e[i][j] = (z[i * n + j] - want).norm() / (want.norm() + floor * s);
             }
         }
         out.push((f, e));
@@ -802,7 +812,7 @@ fn box_impedance_matches_mixed_representation() {
     let zr = &r["z"]["box"];
     let ports = zr["ports"].as_array().unwrap().clone();
     let shape = json!({"lx_mm": 60, "ly_mm": 45, "lz_mm": 20});
-    let errs = compare_to_reference(shape.clone(), &ports, &zr["Z"], true);
+    let errs = compare_to_reference(shape.clone(), &ports, &zr["Z"], true, 0.01);
     print_errors("box", &errs);
     for (f, e) in &errs {
         let tol = reference_tolerance(*f);
@@ -814,7 +824,7 @@ fn box_impedance_matches_mixed_representation() {
     }
     // Without the residual the small ports' driving-point impedances are far
     // off even at 2 kHz: plain truncation is not enough.
-    let errs = compare_to_reference(shape, &ports, &zr["Z"], false);
+    let errs = compare_to_reference(shape, &ports, &zr["Z"], false, 0.01);
     print_errors("box, no residual", &errs);
     let e = &errs.iter().find(|(f, _)| *f > 2000.0).unwrap().1;
     assert!(e[0][0] > 0.1 && e[3][3] > 0.1, "{e:?}");
@@ -826,13 +836,59 @@ fn cylinder_impedance_matches_mixed_representation() {
     let zr = &r["z"]["cylinder"];
     let ports = zr["ports"].as_array().unwrap().clone();
     let shape = json!({"radius_mm": 25, "depth_mm": 20});
-    let errs = compare_to_reference(shape, &ports, &zr["Z"], true);
+    let errs = compare_to_reference(shape, &ports, &zr["Z"], true, 0.01);
     print_errors("cylinder", &errs);
     for (f, e) in &errs {
         let tol = reference_tolerance(*f);
         for (i, row) in e.iter().enumerate() {
             for (j, &x) in row.iter().enumerate() {
                 assert!(x < tol, "f={f} ({i},{j}): {x:.2e}");
+            }
+        }
+    }
+}
+
+#[test]
+fn impedance_near_walls_matches_tail_free_reference() {
+    // Slits and disks flush against (or within 1 mm of) the walls of their
+    // face: a 0.3 mm slit along an edge, full-span 0.2–0.3 mm slits, a 1 mm
+    // disk in a corner, a slit and a full ring at the rims of a cylinder side
+    // wall. The references (tools/cavity/generate.py, "walls") have no
+    // continuum-tail model: the transverse sum runs to 1e5 rad/m and is
+    // extrapolated, so they test the element's tail, including the wall
+    // images it must carry (without them the full-span slit's driving-point
+    // impedance was 0.8 % off and the edge slits' 0.1 %).
+    let r = reference();
+    let w = &r["walls"];
+    let bx = json!({"lx_mm": 60, "ly_mm": 45, "lz_mm": 20});
+    for (name, shape) in [
+        ("box_z", bx.clone()),
+        ("box_y", bx),
+        ("cyl_side", json!({"radius_mm": 25, "depth_mm": 20})),
+    ] {
+        let ports = w[name]["ports"].as_array().unwrap().clone();
+        // Below f_max/4 the static tails dominate the error: 6e-5 (with the
+        // usual 1 % floor), against 3e-4 to 8e-3 without the wall images.
+        let errs = compare_to_reference(shape.clone(), &ports, &w[name]["Z"], true, 0.01);
+        print_errors(name, &errs);
+        for (f, e) in errs.iter().filter(|(f, _)| *f < 5000.0) {
+            for (i, row) in e.iter().enumerate() {
+                for (j, &x) in row.iter().enumerate() {
+                    assert!(x < 6e-5, "{name} f={f} ({i},{j}): {x:.2e}");
+                }
+            }
+        }
+        // Above, the usual tolerance with a 5 % floor: at 9.1 kHz the centred
+        // driver's Z_00 passes near a zero, where 1 % of ρc/A is below the
+        // O((k/k_cut)⁴) error of the quasi-static residual (1.4e-5·ρc/A
+        // there, growing like f⁵).
+        let errs = compare_to_reference(shape, &ports, &w[name]["Z"], true, 0.05);
+        for (f, e) in errs.iter().filter(|(f, _)| *f >= 5000.0) {
+            let tol = reference_tolerance(*f);
+            for (i, row) in e.iter().enumerate() {
+                for (j, &x) in row.iter().enumerate() {
+                    assert!(x < tol, "{name} f={f} ({i},{j}): {x:.2e}");
+                }
             }
         }
     }
@@ -1016,15 +1072,17 @@ fn centred_piston_does_not_excite_antisymmetric_modes() {
 
 // ----- Depth line versus axial modes -------------------------------------------
 
-/// p0/U and p1/U of the two-node `cavity` depth line (L1), and of a modal
-/// cavity with full-face ports on both ends, driven at the first face.
+/// p0/U and p1/U of the two-node `cavity` depth line (L1, geometry
+/// `line_shape`), and of a modal cavity (`shape`) with full-face ports on two
+/// opposite faces, driven at the first.
 fn line_and_modal(
+    line_shape: Value,
     shape: Value,
     full_ports: Vec<Value>,
     wall_loss: bool,
     f: f64,
 ) -> ([C64; 2], [C64; 2]) {
-    let mut line = shape.clone();
+    let mut line = line_shape;
     line["id"] = json!("cav");
     line["type"] = json!("cavity");
     line["nodes"] = json!(["p0", "p1"]);
@@ -1061,17 +1119,33 @@ fn depth_line_agrees_with_axial_modes() {
     // Errors are relative to max(|Z|, ρc/S), so that the zeros of Z_11 (the
     // quarter-wave depth resonances) do not turn a small absolute error into
     // an unbounded relative one.
+    let bx = json!({"lx_mm": 60, "ly_mm": 45, "lz_mm": 20});
+    let cyl = json!({"radius_mm": 25, "depth_mm": 25});
     let cases = [
         (
-            json!({"lx_mm": 60, "ly_mm": 45, "lz_mm": 20}),
+            bx.clone(),
+            bx.clone(),
             0.060 * 0.045,
             vec![
                 json!({"node": "p0", "face": "z0", "x_mm": 0, "y_mm": 0, "lx_mm": 60, "ly_mm": 45}),
                 json!({"node": "p1", "face": "z1", "x_mm": 0, "y_mm": 0, "lx_mm": 60, "ly_mm": 45}),
             ],
         ),
+        // The same box driven across its 60 mm length: the (n,0,0) modes, whose
+        // motion is tangential to four walls (viscous loss on the y and z
+        // faces), against a 45 × 20 mm line 60 mm deep.
         (
-            json!({"radius_mm": 25, "depth_mm": 25}),
+            json!({"lx_mm": 45, "ly_mm": 20, "lz_mm": 60}),
+            bx,
+            0.045 * 0.020,
+            vec![
+                json!({"node": "p0", "face": "x0", "y_mm": 0, "z_mm": 10, "ly_mm": 45, "lz_mm": 20}),
+                json!({"node": "p1", "face": "x1", "y_mm": 0, "z_mm": 10, "ly_mm": 45, "lz_mm": 20}),
+            ],
+        ),
+        (
+            cyl.clone(),
+            cyl,
             PI * 0.025 * 0.025,
             vec![
                 json!({"node": "p0", "face": "z0", "x_mm": 0, "y_mm": 0, "radius_mm": 25}),
@@ -1080,14 +1154,14 @@ fn depth_line_agrees_with_axial_modes() {
         ),
     ];
     let zc = |s: f64| air().rho_c() / s;
-    for (shape, area, ports) in cases {
+    for (line_shape, shape, area, ports) in cases {
         let mut f = 20.0;
         let (mut lossless_lo, mut lossless_hi, mut lossy) = (0.0f64, 0.0f64, 0.0f64);
         while f < 20_000.0 {
             // Lossless: the line is exactly −j(ρc/S)·cot(kL) and −j(ρc/S)/sin(kL);
             // the modal sum with its residual differs by the O((k/k_cut)⁴)
             // dynamic tail of the omitted axial modes.
-            let (l, m) = line_and_modal(shape.clone(), ports.clone(), false, f);
+            let (l, m) = line_and_modal(line_shape.clone(), shape.clone(), ports.clone(), false, f);
             for i in 0..2 {
                 let e = (m[i] - l[i]).norm() / l[i].norm().max(zc(area));
                 if f < 10_000.0 {
@@ -1103,14 +1177,15 @@ fn depth_line_agrees_with_axial_modes() {
             // superposed modes without their cross terms. The line itself
             // uses the exact circular shape function at the equivalent radius,
             // which differs from the thin-layer limit by O((δ/r)²), 1e-4 at 20 Hz.
-            let (l, m) = line_and_modal(shape.clone(), ports.clone(), true, f);
+            let (l, m) = line_and_modal(line_shape.clone(), shape.clone(), ports.clone(), true, f);
             for i in 0..2 {
                 let e = (m[i] - l[i]).norm() / l[i].norm().max(zc(area));
                 lossy = lossy.max(e);
             }
             f *= 1.037;
         }
-        println!("{shape}: lossless {lossless_lo:.1e} (<10 kHz), {lossless_hi:.1e} (10-20 kHz); lossy {lossy:.1e}");
+        let face = &ports[0]["face"];
+        println!("{shape} from {face}: lossless {lossless_lo:.1e} (<10 kHz), {lossless_hi:.1e} (10-20 kHz); lossy {lossy:.1e}");
         assert!(lossless_lo < 1e-4, "{shape}: {lossless_lo}");
         // Top octave: the O((k/k_cut)⁴) tail grows to (1/3)⁴ ≈ 1 % of the
         // omitted modes' share at f_max.
@@ -1451,6 +1526,8 @@ fn rejects_malformed_modal_cavities() {
         ),
         (with(&|v| v["surface_factor"] = json!(20)), "surface_factor"),
         (with(&|v| v["f_max"] = json!(20000)), "unit suffix"),
+        // About 1e7 modes: refused before any is listed.
+        (with(&|v| v["f_max_kHz"] = json!(400)), "lower 'f_max_Hz'"),
     ];
     for (cav, needle) in cases {
         let msg = try_build(cav.clone()).unwrap_or_else(|| panic!("accepted: {cav}"));

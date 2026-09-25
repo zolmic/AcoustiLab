@@ -16,14 +16,18 @@ elements/cavity.rs:
   the sum along the wall normal in closed form (cot / csc, or the radial Bessel
   ratio for the cylinder side), the transverse sum to a cutoff 10-20x the
   element's, plus the continuum tail beyond it; pairs of ports on walls with
-  different normals from a plain 3-D modal sum with 4x the element's cutoff;
+  different normals from a plain 3-D modal sum with 4x the element's cutoff.
+  The continuum tail is the one modelling choice shared with the element (its
+  share is small at these cutoffs), so the "walls" references use none: the
+  transverse sum runs to 1e5 rad/m and is extrapolated, for slits and disks
+  flush against the walls of their face (`--only-walls` recomputes just those);
 * modal Q factors (Morse-Ingard boundary-layer perturbation) from the
   quadrature wall integrals.
 
 Air is the engine's "spec_reference" preset (rho 1.204, c 343, mu 1.81e-5,
 gamma 1.4, Pr 0.71, P0 = rho c^2 / gamma).
 
-Usage: python3 tools/cavity/generate.py   (about two minutes)
+Usage: python3 tools/cavity/generate.py [--only-walls]   (about three minutes; seconds with --only-walls)
 """
 import json
 import math
@@ -730,16 +734,224 @@ def z_fixture():
     return out
 
 
+# ----- Tail-free references near walls ------------------------------------------
+#
+# The element, and box_family_S / cyl_side_S above, replace the transverse sum
+# beyond a cutoff by its continuum (half-space) limit, so the references above
+# share that model with the code (at a 3-20x higher cutoff). The references
+# below use no tail model at all: the transverse sum of the mixed
+# representation runs to K = 1e5 rad/m and its static part is extrapolated to
+# K -> infinity by a least-squares fit S(K) = S_inf + a/K^2 + b/K^3 over
+# 0.3K..K; the frequency-dependent remainder converges like K^-3 and stops at
+# 4e4 rad/m. The ports are slits and disks flush against the walls of their
+# face, where the continuum tail must carry the footprint's wall images.
+
+def _extrapolate(Ks, S):
+    m = Ks >= 0.3 * Ks[-1]
+    A = np.stack([np.ones(m.sum()), 1 / Ks[m] ** 2, 1 / Ks[m] ** 3], 1)
+    coef, *_ = np.linalg.lstsq(A, S[m], rcond=None)
+    return coef[0], abs(coef[0] - S[-1])
+
+
+def _box_T(port, dims, axis, kb, kc):
+    """Normalised transverse means over a footprint on a face normal to `axis`."""
+    ua, va = {0: (1, 2), 1: (0, 2), 2: (0, 1)}[axis]
+    off = lambda ax: 0.0 if ax == 2 else dims[ax] / 2
+    face, u, v, fp = port
+    U, V = u + off(ua), v + off(va)
+    e = np.sqrt(np.where(kb > 0, 2.0, 1.0) * np.where(kc > 0, 2.0, 1.0))
+    if fp[0] == "disk":
+        return e * np.cos(kb * U) * np.cos(kc * V) * jinc(np.hypot(kb, kc) * fp[1])
+    return e * np.cos(kb * U) * sinc(kb * fp[1] / 2) * np.cos(kc * V) * sinc(kc * fp[2] / 2)
+
+
+def box_family_tailfree(dims, axis, ports, freqs, K=1.0e5, K_dyn=4.0e4, nbins=400):
+    """im(Z) of ports all on the two faces normal to `axis` (lossless)."""
+    ua, va = {0: (1, 2), 1: (0, 2), 2: (0, 1)}[axis]
+    Lu, Lv, L = dims[ua], dims[va], dims[axis]
+    n = len(ports)
+    pairs = [(i, j) for i in range(n) for j in range(i, n)]
+    same = {(i, j): ports[i][0][1] == ports[j][0][1] for (i, j) in pairs}
+
+    def rows(Kmax):
+        kc_all = np.arange(int(Kmax * Lv / np.pi) + 2) * np.pi / Lv
+        for p in range(int(Kmax * Lu / np.pi) + 2):
+            kb = p * np.pi / Lu
+            kap = np.hypot(kb, kc_all)
+            m = (kap < Kmax) & (kap > 0)
+            if not np.any(m):
+                continue
+            kc = kc_all[m]
+            kbv = np.full(kc.shape, kb)
+            yield kap[m], [_box_T(pt, dims, axis, kbv, kc) for pt in ports]
+
+    # Static part (k = 0), binned in kappa for the extrapolation.
+    acc = {pq: np.zeros(nbins) for pq in pairs}
+    for kap, T in rows(K):
+        x = kap * L
+        with np.errstate(over="ignore"):
+            gs = L / kap / np.tanh(x)
+            go = np.where(x > 700, 0.0, L / kap / np.sinh(np.minimum(x, 700)))
+        idx = np.minimum((kap / K * nbins).astype(int), nbins - 1)
+        for (i, j) in pairs:
+            w = T[i] * T[j] * (gs if same[(i, j)] else go)
+            acc[(i, j)] += np.bincount(idx, weights=w, minlength=nbins)
+    Ks = np.linspace(0, K, nbins + 1)[1:]
+    static = {}
+    for pq in pairs:
+        static[pq], err = _extrapolate(Ks, np.cumsum(acc[pq]))
+        print(f"  static {pq}: {static[pq]:.10e} (tail beyond K {err:.1e})", file=sys.stderr)
+    V = dims[0] * dims[1] * dims[2]
+    out = []
+    for f in freqs:
+        k = 2 * np.pi * f / C
+        dyn = {pq: 0.0 for pq in pairs}
+        for kap, T in rows(K_dyn):
+            gs, go = axial_G(kap ** 2 - k * k, L)
+            gs0, go0 = axial_G(kap ** 2, L)
+            for (i, j) in pairs:
+                g = (gs - gs0) if same[(i, j)] else (go - go0)
+                dyn[(i, j)] += np.sum(T[i] * T[j] * g)
+        g_s, g_o = axial_G(np.array([-k * k]), L)  # the kappa = 0 term, uniform mode included
+        Z = np.zeros((n, n))
+        for (i, j) in pairs:
+            s = static[(i, j)] + dyn[(i, j)] + (g_s if same[(i, j)] else g_o)[0]
+            Z[i, j] = Z[j, i] = RHO * 2 * np.pi * f / V * s
+        out.append({"f": f, "im_Z": Z.tolist()})
+    return out
+
+
+def _radial_h(ms, x2, mtop_extra=100):
+    """h_m = x I_m'(x)/I_m(x) (x^2 >= 0) or y J_m'(y)/J_m(y) (x^2 = -y^2 < 0) for
+    m = 0..max(ms), each column of x2; backward recurrences for the ratios
+    I_{m+1}/I_m and J_{m+1}/J_m (both minimal solutions, hence stable)."""
+    x2 = np.asarray(x2, float)
+    M = int(ms)
+    x = np.sqrt(np.abs(x2))
+    top = M + mtop_extra + int(np.max(x, initial=0.0))
+    sgn = np.where(x2 >= 0, 1.0, -1.0)  # I: r = 1/(2m/x + r); J: r = 1/(2m/x - r)
+    r = np.zeros_like(x)
+    out = np.empty((M + 1, x.size))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        for m in range(top, 0, -1):
+            r = np.where(x > 0, 1.0 / (2.0 * m / np.where(x > 0, x, 1.0) + sgn * r), 0.0)
+            if m - 1 <= M:
+                out[m - 1] = r  # ratio at order m-1
+    mm = np.arange(M + 1)[:, None]
+    return np.where(x2[None, :] >= 0, x[None, :] * out + mm, mm - x[None, :] * out)
+
+
+def cyl_side_tailfree(a, d, ports, freqs, K=1.0e5, K_dyn=4.0e4, nbins=400):
+    """im(Z) of ports all on the side wall of a cylinder (lossless): the radial
+    sum in closed form, a^2/(2h), the (m, l) sum to K and extrapolated."""
+    n = len(ports)
+    pairs = [(i, j) for i in range(n) for j in range(i, n)]
+
+    def terms(Kmax, k):
+        L_top = int(Kmax * d / np.pi) + 1
+        M_top = int(Kmax * a) + 1
+        kz = np.arange(L_top + 1) * np.pi / d
+        h = _radial_h(M_top, (kz * a) ** 2 - (k * a) ** 2)
+        h0 = _radial_h(M_top, (kz * a) ** 2) if k > 0 else h
+        ms = np.arange(M_top + 1)
+        for li, kzl in enumerate(kz):
+            kap = np.hypot(ms / a, kzl)
+            m = kap < Kmax
+            if not np.any(m):
+                continue
+            mm = ms[m]
+            e2 = np.where(mm > 0, 2.0, 1.0) * (2.0 if li > 0 else 1.0)
+            with np.errstate(divide="ignore"):
+                g = a * a / (2 * h[m, li])
+                g0 = a * a / (2 * h0[m, li])
+            if li == 0:
+                g0 = g0.copy()
+                g0[0] = a * a / 8  # uniform mode excluded from the static part
+            F = []
+            for (face, ang, z0, fp) in ports:
+                if fp[0] == "disk":
+                    fv = jinc(kap[m] * fp[1])
+                else:
+                    fv = sinc(mm / a * fp[1] / 2) * sinc(kzl * fp[2] / 2)
+                F.append((fv * np.cos(kzl * z0), math.radians(ang)))
+            yield kap[m], mm, e2, g, g0, F
+
+    acc = {pq: np.zeros(nbins) for pq in pairs}
+    for kap, mm, e2, g, g0, F in terms(K, 0.0):
+        idx = np.minimum((kap / K * nbins).astype(int), nbins - 1)
+        for (i, j) in pairs:
+            w = e2 * F[i][0] * F[j][0] * np.cos(mm * (F[i][1] - F[j][1])) * g0
+            acc[(i, j)] += np.bincount(idx, weights=w, minlength=nbins)
+    Ks = np.linspace(0, K, nbins + 1)[1:]
+    static = {}
+    for pq in pairs:
+        static[pq], err = _extrapolate(Ks, np.cumsum(acc[pq]))
+        print(f"  side static {pq}: {static[pq]:.10e} (tail beyond K {err:.1e})", file=sys.stderr)
+    V = math.pi * a * a * d
+    out = []
+    for f in freqs:
+        k = 2 * np.pi * f / C
+        dyn = {pq: 0.0 for pq in pairs}
+        for kap, mm, e2, g, g0, F in terms(K_dyn, k):
+            for (i, j) in pairs:
+                dyn[(i, j)] += np.sum(e2 * F[i][0] * F[j][0] * np.cos(mm * (F[i][1] - F[j][1])) * (g - g0))
+        Z = np.zeros((n, n))
+        for (i, j) in pairs:
+            Z[i, j] = Z[j, i] = RHO * 2 * np.pi * f / V * (static[(i, j)] + dyn[(i, j)])
+        out.append({"f": f, "im_Z": Z.tolist()})
+    return out
+
+
+# (face, u, v, footprint) in metres (u in degrees on the side wall).
+WALL_BOX_Z = [
+    ("z0", 0.0, 0.0, ("disk", 0.015)),          # driver, 7.5 mm from the y walls
+    ("z1", 0.0, 0.02235, ("rect", 0.020, 0.0003)),  # slit flush against y1
+    ("z1", -0.0299, 0.0, ("rect", 0.0002, 0.045)),  # full-span slit flush against x0
+    ("z0", -0.0285, -0.021, ("disk", 0.001)),   # small disk 0.5 mm from two walls
+]
+WALL_BOX_Y = [
+    ("y1", 0.0, 0.01985, ("rect", 0.020, 0.0003)),  # slit flush against z1
+    ("y0", 0.010, 0.010, ("disk", 0.003)),
+    ("y0", 0.0, 0.00015, ("rect", 0.060, 0.0003)),  # full-span slit flush against z0
+]
+WALL_CYL_SIDE = [
+    ("side", 30.0, 0.00015, ("rect", 0.010, 0.0003)),  # slit flush against the z0 rim
+    ("side", 200.0, 0.017, ("disk", 0.002)),           # disk 1 mm from the z1 rim
+    ("side", 0.0, 0.0199, ("rect", 2 * math.pi * 0.025, 0.0002)),  # full ring at the z1 rim
+]
+
+
+def walls_fixture():
+    dims = list(BOX.L)
+    rec = lambda ps: [list(p[:3]) + [list(p[3])] for p in ps]
+    out = {"f_max": F_MAX, "freqs": FREQS}
+    print("walls: box z", file=sys.stderr)
+    out["box_z"] = {"ports": rec(WALL_BOX_Z), "Z": box_family_tailfree(dims, 2, WALL_BOX_Z, FREQS)}
+    print("walls: box y", file=sys.stderr)
+    out["box_y"] = {"ports": rec(WALL_BOX_Y), "Z": box_family_tailfree(dims, 1, WALL_BOX_Y, FREQS)}
+    print("walls: cylinder side", file=sys.stderr)
+    out["cyl_side"] = {"radius": 0.025, "depth": 0.020, "ports": rec(WALL_CYL_SIDE),
+                       "Z": cyl_side_tailfree(0.025, 0.020, WALL_CYL_SIDE, FREQS)}
+    return out
+
+
 def main():
-    data = {
-        "generator": "tools/cavity/generate.py",
-        "air": {"rho": RHO, "c": C, "mu": MU, "gamma": GAMMA, "Pr": PR},
-        "bessel": bessel_fixture(),
-        "modes": mode_lists(),
-        "patches": patch_fixture(),
-        "q": q_fixture(),
-        "z": z_fixture(),
-    }
+    if sys.argv[1:] == ["--only-walls"]:
+        # Recompute only the tail-free wall references (a few minutes).
+        with open(OUT) as fh:
+            data = json.load(fh)
+        data["walls"] = walls_fixture()
+    else:
+        data = {
+            "generator": "tools/cavity/generate.py",
+            "air": {"rho": RHO, "c": C, "mu": MU, "gamma": GAMMA, "Pr": PR},
+            "bessel": bessel_fixture(),
+            "modes": mode_lists(),
+            "patches": patch_fixture(),
+            "q": q_fixture(),
+            "z": z_fixture(),
+            "walls": walls_fixture(),
+        }
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w") as fh:
         json.dump(data, fh, indent=1)

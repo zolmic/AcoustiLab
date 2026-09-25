@@ -54,9 +54,11 @@
 //! cylinder end–end or side–side). The sum along the wall normal is done in
 //! closed form (e.g. Σ_l ε_l/(κ² + (lπ/L)²) = (L/κ)·coth(κL)); the sum over
 //! the transverse wavenumbers κ is done term by term up to a cutoff and the
-//! remainder is replaced by its continuum (half-space) limit. The modal
-//! cavity subtracts the retained modes' share of these sums to obtain the
-//! quasi-static contribution of the truncated modes.
+//! remainder of each self term is replaced by its continuum (half-space)
+//! limit, together with the footprint's mirror images in the nearby walls of
+//! its face (they matter for slits along an edge, whose near field extends
+//! past the cutoff). The modal cavity subtracts the retained modes' share of
+//! these sums to obtain the quasi-static contribution of the truncated modes.
 
 use crate::C64;
 use std::f64::consts::PI;
@@ -385,6 +387,27 @@ impl Shape {
             Shape::Box { lx, ly, lz } => lx.max(ly).max(lz),
             Shape::Cylinder { radius, depth } => (2.0 * radius).max(depth),
         }
+    }
+
+    /// Total length of the edges where two walls meet.
+    pub fn edge_length(&self) -> f64 {
+        match *self {
+            Shape::Box { lx, ly, lz } => 4.0 * (lx + ly + lz),
+            Shape::Cylinder { radius, .. } => 4.0 * PI * radius,
+        }
+    }
+
+    /// Weyl estimate of the number of rigid-wall modes with k < `k_max`:
+    /// V·k³/(6π²) + S·k²/(16π) + E·k/(16π), with V the volume, S the wall
+    /// area and E the edge length (the Neumann counting function of a
+    /// box; for the 60 × 45 × 20 mm box it gives 1452 below 3·2π·20 kHz/c,
+    /// against 1446 counted). Used to refuse truncations that would not fit
+    /// in memory before any mode is listed.
+    pub fn mode_count_estimate(&self, k_max: f64) -> f64 {
+        let k = k_max.max(0.0);
+        self.volume() * k.powi(3) / (6.0 * PI * PI)
+            + self.wall_area() * k * k / (16.0 * PI)
+            + self.edge_length() * k / (16.0 * PI)
     }
 
     /// All modes with k < `k_max`, sorted by k (ties by index). Includes the
@@ -1244,18 +1267,22 @@ fn box_family(
             let g = axial_kernels(k, l);
             (g[0], g[2])
         };
+        // Mirror images of the footprint in the four edges of its face.
+        let img_u = wall_images_1d(k_t, &[2.0 * uc[a], 2.0 * (lu - uc[a])]);
+        let img_v = wall_images_1d(k_t, &[2.0 * vc[a], 2.0 * (lv - vc[a])]);
         let (t1, t2) = match (p.footprint, full_u, full_v) {
             (_, true, true) => (0.0, 0.0),
             (Footprint::Rect { dv, .. }, true, false) => {
-                let (a1, a2) = tail_1d(dv, k_t, &kern);
+                let (a1, a2) = tail_1d(dv, k_t, &kern, &img_v);
                 (lv / PI * a1, lv / PI * a2)
             }
             (Footprint::Rect { du, .. }, false, true) => {
-                let (a1, a2) = tail_1d(du, k_t, &kern);
+                let (a1, a2) = tail_1d(du, k_t, &kern, &img_u);
                 (lu / PI * a1, lu / PI * a2)
             }
             (fp, _, _) => {
-                let (a1, a2) = tail_2d(fp, k_t, Some(l));
+                let images = wall_images_2d(k_t, &img_u, &img_v);
+                let (a1, a2) = tail_2d(fp, k_t, Some(l), &images);
                 let f = v / (4.0 * PI * PI);
                 (f * a1, f * a2)
             }
@@ -1315,7 +1342,9 @@ fn end_family(
         if full_end_disk(&shape, &pm[x]) {
             continue;
         }
-        let (a1, a2) = tail_2d(pm[x].footprint, k_t, Some(d));
+        // The rim is curved and a rectangle's mirror image in it is rotated,
+        // so no wall images here (see `IMAGE_REACH`).
+        let (a1, a2) = tail_2d(pm[x].footprint, k_t, Some(d), &[]);
         let f = v / (4.0 * PI * PI);
         out.s1[i * n + i] += f * a1;
         out.s2[i * n + i] += f * a2;
@@ -1412,12 +1441,14 @@ fn side_family(
     for (x, &i) in members.iter().enumerate() {
         let p = &pm[x];
         let (full_u, full_v) = full_span(&shape, p);
+        // Mirror images in the two rims (the azimuth is periodic).
+        let img_z = wall_images_1d(k_t, &[2.0 * p.v, 2.0 * (d - p.v)]);
         let (t1, t2) = match (p.footprint, full_u, full_v) {
             (_, true, true) => (0.0, 0.0),
             // Full circumference: only m = 0; continuum over the axial order.
             (Footprint::Rect { dv, .. }, true, false) => {
                 let kern = |k: f64| radial_kernels(0, k * a, a)[0];
-                let (a1, a2) = tail_1d(dv, k_t, &kern);
+                let (a1, a2) = tail_1d(dv, k_t, &kern, &img_z);
                 (d / PI * a1, d / PI * a2)
             }
             // Full depth: only l = 0; continuum over the azimuthal order,
@@ -1427,11 +1458,12 @@ fn side_family(
                     let mf = k * a;
                     (a * a / (2.0 * mf), a.powi(4) / (4.0 * (mf + 1.0) * mf * mf))
                 };
-                let (a1, a2) = tail_1d(du, k_t, &kern);
+                let (a1, a2) = tail_1d(du, k_t, &kern, &[]);
                 (2.0 * a * a1, 2.0 * a * a2)
             }
             (fp, _, _) => {
-                let (a1, a2) = tail_2d(fp, k_t, None);
+                let images = wall_images_2d(k_t, &[], &img_z);
+                let (a1, a2) = tail_2d(fp, k_t, None, &images);
                 let f = v / (4.0 * PI * PI);
                 (f * a1, f * a2)
             }
@@ -1444,6 +1476,44 @@ fn side_family(
 /// Angular panels of the second-order tail integral.
 const T2_ANGULAR_PANELS: usize = 48;
 
+/// Mirror images of a footprint in the walls bounding its face are added to
+/// the continuum tails when κ_t·|D| ≤ this, D being the offset of the image
+/// (twice the distance from the footprint centre to the wall). A numerical
+/// choice, not physical data. A continuum tail replaces the factor
+/// ε_p·cos²(k_p·c) of each term, c being the distance from the footprint
+/// centre to a wall, by its average 1; that misses the interference with the
+/// mirror image, 1 + cos(2k_p·c), for wavenumbers up to ~1/c. Without the
+/// images a 0.2 mm slit flush against a wall had a driving-point impedance
+/// 0.8 % off (test `impedance_near_walls_matches_tail_free_reference`).
+/// Farther images change the tail by O(1/(κ_t·|D|)) of an already small
+/// share.
+const IMAGE_REACH: f64 = 100.0;
+
+/// Image offsets `2·(distance to a wall)` along one face axis that are within
+/// reach of the continuum tail at cutoff `k_t` (see [`IMAGE_REACH`]).
+fn wall_images_1d(k_t: f64, offsets: &[f64]) -> Vec<f64> {
+    offsets
+        .iter()
+        .copied()
+        .filter(|&d| d > 0.0 && k_t * d <= IMAGE_REACH)
+        .collect()
+}
+
+/// Edge images (u, 0) and (0, v) and corner images (u, v) from the in-reach
+/// offsets along the two face axes.
+fn wall_images_2d(k_t: f64, u: &[f64], v: &[f64]) -> Vec<[f64; 2]> {
+    let mut out: Vec<[f64; 2]> = u.iter().map(|&x| [x, 0.0]).collect();
+    out.extend(v.iter().map(|&y| [0.0, y]));
+    for &x in u {
+        for &y in v {
+            if k_t * x.hypot(y) <= IMAGE_REACH {
+                out.push([x, y]);
+            }
+        }
+    }
+    out
+}
+
 /// ∫∫∫∫ dS dS'/|r − r'| over a w × h rectangle and itself (the closed form
 /// of the self-potential of a uniformly charged rectangle, checked against
 /// quadrature in tools/cavity).
@@ -1455,52 +1525,79 @@ pub fn rect_self_potential(w: f64, h: f64) -> f64 {
         - 2.0 / 3.0 * d.powi(3)
 }
 
-/// ∫₀^{2π} F(κ cos θ, κ sin θ)² dθ for a footprint's plane-wave mean F.
-/// Rectangles use Gauss–Legendre panels in θ, two per oscillation of the
-/// sincs, at most `max_panels`.
-fn angular_f2(fp: Footprint, kap: f64, max_panels: usize) -> f64 {
+/// ∫∫∫∫ dS dS'/|r − r'| between a w × h rectangle and its copy translated by
+/// (du, dv) in its plane (the two may touch but not overlap). With the
+/// primitive Φ(x, y) = ½x²y·asinh(y/x) + ½xy²·asinh(x/y) − (x² + y²)^{3/2}/6,
+/// whose mixed derivative ∂²ₓ∂²ᵧΦ is 1/√(x² + y²), the integral is the second
+/// difference of Φ over x ∈ {du − w, du, du + w} and y ∈ {dv − h, dv, dv + h}
+/// (weights 1, −2, 1). At zero offset it equals [`rect_self_potential`]; the
+/// unit tests check it against quadrature.
+pub fn rect_mutual_potential(w: f64, h: f64, du: f64, dv: f64) -> f64 {
+    let phi = |x: f64, y: f64| {
+        let (x, y) = (x.abs(), y.abs());
+        let mut out = -x.hypot(y).powi(3) / 6.0;
+        if x > 0.0 && y > 0.0 {
+            out += 0.5 * x * x * y * (y / x).asinh() + 0.5 * x * y * y * (x / y).asinh();
+        }
+        out
+    };
+    let xs = [(du - w, 1.0), (du, -2.0), (du + w, 1.0)];
+    let ys = [(dv - h, 1.0), (dv, -2.0), (dv + h, 1.0)];
+    xs.iter()
+        .flat_map(|&(x, sx)| ys.iter().map(move |&(y, sy)| sx * sy * phi(x, y)))
+        .sum()
+}
+
+/// J₀(x) for real x: Miller recurrence below 25, Hankel asymptotics above.
+fn bessel_j0(x: f64) -> f64 {
+    let ax = x.abs();
+    if ax < 25.0 {
+        bessel_j_all(0, ax)[0]
+    } else {
+        hankel_j(0, ax)
+    }
+}
+
+/// ∫₀^{2π} F(κ cos θ, κ sin θ)²·W dθ for a footprint's plane-wave mean F and
+/// the weight W = s + Σ_D cos(κ·D), where s = 1 keeps the footprint's own
+/// term and the sum runs over the offsets D of its wall images (s = 0 gives
+/// the image part alone). F² is even in each axis, so on the quarter plane an
+/// image contributes cos(κ_u·D_u)·cos(κ_v·D_v); for a disk the angular mean
+/// of cos(κ·D) is J₀(κ|D|). Rectangles use Gauss–Legendre panels in θ, two
+/// per oscillation of the sincs and the images, at most `max_panels`.
+fn angular_f2(fp: Footprint, kap: f64, max_panels: usize, images: &[[f64; 2]], s: f64) -> f64 {
     match fp {
-        Footprint::Disk { radius } => 2.0 * PI * jinc(kap * radius).powi(2),
+        Footprint::Disk { radius } => {
+            2.0 * PI
+                * jinc(kap * radius).powi(2)
+                * (s + images
+                    .iter()
+                    .map(|d| bessel_j0(kap * d[0].hypot(d[1])))
+                    .sum::<f64>())
+        }
         Footprint::Rect { du, dv } => {
-            let panels = ((kap * du.max(dv) / PI).ceil() as usize + 2).min(max_panels);
+            let reach = images
+                .iter()
+                .map(|d| d[0].abs() + d[1].abs())
+                .fold(0.0, f64::max);
+            let panels = ((kap * (du.max(dv) + reach) / PI).ceil() as usize + 2).min(max_panels);
             4.0 * integrate(0.0, 0.5 * PI, panels, |t| {
-                (sinc(0.5 * kap * du * t.cos()) * sinc(0.5 * kap * dv * t.sin())).powi(2)
+                let (ku, kv) = (kap * t.cos(), kap * t.sin());
+                let f2 = (sinc(0.5 * ku * du) * sinc(0.5 * kv * dv)).powi(2);
+                let w = images.iter().fold(s, |acc, d| {
+                    let cu = if d[0] == 0.0 { 1.0 } else { (ku * d[0]).cos() };
+                    let cv = if d[1] == 0.0 { 1.0 } else { (kv * d[1]).cos() };
+                    acc + cu * cv
+                });
+                f2 * w
             })
         }
     }
 }
 
-/// Continuum tails beyond the transverse cutoff κ_t for a self term:
-/// T1 = ∫_{|κ|>κ_t} F²·c1(κ)/κ d²κ and T2 = ∫_{|κ|>κ_t} F²·c2(κ)/(2κ³) d²κ,
-/// with c1 = coth(κL), c2 = coth(κL) + κL/sinh²(κL) along a normal of length
-/// L (box, cylinder end) or c1 = c2 = 1 (cylinder side). The caller
-/// multiplies by V/(4π²). T1 is the half-space static self-mass integral
-/// (32/(3b) for a disk of radius b; 2π·I/(w·h)² for a rectangle with
-/// self-potential I) minus its part inside the cutoff.
-fn tail_2d(fp: Footprint, k_t: f64, normal: Option<f64>) -> (f64, f64) {
-    let size = match fp {
-        Footprint::Disk { radius } => 2.0 * radius,
-        Footprint::Rect { du, dv } => du.max(dv),
-    };
-    let full = match fp {
-        Footprint::Disk { radius } => 32.0 / (3.0 * radius),
-        Footprint::Rect { du, dv } => 2.0 * PI / (du * dv).powi(2) * rect_self_potential(du, dv),
-    };
-    let panels = (k_t * size / PI).ceil() as usize + 4;
-    let inner = integrate(0.0, k_t, panels, |k| angular_f2(fp, k, 400));
-    let mut t1 = full - inner;
-    if let Some(l) = normal {
-        if 2.0 * k_t * l < 40.0 {
-            let span = 20.0 / l;
-            let panels = (span * size / PI).ceil() as usize + 8;
-            t1 += integrate(k_t, k_t + span, panels, |k| {
-                let x = k * l;
-                let coth_m1 = 2.0 / (2.0 * x).exp_m1();
-                angular_f2(fp, k, 400) * coth_m1
-            });
-        }
-    }
-    let c2 = |k: f64| match normal {
+/// c2(κ) of the second-order tail (see [`tail_2d`]).
+fn tail_c2(k: f64, normal: Option<f64>) -> f64 {
+    match normal {
         Some(l) => {
             let x = k * l;
             if x > 40.0 {
@@ -1510,20 +1607,106 @@ fn tail_2d(fp: Footprint, k_t: f64, normal: Option<f64>) -> (f64, f64) {
             }
         }
         None => 1.0,
+    }
+}
+
+/// Continuum tails beyond the transverse cutoff κ_t for a self term:
+/// T1 = ∫_{|κ|>κ_t} F²·W·c1(κ)/κ d²κ and T2 = ∫_{|κ|>κ_t} F²·W·c2(κ)/(2κ³) d²κ,
+/// with c1 = coth(κL), c2 = coth(κL) + κL/sinh²(κL) along a normal of length
+/// L (box, cylinder end) or c1 = c2 = 1 (cylinder side), and the image weight
+/// W = 1 + Σ_D cos(κ·D) over the footprint's mirror images in nearby walls
+/// (`images`, offsets D in face coordinates; see [`IMAGE_REACH`]). The caller
+/// multiplies by V/(4π²). T1 is the full-plane integral minus its part
+/// inside the cutoff: for the footprint itself the half-space static
+/// self-mass integral (32/(3b) for a disk of radius b; 2π·I/(w·h)² for a
+/// rectangle with self-potential I), and for each image of a rectangle
+/// 2π·M/(w·h)² with M its mutual potential with the footprint
+/// ([`rect_mutual_potential`]). The images of a disk (in reach only for a
+/// disk within about 1.5 radii of a wall, or when the cutoff is capped) are
+/// integrated directly ([`disk_image_tail`]).
+fn tail_2d(fp: Footprint, k_t: f64, normal: Option<f64>, images: &[[f64; 2]]) -> (f64, f64) {
+    let (rect_images, disk_images): (&[[f64; 2]], &[[f64; 2]]) = match fp {
+        Footprint::Rect { .. } => (images, &[]),
+        Footprint::Disk { .. } => (&[], images),
     };
+    let reach = rect_images
+        .iter()
+        .map(|d| d[0].abs() + d[1].abs())
+        .fold(0.0, f64::max);
+    let size = reach
+        + match fp {
+            Footprint::Disk { radius } => 2.0 * radius,
+            Footprint::Rect { du, dv } => du.max(dv),
+        };
+    let full = match fp {
+        Footprint::Disk { radius } => 32.0 / (3.0 * radius),
+        Footprint::Rect { du, dv } => {
+            let m: f64 = rect_images
+                .iter()
+                .map(|d| rect_mutual_potential(du, dv, d[0], d[1]))
+                .sum();
+            2.0 * PI / (du * dv).powi(2) * (rect_self_potential(du, dv) + m)
+        }
+    };
+    let panels = (k_t * size / PI).ceil() as usize + 4;
+    let inner = integrate(0.0, k_t, panels, |k| {
+        angular_f2(fp, k, 400, rect_images, 1.0)
+    });
+    let mut t1 = full - inner;
+    if let Some(l) = normal {
+        if 2.0 * k_t * l < 40.0 {
+            let span = 20.0 / l;
+            let panels = (span * size / PI).ceil() as usize + 8;
+            t1 += integrate(k_t, k_t + span, panels, |k| {
+                let x = k * l;
+                let coth_m1 = 2.0 / (2.0 * x).exp_m1();
+                angular_f2(fp, k, 400, rect_images, 1.0) * coth_m1
+            });
+        }
+    }
     // κ = κ_t/t maps (κ_t, ∞) onto (0, 1]. T2 only scales the k² term of the
     // residual, so a coarser angular rule suffices (the unit tests bound its
     // effect on a slit).
-    let t2 = integrate(0.0, 1.0, 32, |t| {
+    let t_panels = if rect_images.is_empty() { 32 } else { 48 };
+    let mut t2 = integrate(0.0, 1.0, t_panels, |t| {
         let k = k_t / t;
-        angular_f2(fp, k, T2_ANGULAR_PANELS) * c2(k) / (2.0 * k_t)
+        angular_f2(fp, k, T2_ANGULAR_PANELS, rect_images, 1.0) * tail_c2(k, normal) / (2.0 * k_t)
+    });
+    if let Footprint::Disk { radius } = fp {
+        if !disk_images.is_empty() {
+            let (i1, i2) = disk_image_tail(radius, k_t, normal, disk_images);
+            t1 += i1;
+            t2 += i2;
+        }
+    }
+    (t1, t2)
+}
+
+/// Image part of [`tail_2d`] for a disk, integrated directly over
+/// κ_t < κ < 20·κ_t (the integrand decays like κ^{−3.5}).
+fn disk_image_tail(b: f64, k_t: f64, normal: Option<f64>, images: &[[f64; 2]]) -> (f64, f64) {
+    let fp = Footprint::Disk { radius: b };
+    let reach = images.iter().map(|d| d[0].hypot(d[1])).fold(0.0, f64::max);
+    let k_end = 20.0 * k_t;
+    let panels = ((k_end - k_t) * (2.0 * b + reach) / PI).ceil() as usize + 8;
+    let c1 = |k: f64| match normal {
+        Some(l) => 1.0 / (k * l).tanh(),
+        None => 1.0,
+    };
+    let t1 = integrate(k_t, k_end, panels, |k| {
+        angular_f2(fp, k, 0, images, 0.0) * c1(k)
+    });
+    let t2 = integrate(k_t, k_end, panels, |k| {
+        angular_f2(fp, k, 0, images, 0.0) * tail_c2(k, normal) / (2.0 * k * k)
     });
     (t1, t2)
 }
 
-/// ∫_{κ_t}^∞ sinc²(κ·w/2)·g(κ) dκ for the two kernels g = (g1, g2), by the
-/// map κ = κ_t/t.
-fn tail_1d(w: f64, k_t: f64, g: &dyn Fn(f64) -> (f64, f64)) -> (f64, f64) {
+/// ∫_{κ_t}^∞ sinc²(κ·w/2)·W(κ)·g(κ) dκ for the two kernels g = (g1, g2), with
+/// the image weight W = 1 + Σ_D cos(κ·D) (`images`: in-reach offsets along
+/// the axis). The image-free part uses the map κ = κ_t/t; the image part is
+/// integrated directly over κ_t < κ < 40·κ_t (its integrand decays like κ^{−3}).
+fn tail_1d(w: f64, k_t: f64, g: &dyn Fn(f64) -> (f64, f64), images: &[f64]) -> (f64, f64) {
     let mut a1 = 0.0;
     let mut a2 = 0.0;
     let (x, wts) = gauss16();
@@ -1540,7 +1723,17 @@ fn tail_1d(w: f64, k_t: f64, g: &dyn Fn(f64) -> (f64, f64)) -> (f64, f64) {
             a2 += wi * s * g2;
         }
     }
-    (a1 * 0.5 * h, a2 * 0.5 * h)
+    let (mut a1, mut a2) = (a1 * 0.5 * h, a2 * 0.5 * h);
+    if !images.is_empty() {
+        let reach = images.iter().cloned().fold(0.0, f64::max);
+        let k_end = 40.0 * k_t;
+        let panels = ((k_end - k_t) * (w + reach) / PI).ceil() as usize + 8;
+        let weight =
+            |k: f64| sinc(0.5 * k * w).powi(2) * images.iter().map(|d| (k * d).cos()).sum::<f64>();
+        a1 += integrate(k_t, k_end, panels, |k| weight(k) * g(k).0);
+        a2 += integrate(k_t, k_end, panels, |k| weight(k) * g(k).1);
+    }
+    (a1, a2)
 }
 
 #[cfg(test)]
@@ -1594,11 +1787,11 @@ mod tests {
         // equals a direct integral of the exterior.
         let fp = Footprint::Disk { radius: 0.002 };
         let k_t = 3000.0;
-        let (t1, _) = tail_2d(fp, k_t, None);
+        let (t1, _) = tail_2d(fp, k_t, None, &[]);
         // Direct: ∫ 2π·jinc²(κb) dκ from κ_t to K, two panels per period,
         // plus the mean of the asymptote 2π·4/(π(κb)³) beyond K.
         let big = 2.0e6;
-        let direct = integrate(k_t, big, 2600, |k| angular_f2(fp, k, 400))
+        let direct = integrate(k_t, big, 2600, |k| angular_f2(fp, k, 400, &[], 1.0))
             + 4.0 / (0.002f64.powi(3) * big * big);
         assert!((t1 / direct - 1.0).abs() < 1e-6, "{t1} vs {direct}");
         // Slit: the coarse angular rule of T2 is within 1 % of a fine one.
@@ -1607,12 +1800,94 @@ mod tests {
             dv: 0.0005,
         };
         let k_t = 45_000.0;
-        let (_, t2) = tail_2d(fp, k_t, None);
+        let (_, t2) = tail_2d(fp, k_t, None, &[]);
         let fine = integrate(0.0, 1.0, 96, |t| {
             let k = k_t / t;
-            angular_f2(fp, k, 600) / (2.0 * k_t)
+            angular_f2(fp, k, 600, &[], 1.0) / (2.0 * k_t)
         });
         assert!((t2 / fine - 1.0).abs() < 1e-2, "{t2} vs {fine}");
+    }
+
+    #[test]
+    fn rect_mutual_potential_matches_quadrature() {
+        // At zero offset: the self-potential closed form.
+        for (w, h) in [(0.01, 0.0005), (0.003, 0.002), (0.02, 0.0003)] {
+            let (m, s) = (
+                rect_mutual_potential(w, h, 0.0, 0.0),
+                rect_self_potential(w, h),
+            );
+            assert!((m / s - 1.0).abs() < 1e-12, "{m} vs {s}");
+        }
+        // Offsets: ∫∫ Λ_w(x)·Λ_h(y)/|(x + du, y + dv)| dx dy, Λ the triangle
+        // autocorrelation of the sides; panels split at the kinks and at the
+        // integrable singularity of touching rectangles.
+        for (w, h, du, dv) in [
+            (0.003f64, 0.002f64, 0.004f64, 0.003f64),
+            (0.003, 0.002, 0.004, 0.0),
+            (0.02, 0.0003, 0.0, 0.0003),
+            (0.0002, 0.045, 0.0002, 0.0),
+            (0.001, 0.004, 0.0013, 0.0021),
+        ] {
+            let tri = |t: f64, s: f64| (s - t.abs()).max(0.0);
+            let mut xs = vec![-w, 0.0, w];
+            let mut ys = vec![-h, 0.0, h];
+            if (-du).abs() < w {
+                xs.push(-du);
+            }
+            if (-dv).abs() < h {
+                ys.push(-dv);
+            }
+            xs.sort_by(f64::total_cmp);
+            ys.sort_by(f64::total_cmp);
+            xs.dedup();
+            ys.dedup();
+            let mut q = 0.0;
+            for xw in xs.windows(2) {
+                for yw in ys.windows(2) {
+                    q += integrate(xw[0], xw[1], 24, |x| {
+                        integrate(yw[0], yw[1], 24, |y| {
+                            tri(x, w) * tri(y, h) / (x + du).hypot(y + dv)
+                        })
+                    });
+                }
+            }
+            let m = rect_mutual_potential(w, h, du, dv);
+            assert!((m / q - 1.0).abs() < 1e-6, "{w} {h} {du} {dv}: {m} vs {q}");
+        }
+    }
+
+    #[test]
+    fn image_tails_match_direct_integration() {
+        // The image part of the tail equals a direct integral of
+        // F²·cos(κ·D)/κ over the exterior of the cutoff, both for the
+        // closed-form-minus-inner rectangle path and the disk path.
+        let k_t = 15_000.0;
+        let (du, dv) = (0.003, 0.002);
+        let rect = Footprint::Rect { du, dv };
+        let images = [[0.0, 0.0025], [0.004, 0.0], [0.004, 0.0025]];
+        let i1 = tail_2d(rect, k_t, None, &images).0 - tail_2d(rect, k_t, None, &[]).0;
+        // Direct: polar integral over κ_t < κ < 10·κ_t, angular panels
+        // resolving F and the images; the rest is 3e-4 of the image part
+        // (1e-5 at 40·κ_t, checked once; too slow for a unit test).
+        let direct = integrate(k_t, 10.0 * k_t, 200, |k| {
+            angular_f2(rect, k, 4000, &images, 0.0)
+        });
+        assert!((i1 / direct - 1.0).abs() < 1e-3, "{i1} vs {direct}");
+        // Disk: the J₀ angular mean against an explicit angular integral.
+        let disk = Footprint::Disk { radius: 0.0005 };
+        let d = [[0.0012, 0.0], [0.0, 0.002]];
+        for k in [1.0e4, 3.3e4, 2.0e5] {
+            let closed = angular_f2(disk, k, 0, &d, 0.0);
+            let explicit = integrate(0.0, 2.0 * PI, 256, |t| {
+                let (ku, kv) = (k * t.cos(), k * t.sin());
+                jinc(k * 0.0005).powi(2)
+                    * d.iter().map(|x| (ku * x[0] + kv * x[1]).cos()).sum::<f64>()
+            });
+            assert!(
+                (closed - explicit).abs() < 1e-10 * closed.abs().max(1e-3),
+                "{k}"
+            );
+        }
     }
 
     #[test]

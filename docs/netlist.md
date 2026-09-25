@@ -116,7 +116,7 @@ canal entrance, a leak or a vent. Implementation:
 | *`wall_loss`* | boundary-layer loss, default true |
 | *`surface_factor`* | 1–10, scales every wall integral (ribbed walls), default 1 |
 | *`wall_area_cm2`* | overrides the geometric wall area of the loss (scales every wall integral), as for `cavity` |
-| *`f_max_Hz`* | highest analysed frequency, default 40 kHz. Modes are kept below 3·2π·f_max/c |
+| *`f_max_Hz`* | highest analysed frequency, default 40 kHz. Modes are kept below 3·2π·f_max/c; a cutoff that would keep more than 5·10⁵ modes (about 2.7 L of volume at 40 kHz) is rejected |
 | *`residual`* | add the quasi-static contribution of the omitted modes, default true; `false` is for diagnostics only |
 | *`max_distance_mm`* | length of the lumped-validity criterion at L0, default the largest dimension |
 
@@ -155,9 +155,14 @@ where the mode moves tangentially. For the uniform mode it is the `cavity`
 element's thermal correction. Modes are kept below 3× the highest analysed
 wavenumber (erratum E27). The omitted modes are added quasi-statically,
 because plain truncation leaves 10–100 % errors in the driving-point
-impedance of small ports, whose near-field mass sits in those modes. Against
-an independent waveguide-mode reference the result agrees to 1e-4 below
-f_max/4 and to 1 % at f_max.
+impedance of small ports, whose near-field mass sits in those modes; their
+continuum part includes the footprint's mirror images in the nearby walls,
+which matter for slits along an edge. Against independent waveguide-mode
+references (one of them with no continuum model at all, for slits and disks
+flush against walls) the result agrees to 1e-4 below f_max/4 and to 1 % at
+f_max. The exception is the mutual impedance of two footprints within a
+fraction of a millimetre of each other on one face (e.g. parallel 0.3 mm
+slits 0.2 mm apart), about 1e-3 off.
 
 **Levels.** At L1 the element is the N-port above. At L0 it is one lumped
 compliance with all its port nodes joined, so switching levels never changes

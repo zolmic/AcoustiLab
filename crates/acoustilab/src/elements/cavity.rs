@@ -340,6 +340,14 @@ pub const MODAL_CROSS_FACTOR: f64 = 4.0;
 /// multiple shrinks to fit (never below 1).
 pub const MODAL_CROSS_BUDGET: f64 = 2.0e5;
 
+/// Largest number of retained modes (Weyl estimate) a modal cavity accepts.
+/// A numerical budget, not physical data: 50× the ≈10k modes of a
+/// 60 × 45 × 20 mm box at the default 40 kHz, i.e. volumes up to about 2.7 L
+/// at 40 kHz. Beyond it the mode list alone would need hundreds of
+/// megabytes (and each frequency milliseconds), so the element asks for a
+/// lower `f_max_Hz` instead.
+pub const MODAL_MAX_MODES: f64 = 5.0e5;
+
 /// Modes whose mean over every port footprint is below this (the modes are
 /// normalised to unit mean square) are dropped: a centred piston does not
 /// couple to antisymmetric modes, and their terms would only add rounding.
@@ -450,7 +458,13 @@ pub struct ModalData {
 /// at most (1/3)⁴ at f_max. R1 and R2 are the
 /// all-mode sums of [`crate::modes::static_sums`] minus the retained modes'
 /// share, for ports whose walls share a normal (box faces normal to the same
-/// axis, cylinder end–end or side–side). For ports on walls with different
+/// axis, cylinder end–end or side–side); their continuum part carries the
+/// footprint's mirror images in nearby walls, so a slit along an edge is as
+/// accurate as one in mid-face (test
+/// `impedance_near_walls_matches_tail_free_reference`). Mutual terms of two
+/// footprints on the same face have no continuum part: two 0.3 mm slits
+/// 0.2 mm apart get a mutual impedance about 1e-3 off (against 1e-5 for
+/// footprints millimetres apart). For ports on walls with different
 /// normals (e.g. a driver on z0 and a leak on a side wall)
 /// the omitted terms are damped by both footprints, and their quasi-static
 /// share is summed explicitly over the modes from the cutoff up to 4× it
@@ -887,6 +901,14 @@ fn modal_cavity(mut b: Build) -> Result<Box<dyn Element>> {
     }
     let c = b.air.c;
     b.finish()?;
+    let k_cut = MODAL_TRUNCATION_FACTOR * 2.0 * PI * f_max / c;
+    let estimate = shape.mode_count_estimate(k_cut);
+    if estimate > MODAL_MAX_MODES {
+        return Err(err(format!(
+            "'f_max' of {f_max:.0} Hz keeps about {estimate:.0} modes in this cavity \
+             (limit {MODAL_MAX_MODES:.0}); lower 'f_max_Hz'"
+        )));
+    }
     let geometric = shape.wall_area();
     let wall_area = wall_area_override.unwrap_or(geometric) * surface_factor;
     Ok(Box::new(ModalCavity {
@@ -897,7 +919,7 @@ fn modal_cavity(mut b: Build) -> Result<Box<dyn Element>> {
         wall_area,
         loss_scale: wall_area / geometric,
         f_max,
-        k_cut: MODAL_TRUNCATION_FACTOR * 2.0 * PI * f_max / c,
+        k_cut,
         residual,
         max_distance: max_distance.unwrap_or_else(|| shape.largest_dimension()),
         data: OnceLock::new(),
