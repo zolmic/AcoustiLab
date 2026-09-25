@@ -18,6 +18,7 @@ pub mod error;
 pub mod expr;
 pub mod fit;
 pub mod grid;
+pub mod io;
 pub mod linalg;
 pub mod mna;
 pub mod modes;
