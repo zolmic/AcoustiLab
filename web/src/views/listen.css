@@ -1,0 +1,212 @@
+/* Listen view (listen.view.ts). Colours come from the tokens in style.css. */
+
+.listen-section {
+  margin: 12px 0 18px;
+}
+.listen-section h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.listen-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 6px 0;
+}
+.listen-row select {
+  flex: 1 1 220px;
+  min-width: 0;
+  max-width: 100%;
+}
+.listen-row input[type='range'] {
+  flex: 1 1 160px;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+.listen-num,
+.listen input[type='number'] {
+  width: 7.5em;
+  min-height: 32px;
+  padding: 4px 6px;
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+}
+.listen-radios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 8px 0;
+  padding: 6px 10px 8px;
+  border: 1px solid var(--grid);
+  border-radius: 6px;
+}
+.listen-radios legend {
+  padding: 0 4px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+.listen-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+}
+.listen-radio input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.listen .check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.listen .check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+.listen-status {
+  min-height: 1.4em;
+  margin: 4px 0;
+  font-size: 13px;
+}
+.listen-error {
+  color: var(--error-ink);
+}
+.listen-busy {
+  height: 3px;
+  margin: 4px 0;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: listen-busy 1.1s linear infinite;
+}
+@keyframes listen-busy {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .listen-busy {
+    animation: none;
+    background: var(--accent);
+  }
+}
+.listen-facts {
+  display: grid;
+  grid-template-columns: minmax(7em, max-content) minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.listen-facts dt {
+  color: var(--ink-2);
+}
+.listen-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.listen-flags,
+.listen-notes {
+  margin: 6px 0;
+  padding-left: 20px;
+  font-size: 13px;
+}
+.listen-flags li {
+  margin: 4px 0;
+  padding: 4px 8px;
+  list-style: none;
+  margin-left: -20px;
+  background: var(--warn-bg);
+  border-left: 3px solid var(--badge-border);
+  border-radius: 4px;
+}
+.listen-notes li {
+  color: var(--ink-2);
+}
+.listen-warning {
+  margin: 6px 0 10px;
+  padding: 8px 10px;
+  background: var(--badge-bg);
+  color: var(--badge-ink);
+  border: 1px solid var(--badge-border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.listen-transport {
+  align-items: stretch;
+}
+.listen-play {
+  min-width: 6em;
+}
+.listen-ab {
+  margin: 0;
+}
+.listen-meters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 6px 16px;
+  margin: 8px 0;
+}
+.listen-meter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px 8px;
+  font-size: 12.5px;
+}
+.listen-meter-label {
+  grid-column: 1 / -1;
+  color: var(--ink-2);
+}
+.listen-meter meter {
+  width: 100%;
+  height: 12px;
+}
+.listen-meter-value {
+  min-width: 6.5em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.listen-playing,
+.listen-match-active {
+  margin: 4px 0;
+  font-size: 13px;
+}
+.listen-details {
+  margin: 8px 0;
+}
+.listen-details summary {
+  cursor: pointer;
+  font-weight: 600;
+  min-height: 24px;
+}
+.listen-state {
+  width: 100%;
+  font: 12px/1.4 var(--font-mono);
+  color: var(--ink);
+  background: var(--page);
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  padding: 6px;
+}
+.listen-readout {
+  min-height: 2.2em;
+}
+.listen .data-table th[scope='row'] {
+  text-align: left;
+  font-weight: 500;
+}
+.listen-level-table td,
+.listen-level-table th {
+  white-space: normal;
+}

@@ -38,6 +38,7 @@ Usage: python3 tools/audition/reference.py
 from __future__ import annotations
 
 import importlib.util
+import sys
 import json
 import math
 from pathlib import Path
@@ -48,6 +49,7 @@ ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "crates" / "acoustilab" / "tests" / "data" / "audition_reference.json"
 
 # Smoothing from the targets reference (quad integration of the power).
+sys.dont_write_bytecode = True
 _spec = importlib.util.spec_from_file_location("targets_reference", ROOT / "tools" / "targets" / "reference.py")
 _tref = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_tref)
