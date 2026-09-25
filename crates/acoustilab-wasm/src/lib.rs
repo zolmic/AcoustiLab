@@ -299,3 +299,23 @@ pub fn isolation(netlist_json: &str, overrides_json: &str, options_json: &str) -
         options_json,
     ))
 }
+
+// ----- Auralization (docs/auralization.md) -----------------------------------
+//
+// The audition filter of spec Section 16; logic in `audition.rs`.
+
+pub mod audition;
+
+/// The audition filter (FIR taps and report) of a candidate design against
+/// a baseline (another netlist, a target or an imported curve), or the
+/// candidate alone in the absolute diagnostic mode. Arguments are JSON
+/// texts; see `audition::audition_filter_value`.
+#[wasm_bindgen]
+pub fn audition_filter(candidate_json: &str, baseline_json: &str, options_json: &str) -> String {
+    install_panic_hook();
+    api::to_string(&audition::audition_filter_value(
+        candidate_json,
+        baseline_json,
+        options_json,
+    ))
+}
