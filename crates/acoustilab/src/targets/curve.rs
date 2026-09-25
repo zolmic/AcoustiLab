@@ -6,17 +6,22 @@ use super::{Result, TargetError};
 /// finite frequencies (at least two).
 ///
 /// Between samples the curve is linear in dB on log frequency:
-/// `L(f) = L_j + (L_{j+1} − L_j)·ln(f/f_j)/ln(f_{j+1}/f_j)`. Outside
-/// `[f_0, f_{n−1}]` it is undefined; nothing is extrapolated.
+/// `L(f) = L_j + (L_{j+1} − L_j)·ln(f/f_j)/ln(f_{j+1}/f_j)`. Up to
+/// [`END_SLACK`] beyond `[f_0, f_{n−1}]` it reads its end value; further out
+/// it is undefined, and nothing is extrapolated.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Curve {
     f: Vec<f64>,
     db: Vec<f64>,
 }
 
-/// Relative slack at the curve ends, so that a grid point computed as
-/// `10^(k/40)` still reads a curve that ends at the same nominal frequency.
-const END_SLACK: f64 = 1e-9;
+/// Relative slack at the curve ends: 1.3 %, the largest gap between a
+/// nominal R40 preferred frequency and the exact grid point `10^(k/40)` it
+/// names (17 000 Hz against 16 788 Hz). A curve that ends at a nominal
+/// frequency therefore covers the grid point of that name: a curve from
+/// 20 Hz reads 19.95 Hz. The level there is the end value, held over at most
+/// 0.018 octave.
+pub const END_SLACK: f64 = 0.013;
 
 impl Curve {
     pub fn new(f: Vec<f64>, db: Vec<f64>) -> Result<Curve> {

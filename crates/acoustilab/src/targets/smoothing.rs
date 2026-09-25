@@ -41,34 +41,80 @@ fn check_fraction(n: u32) -> Result<()> {
     }
 }
 
+/// Integrals of the segments of a piecewise-linear function, held in a
+/// binary sum tree so that the integral over any run of whole segments is a
+/// sum of O(log n) partial sums. A dense curve (an FFT measurement with tens
+/// of thousands of points, whose octave windows span most of them) is then
+/// smoothed in O(n log n) instead of O(n²). The partial sums are sums of the
+/// segments' own integrals, never differences of running totals, so a
+/// window over a deep notch keeps its relative accuracy.
+struct SegmentSums {
+    n: usize,
+    t: Vec<f64>,
+}
+
+impl SegmentSums {
+    fn new(x: &[f64], y: &[f64]) -> SegmentSums {
+        let n = x.len() - 1;
+        let mut t = vec![0.0; 2 * n];
+        for j in 0..n {
+            t[n + j] = 0.5 * (x[j + 1] - x[j]) * (y[j] + y[j + 1]);
+        }
+        for i in (1..n).rev() {
+            t[i] = t[2 * i] + t[2 * i + 1];
+        }
+        SegmentSums { n, t }
+    }
+
+    /// Sum of the integrals of segments `lo..hi`.
+    fn sum(&self, lo: usize, hi: usize) -> f64 {
+        let (mut l, mut r) = (lo + self.n, hi + self.n);
+        let mut s = 0.0;
+        while l < r {
+            if l & 1 == 1 {
+                s += self.t[l];
+                l += 1;
+            }
+            if r & 1 == 1 {
+                r -= 1;
+                s += self.t[r];
+            }
+            l >>= 1;
+            r >>= 1;
+        }
+        s
+    }
+}
+
 /// Mean over `[c − h, c + h]` of the function that is linear between the
 /// points (x_j, y_j). The window must lie inside `[x_0, x_{n−1}]`.
-fn window_mean(x: &[f64], y: &[f64], c: f64, h: f64) -> f64 {
-    let (a, b) = (c - h, c + h);
+fn window_mean(x: &[f64], y: &[f64], sums: &SegmentSums, c: f64, h: f64) -> f64 {
+    let last = x.len() - 2;
+    let (a, b) = ((c - h).max(x[0]), (c + h).min(x[last + 1]));
     let lerp = |j: usize, u: f64| y[j] + (y[j + 1] - y[j]) * (u - x[j]) / (x[j + 1] - x[j]);
-    // First segment whose right end is beyond a.
-    let mut j = x.partition_point(|&v| v <= a).saturating_sub(1);
-    let mut sum = 0.0;
-    while j + 1 < x.len() && x[j] < b {
-        let u0 = a.max(x[j]);
-        let u1 = b.min(x[j + 1]);
-        if u1 > u0 {
-            sum += (u1 - u0) * 0.5 * (lerp(j, u0) + lerp(j, u1));
-        }
-        j += 1;
-    }
+    // Segments holding the window's ends: x_ja <= a < x_{ja+1} and
+    // x_jb < b <= x_{jb+1} (clamped to the curve).
+    let ja = x.partition_point(|&v| v <= a).saturating_sub(1).min(last);
+    let jb = x.partition_point(|&v| v < b).saturating_sub(1).min(last);
+    let piece = |j: usize, u0: f64, u1: f64| (u1 - u0) * 0.5 * (lerp(j, u0) + lerp(j, u1));
+    let sum = if ja >= jb {
+        piece(ja, a, b)
+    } else {
+        piece(ja, a, x[ja + 1]) + sums.sum(ja + 1, jb) + piece(jb, x[jb], b)
+    };
     sum / (b - a)
 }
 
 /// Applies the window to `y` sampled at `x = log10 f` (see the module docs).
 fn smooth_values(x: &[f64], y: &[f64], h: f64) -> Vec<f64> {
     let (x0, xn) = (x[0], x[x.len() - 1]);
+    let sums = SegmentSums::new(x, y);
     x.iter()
         .zip(y)
         .map(|(&c, &v)| {
             let hi = h.min(c - x0).min(xn - c);
             if hi > 0.0 {
-                window_mean(x, y, c, hi)
+                window_mean(x, y, &sums, c, hi)
             } else {
                 v
             }

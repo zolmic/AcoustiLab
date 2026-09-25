@@ -16,9 +16,12 @@ native frequencies, with `error = raw - target`:
   exactly 500 Hz, which the exact grid does not have).
 
 AutoEq evaluates on rounded R40 frequencies; this project on the exact values
-behind them. The difference between the two grids is what the in-ear and
-first over-ear comparisons measure. AutoEq's grid itself is not written to
-the fixture.
+behind them. Its in-ear grid is the R40 preferred-number series (ISO 3) from
+20 Hz to 20 kHz, and its over-ear grid is the same series from 50 Hz up,
+which is all the over-ear model reads. That series is written to the fixture
+as `r40_grid_Hz`, so the engine can be run on AutoEq's own grid (option
+`grid_Hz`) and must then reproduce every AutoEq number to rounding; on the
+exact grid the difference measures the grid effect.
 
 Needs AutoEq installed (`pip install autoeq`; 4.1.2 was used). Writes
 crates/acoustilab/tests/data/targets_autoeq.json.
@@ -67,6 +70,10 @@ def main():
     out["over_ear_exact_grid"] = {"score": s, "sd": sd, "slope": slope}
     s, sd, slope, mean = fr(f, raw, target).harman_inear_preference_score()
     out["in_ear_autoeq_grid"] = {"score": s, "sd": sd, "slope": slope, "me": mean}
+    r40 = [float(x) for x in aeq.HARMAN_INEAR_PREFENCE_FREQUENCIES]
+    oe = [float(x) for x in aeq.HARMAN_OVEREAR_PREFERENCE_FREQUENCIES]
+    assert [x for x in r40 if x >= 50] == [x for x in oe if x >= 50], "grids differ above 50 Hz"
+    out["r40_grid_Hz"] = r40
     OUT.write_text(json.dumps(out, indent=1, default=float) + "\n")
     print(json.dumps(out, indent=1, default=float))
 

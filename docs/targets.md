@@ -115,7 +115,8 @@ AES e-library 22281).
 graphic-equaliser band gains at the band centres printed in the CSV header
 (31 Hz to 25 kHz), normalised to 0 dB at the largest band. The record
 also holds 16 128 preference ratings: 56 naive assessors (30 Danish, 26
-Japanese), 9 programmes, a 0–100 scale, 8 curves per trial page.
+Japanese), 11 programmes (9 per assessor: 7 common and 2 per country), a
+0–100 scale, 8 curves per trial page.
 
 **Bundled form.** `tools/targets/ravizza2023.py` copies the gains verbatim and
 summarises the ratings per curve (n, mean, SD, median, per-country means,
@@ -136,7 +137,11 @@ the valid range is 31 Hz–20 kHz.
   first and the SoundGuys curve as 10th of 32; the summary reproduces both.
   The paper itself is paywalled and was not read, so this designation is
   this project's (flag `selection`). The ratings are repeated measures, so the
-  means are descriptive, not the paper's mixed-model estimates.
+  means are descriptive, not the paper's mixed-model estimates. The top five
+  means lie within 1.9 points (62.7, 62.4, 61.5, 61.0, 60.8) against a
+  per-curve SD of about 30 over 504 ratings, so the first place is a
+  convention, not an established winner; the second is a modified measured
+  headphone (HP3Mod1).
 
 **Provenance class.** `research`: AES Express Papers are reviewed on an
 extended summary, not as a complete manuscript.
@@ -292,9 +297,13 @@ grid this is membership by nominal frequency: 20 Hz selects 19.95 Hz, 8 kHz
 outside a band is ever counted. A statistic is `partial` when the points it
 used stop more than half a 1/12-octave step short of a band edge.
 
-**Interpolation.** Linear in dB on log frequency between samples, with no
-extrapolation: a grid point outside a curve's range, or outside a target's
-valid range, has no value.
+**Interpolation.** Linear in dB on log frequency between samples. Up to
+1.3 % beyond a curve's ends (or a target's valid range) a curve reads its
+end value; further out a grid point has no value, and nothing is
+extrapolated. The 1.3 % is the largest gap between a nominal R40 frequency
+and the exact grid point it names (17 000 Hz against 16 788 Hz), so a curve
+from 20 Hz covers the grid point named 20 Hz (19.95 Hz), and a response and
+target from 20 Hz to 20 kHz cover the whole grid.
 
 **Smoothing** (`smooth_power`, 1/N octave, N ∈ {1, 2, 3, 6, 12, 24, 48}, or
 none). At each frequency f_i of the curve:
@@ -306,7 +315,9 @@ h   = 3/(20N) decades  (the IEC 61260-1 base-10 1/N-octave band, edges f·G^(±1
 h_i = min(h, x_i − x_0, x_{n−1} − x_i)
 ```
 
-- **Integral.** Exact (trapezoids over the window's pieces).
+- **Integral.** Exact (trapezoids over the window's pieces). The segments'
+  integrals are kept in a sum tree, so a dense curve (an FFT measurement
+  with 65 536 points) is smoothed in O(n log n), in tens of milliseconds.
 - **Ends.** Near the ends the window shrinks symmetrically, so a sloped
   response is not tilted; the two end points keep their levels.
 - **Where it is used.** In the metrics, smoothing is applied to each ear's
@@ -377,8 +388,11 @@ are applied:
   read from Figure 1 of Rec. ITU-R BS.708 (1990), which gives the mask only
   as a drawing. The lines were traced from the rendered PDF against the
   figure's grid (`data/targets/bs708.json` records the readings, which
-  match the log-linear model within the reading accuracy of about 0.1 dB). The spec's "±2 dB below about
-  250 Hz" does not match the figure: at 250 Hz the limit is 1.75 dB (E47).
+  match the log-linear model within the reading accuracy of about 0.1 dB).
+  The drawn lines continue flat to about 88 Hz and 18 kHz, the outer edges
+  of the 100 Hz and 16 kHz third-octave bands; the mask is applied between
+  the band centres. The spec's "±2 dB below about 250 Hz" does not match
+  the figure: at 250 Hz the limit is 1.71 dB (E47).
   BS.708 applies the mask to diffuse-field responses of studio monitors
   measured on 16 subjects; here it is an indicator on the error against the
   selected target.
@@ -514,10 +528,10 @@ Every export takes and returns JSON text. Errors are
 |---|---|
 | `probe` | the pressure probe to read |
 | `fixture` | the response's fixture (use `probe_fixture`; a result document does not carry it) |
-| `measured` | `true` for imported measurements |
+| `measured` | `true` for imported measurements (refused for a `solve` result, which is always simulated) |
 | `normalisation` | `{"at_Hz": f}` or `{"band_mean_Hz": [lo, hi]}` |
 | `smoothing`, `tracking_smoothing` | `"none"`, N or `"1/N"` (defaults `"none"` and 3) |
-| `personalisation` | `{"bass_dB", "treble_dB", "bass_fc_Hz", "treble_fc_Hz", "bass_Q", "treble_Q"}` |
+| `personalisation` | `{"bass_dB", "treble_dB", "bass_fc_Hz", "treble_fc_Hz", "bass_Q", "treble_Q"}`; gains ±40 dB, corners 1 Hz–100 kHz, Q 0.1–10 |
 | `grid_Hz` | an increasing array |
 | `band` | `{"above_2kHz_dB", "above_8kHz_dB"}` (widening half-widths) |
 
@@ -606,7 +620,11 @@ own score functions:
 
 - On the exact grid, its over-ear SD and slope match the engine to 1e-12,
   and its score matches once its unrounded coefficients are accounted for.
-- On its own rounded grid, the grid effect above is bounded (0.5 / 0.3
+- Given AutoEq's own grid (the R40 series, as `grid_Hz`), the engine
+  reproduces AutoEq's in-ear SD, slope and ME to 1e-12 and its in-ear score
+  to 1e-9, and its over-ear SD and slope to 1e-12 (the score up to the
+  rounded coefficients).
+- On the exact grid instead, the grid effect is bounded (0.5 / 0.3
   points).
 
 **Closed forms.**
@@ -616,7 +634,7 @@ own score functions:
   monotonicity.
 - Smoothing leaves constants and log-linear power unchanged, and complex
   smoothing leaves log-linear functions unchanged.
-- The BS.708 breakpoints and 1.75 dB at 250 Hz.
+- The BS.708 breakpoints and 1.71 dB at 250 Hz.
 - Tracking of a 1.5 dB offset.
 - The preference band contains every class variant.
 

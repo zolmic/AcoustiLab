@@ -223,6 +223,16 @@ fn metrics_errors_name_the_problem() {
         "{\"personalisation\": {\"mid_dB\": 1}}",
         "{\"band\": {\"above_1kHz_dB\": 1}}",
         "[]",
+        // 2^32 + 3 must not wrap around to 1/3 octave.
+        "{\"smoothing\": 4294967299}",
+        "{\"tracking_smoothing\": \"1/4294967299\"}",
+        // Shelves that would overflow to NaN, or are outside the documented
+        // ranges.
+        "{\"personalisation\": {\"bass_dB\": 1e6}}",
+        "{\"personalisation\": {\"treble_Q\": 1e-320}}",
+        "{\"personalisation\": {\"bass_fc_Hz\": 1e9}}",
+        // A solve result is simulated; it cannot be declared measured.
+        "{\"probe\": \"p_drp\", \"measured\": true}",
     ];
     for o in bad {
         let e = t::target_metrics_value(&result, "ravizza2023_5128", o);
@@ -252,6 +262,8 @@ fn smoothing_export() {
     assert_close(&t::smooth_value(&c, "none")["dB"], &json!(db), "none");
     assert_eq!(kind(&t::smooth_value(&c, "1/5")), "options");
     assert_eq!(kind(&t::smooth_value(&c, "third")), "options");
+    assert_eq!(kind(&t::smooth_value(&c, "4294967299")), "options");
+    assert_eq!(kind(&t::smooth_value(&c, "1/4294967299")), "options");
     let z = json!({"frequencies_Hz": f, "re": db, "im": db}).to_string();
     let v = t::smooth_value(&z, "12");
     assert_eq!(v["method"], "complex");

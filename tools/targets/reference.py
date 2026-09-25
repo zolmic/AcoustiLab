@@ -47,15 +47,21 @@ RAVIZZA = json.loads((DATA / "ravizza2023_5128.json").read_text())
 
 
 # ------------------------------------------------------------------ curves
+# A curve covers a grid point within 1.3 % of its ends (the largest gap
+# between a nominal R40 frequency and the exact 10^(k/40) it names).
+END_SLACK = 0.013
+
+
 def grid12():
     return np.array([10.0 ** (k / 40.0) for k in range(52, 173)])
 
 
 def interp(f, db, x):
-    """Linear in dB on log10 f; NaN outside [f0, fn] (1e-9 relative slack)."""
+    """Linear in dB on log10 f, the end value up to END_SLACK beyond an end,
+    NaN further out."""
     f, db, x = np.asarray(f, float), np.asarray(db, float), np.asarray(x, float)
     y = np.interp(np.log10(np.clip(x, f[0], f[-1])), np.log10(f), db)
-    out = (x < f[0] * (1 - 1e-9)) | (x > f[-1] * (1 + 1e-9))
+    out = (x < f[0] * (1 - END_SLACK)) | (x > f[-1] * (1 + END_SLACK))
     y[out] = np.nan
     return y
 
@@ -261,7 +267,7 @@ def evaluate(case):
         avg = 0.5 * (avg + interp(fr, lr, g))
     tf, tdb, (vlo, vhi) = case["target"]
     t_raw = interp(tf, tdb, g)
-    t_raw[(g < vlo * (1 - 1e-9)) | (g > vhi * (1 + 1e-9))] = np.nan
+    t_raw[(g < vlo * (1 - END_SLACK)) | (g > vhi * (1 + END_SLACK))] = np.nan
     sh = case.get("shelves")
     t_pers = t_raw + (shelves_db(g, sh) if sh else 0.0)
     r_off, t_off = offset(g, avg, norm), offset(g, t_pers, norm)
@@ -336,7 +342,7 @@ def main():
     }
     ref["interp_a_on_grid"] = nan_list(interp(fa, response_a(fa), g))
     ref["interp_third_on_grid"] = nan_list(interp(third, target_a(third), g))
-    probes = [19.0, 20.0, 31.62, 100.0, 1234.5, 19999.0, 20001.0, 25000.0]
+    probes = [19.0, 20.0, 31.1, 31.3, 31.62, 100.0, 1234.5, 19999.0, 20001.0, 20300.0, 25000.0]
     ref["interp_third_probes"] = {"f": probes, "dB": nan_list(interp(third, target_a(third), np.array(probes)))}
 
     ref["band_indices"] = {f"{lo}-{hi}": [int(i) for i in band_idx(g, lo, hi)[[0, -1]]]

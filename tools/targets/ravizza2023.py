@@ -14,7 +14,8 @@ the MD5 sums Zenodo publishes, and converted:
 
 * the 32 curves are copied verbatim (30 graphic-equaliser band gains in dB at
   the band centres printed in the CSV header, 31 Hz to 25 kHz);
-* the 16 128 preference ratings (56 assessors, 9 programmes, 0-100 scale) are
+* the 16 128 preference ratings (56 assessors, 11 programmes of which each
+  assessor heard 9, 0-100 scale) are
   summarised per curve: n, mean, sample SD, median, the per-country means
   (assessor ids start with DK or JP) and the rank by mean. The raw ratings are
   not copied; the script regenerates the summary from the record.

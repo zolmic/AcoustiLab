@@ -92,18 +92,24 @@ pub fn target_value(spec: &str) -> Value {
 }
 
 fn smoothing_option(v: &Value, key: &str) -> Result<Option<u32>, Value> {
+    let not_offered = || {
+        options_error(format!(
+            "{key}: that fraction is not offered; use one of {FRACTIONS:?} or none"
+        ))
+    };
     match v {
         Value::Null => Ok(None),
         Value::String(s) if s == "none" => Ok(None),
-        Value::String(s) => s
-            .strip_prefix("1/")
-            .and_then(|n| n.parse::<u32>().ok())
-            .map(Some)
-            .ok_or_else(|| options_error(format!("{key}: '{s}' is not 'none', N or '1/N'"))),
+        Value::String(s) => match s.strip_prefix("1/").map(str::parse::<u64>) {
+            Some(Ok(n)) => u32::try_from(n).map(Some).map_err(|_| not_offered()),
+            _ => Err(options_error(format!(
+                "{key}: '{s}' is not 'none', N or '1/N'"
+            ))),
+        },
         Value::Number(n) => n
             .as_u64()
-            .map(|n| Some(n as u32))
-            .ok_or_else(|| options_error(format!("{key} must be a positive integer"))),
+            .ok_or_else(|| options_error(format!("{key} must be a positive integer")))
+            .and_then(|n| u32::try_from(n).map(Some).map_err(|_| not_offered())),
         _ => Err(options_error(format!("{key} must be 'none', N or '1/N'"))),
     }
     .and_then(|n| match n {
@@ -299,6 +305,16 @@ pub fn target_metrics_value(input_json: &str, target_spec: &str, options_json: &
         let input = parse_json(input_json, "input")?;
         let target = resolve_spec(target_spec)?;
         let p = parse_options(options_json)?;
+        let is_result = |v: Option<&Value>| v.is_some_and(|v| v.get("probes").is_some());
+        if p.options.measured
+            && (is_result(Some(&input))
+                || is_result(input.get("left"))
+                || is_result(input.get("right")))
+        {
+            return Err(options_error(
+                "a solve result is simulated: 'measured' is only for imported measurements",
+            ));
+        }
         let probe = p.probe.as_deref();
         let resp = match (input.get("left"), input.get("right")) {
             (Some(l), Some(r)) => {

@@ -150,8 +150,60 @@ fn interpolation_is_linear_in_db_on_log_frequency() {
     // Closed form: halfway on a log axis between two points is their mean.
     let c = Curve::new(vec![100.0, 400.0], vec![0.0, 6.0]).unwrap();
     close(c.at(200.0).unwrap(), 3.0, 1e-12, "log midpoint");
-    assert_eq!(c.at(99.0), None);
-    assert_eq!(c.at(401.0), None);
+    // Up to 1.3 % beyond an end the curve reads its end value (the gap
+    // between a nominal preferred frequency and the exact grid point it
+    // names); further out it is undefined.
+    assert_eq!(c.at(98.8), Some(0.0));
+    assert_eq!(c.at(405.0), Some(6.0));
+    assert_eq!(c.at(98.6), None);
+    assert_eq!(c.at(405.4), None);
+}
+
+/// The grid point named 20 Hz is 19.95 Hz. A response and a target that
+/// both run from 20 Hz to 20 kHz, the range the Harman models are defined
+/// on, must cover the whole grid: no metric is partial and no score is
+/// greyed for range.
+#[test]
+fn curves_from_20_hz_cover_the_grid() {
+    let f: Vec<f64> = (0..=480)
+        .map(|k| 20.0 * 1000f64.powf(k as f64 / 480.0))
+        .collect();
+    let t: Vec<f64> = f.iter().map(|x| 2.0 * (x / 700.0).ln().sin()).collect();
+    let r: Vec<f64> = f
+        .iter()
+        .zip(&t)
+        .map(|(x, y)| 95.0 + y + 0.3 * (x / 300.0).ln().cos())
+        .collect();
+    let target = user_target(
+        "t",
+        "iec60318_4_canal_extender",
+        "harman_ie_2017",
+        &Curve::new(f.clone(), t).unwrap(),
+        (20.0, 20000.0),
+    );
+    let resp = Response {
+        fixture: Some("iec60318_4_canal_extender".into()),
+        ..response(&Curve::new(f, r).unwrap())
+    };
+    let rep = evaluate(
+        &resp,
+        &target,
+        &Options {
+            measured: true,
+            ..Options::default()
+        },
+    )
+    .unwrap();
+    let g = grid::twelfth_octave();
+    assert!(rep.error.iter().all(Option::is_some), "{:?}", rep.error);
+    let m = rep.main.as_ref().unwrap();
+    assert!(!m.partial);
+    close(m.used_hz.unwrap().0, g[0], 1e-12, "first point used");
+    assert!(rep.flags.iter().all(|f| f.code != "partial_range"));
+    for id in ["harman_ie_patent", "harman_ie_listen"] {
+        let s = rep.score(id).unwrap();
+        assert!(!s.greyed, "{id}: {:?}", s.flags);
+    }
 }
 
 #[test]
@@ -186,6 +238,58 @@ fn power_smoothing_matches_the_quadrature_reference() {
     let s = smooth_power(&t, 3).unwrap();
     for (x, y) in s.db().iter().zip(f64s(&r["smoothing_third_target_3"])) {
         close(*x, y, TOL, "sparse curve");
+    }
+}
+
+/// A dense FFT-like curve (linear frequency spacing, so an octave window
+/// holds thousands of points) with an 80 dB deep notch: the smoothed levels
+/// equal a direct integration of the piecewise-linear power over each
+/// window, piece by piece, to a relative 1e-12 of the power (4e-12 dB), also
+/// in windows that contain little but the notch.
+#[test]
+fn power_smoothing_of_a_dense_curve_equals_direct_integration() {
+    let n = 6000;
+    let f: Vec<f64> = (1..=n).map(|k| k as f64 * 4.0).collect();
+    let db: Vec<f64> = f
+        .iter()
+        .map(|&x| {
+            let notch = (x / 3000.0).log2() / 0.02;
+            90.0 + 6.0 * (x / 150.0).ln().sin() - 80.0 * (-0.5 * notch * notch).exp()
+        })
+        .collect();
+    let c = Curve::new(f.clone(), db).unwrap();
+    let x: Vec<f64> = f.iter().map(|v| v.log10()).collect();
+    let p: Vec<f64> = c.db().iter().map(|l| 10f64.powf(l / 10.0)).collect();
+    let direct = |i: usize, h: f64| -> f64 {
+        let h = h.min(x[i] - x[0]).min(x[n - 1] - x[i]);
+        if h <= 0.0 {
+            return c.db()[i];
+        }
+        let (a, b) = (x[i] - h, x[i] + h);
+        let at = |j: usize, u: f64| p[j] + (p[j + 1] - p[j]) * (u - x[j]) / (x[j + 1] - x[j]);
+        let mut s = 0.0;
+        for j in 0..n - 1 {
+            let (u0, u1) = (a.max(x[j]), b.min(x[j + 1]));
+            if u1 > u0 {
+                s += (u1 - u0) * 0.5 * (at(j, u0) + at(j, u1));
+            }
+        }
+        10.0 * (s / (b - a)).log10()
+    };
+    for frac in [1, 3, 48] {
+        let s = smooth_power(&c, frac).unwrap();
+        let h = 3.0 / (20.0 * frac as f64);
+        for i in (0..n)
+            .step_by(37)
+            .chain([1, 2, n - 2, n - 1, 749, 750, 751])
+        {
+            close(
+                s.db()[i],
+                direct(i, h),
+                4e-12,
+                &format!("1/{frac}, {} Hz", f[i]),
+            );
+        }
     }
 }
 
@@ -338,12 +442,18 @@ fn bs708_mask_has_the_figure_breakpoints() {
     ] {
         close(bs708_limit(f).unwrap(), t, 1e-12, &format!("{f} Hz"));
     }
-    // Log-linear between breakpoints (erratum E47: 1.75 dB at 250 Hz is not 2 dB).
+    // Log-linear between breakpoints (erratum E47: 1.71 dB at 250 Hz, not 2 dB).
     close(
         bs708_limit(250.0).unwrap(),
         2.0 - 0.5 * 2.5f64.ln() / 5f64.ln(),
         1e-12,
         "250 Hz",
+    );
+    close(
+        bs708_limit(250.0).unwrap(),
+        1.7153,
+        1e-4,
+        "250 Hz, as stated in E47",
     );
     close(bs708_limit(8000.0).unwrap(), 2.75, 1e-12, "8 kHz");
     assert_eq!(bs708_limit(90.0), None);
@@ -627,6 +737,59 @@ fn scores_agree_with_autoeq() {
         own["me"].as_f64().unwrap(),
         0.03,
         "ME, rounded grid",
+    );
+    // Run on AutoEq's own R40 grid (`grid_Hz`), the engine reproduces
+    // AutoEq exactly: the in-ear set in every variable and the score, the
+    // over-ear SD and slope, and its score up to the rounded coefficients.
+    let r40 = f64s(&x["r40_grid_Hz"]);
+    let rep = evaluate(
+        &response(&a),
+        &target,
+        &Options {
+            grid_hz: r40,
+            ..Options::default()
+        },
+    )
+    .unwrap();
+    let ie = rep.score("harman_ie_listen").unwrap();
+    let own = &x["in_ear_autoeq_grid"];
+    for (k, key) in ["sd", "slope", "me"].iter().enumerate() {
+        let want = own[key].as_f64().unwrap();
+        let want = if *key == "slope" { want.abs() } else { want };
+        close(
+            ie.variables[k].1.unwrap(),
+            want,
+            1e-12,
+            &format!("in-ear {key}, R40"),
+        );
+    }
+    close(
+        ie.score.unwrap(),
+        own["score"].as_f64().unwrap(),
+        1e-9,
+        "in-ear score, R40",
+    );
+    let oe = rep.score("harman_oe_2018").unwrap();
+    let own = &x["over_ear_autoeq_grid"];
+    let s = oe.variables[0].2.as_ref().unwrap();
+    close(
+        s.sd.unwrap(),
+        own["sd"].as_f64().unwrap(),
+        1e-12,
+        "over-ear SD, R40",
+    );
+    close(
+        s.slope.unwrap(),
+        own["slope"].as_f64().unwrap(),
+        1e-12,
+        "over-ear slope, R40",
+    );
+    let d = 0.000443008238 + (15.52 - 15.5163857197367) * s.slope.unwrap().abs();
+    close(
+        oe.score.unwrap() + d,
+        own["score"].as_f64().unwrap(),
+        1e-9,
+        "over-ear score, R40",
     );
 }
 
@@ -979,6 +1142,22 @@ fn personalisation_adds_the_shelves_on_the_grid() {
     close(d.bass_q, std::f64::consts::FRAC_1_SQRT_2, 1e-15, "Q");
     assert!(Shelves::from_json(&json!({"bass_dB": 1, "tilt": 2})).is_err());
     assert!(Shelves::from_json(&json!({"bass_Q": -1})).is_err());
+    // Out-of-range settings are refused rather than turned into NaN levels.
+    for bad in [
+        json!({"bass_dB": 1e6}),
+        json!({"treble_dB": -41}),
+        json!({"treble_Q": 1e-320}),
+        json!({"bass_fc_Hz": 1e9}),
+    ] {
+        assert!(Shelves::from_json(&bad).is_err(), "{bad}");
+    }
+    let s = Shelves::from_json(
+        &json!({"bass_dB": 40, "treble_dB": -40, "bass_Q": 0.1, "treble_Q": 10}),
+    )
+    .unwrap();
+    for f in [1.0, 105.0, 2500.0, 1e5] {
+        assert!(s.db_at(f).is_finite(), "{f} Hz");
+    }
     assert_eq!(
         Shelves::from_json(&json!({"bass_dB": 4})).unwrap(),
         Shelves::gains(4.0, 0.0)
@@ -1127,8 +1306,8 @@ fn design_template_scored_against_the_bundled_target() {
     // The 5128 set starts at 31 Hz, so 20-31 Hz is missing: partial.
     assert!(m.partial);
     close(m.used_hz.unwrap().0, 31.62, 0.01, "first point used");
-    // The response level at 500 Hz is its reference level (about 100 dB SPL
-    // at 1 mW for this driver in a sealed cup).
+    // The response level at 500 Hz is its reference level (about 112 dB SPL
+    // at 1 mW for this driver in the template's sealed cup).
     assert!(
         (80.0..120.0).contains(&rep.response_offset_db),
         "{}",

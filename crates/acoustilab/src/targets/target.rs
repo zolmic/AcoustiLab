@@ -11,7 +11,7 @@
 //! Harman-style target from a user-supplied fixture baseline and published
 //! shelf settings (docs/targets.md).
 
-use super::curve::Curve;
+use super::curve::{Curve, END_SLACK};
 use super::fixture;
 use super::{embedded_json, shelf, Result, TargetError};
 use serde_json::{json, Map, Value};
@@ -306,12 +306,13 @@ impl Target {
     }
 
     /// The target's level on `grid`, with optional personalisation shelves,
-    /// `None` outside its data or its valid range.
+    /// `None` outside its data or its valid range (both read with the
+    /// curves' end slack, [`END_SLACK`]).
     pub fn on_grid(&self, grid: &[f64], shelves: Option<&Shelves>) -> Vec<Option<f64>> {
         let (lo, hi) = self.valid_range_hz;
         grid.iter()
             .map(|&f| {
-                if f < lo * (1.0 - 1e-9) || f > hi * (1.0 + 1e-9) {
+                if f < lo * (1.0 - END_SLACK) || f > hi * (1.0 + END_SLACK) {
                     return None;
                 }
                 let t = self.curve.at(f)?;
@@ -542,7 +543,9 @@ impl Shelves {
     }
 
     /// Reads `{"bass_dB", "treble_dB", "bass_fc_Hz", "treble_fc_Hz",
-    /// "bass_Q", "treble_Q"}` (all optional) over the defaults.
+    /// "bass_Q", "treble_Q"}` (all optional) over the defaults. Accepted
+    /// ranges: gains ±40 dB, corners 1 Hz–100 kHz, Q 0.1–10 (input limits
+    /// that keep the filter arithmetic finite, not preference data).
     pub fn from_json(v: &Value) -> Result<Shelves> {
         let o = v
             .as_object()
@@ -552,22 +555,22 @@ impl Shelves {
             let x = x.as_f64().filter(|x| x.is_finite()).ok_or_else(|| {
                 TargetError::Options(format!("personalisation '{k}' must be a number"))
             })?;
-            let positive = |x: f64| {
-                if x > 0.0 {
+            let within = |lo: f64, hi: f64| {
+                if (lo..=hi).contains(&x) {
                     Ok(x)
                 } else {
                     Err(TargetError::Options(format!(
-                        "personalisation '{k}' must be positive"
+                        "personalisation '{k}' = {x} is outside {lo} to {hi}"
                     )))
                 }
             };
             match k.as_str() {
-                "bass_dB" => s.bass_db = x,
-                "treble_dB" => s.treble_db = x,
-                "bass_fc_Hz" => s.bass_fc_hz = positive(x)?,
-                "treble_fc_Hz" => s.treble_fc_hz = positive(x)?,
-                "bass_Q" => s.bass_q = positive(x)?,
-                "treble_Q" => s.treble_q = positive(x)?,
+                "bass_dB" => s.bass_db = within(-40.0, 40.0)?,
+                "treble_dB" => s.treble_db = within(-40.0, 40.0)?,
+                "bass_fc_Hz" => s.bass_fc_hz = within(1.0, 1e5)?,
+                "treble_fc_Hz" => s.treble_fc_hz = within(1.0, 1e5)?,
+                "bass_Q" => s.bass_q = within(0.1, 10.0)?,
+                "treble_Q" => s.treble_q = within(0.1, 10.0)?,
                 _ => {
                     return Err(TargetError::Options(format!(
                         "unknown personalisation key '{k}'"

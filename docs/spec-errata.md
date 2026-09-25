@@ -169,7 +169,7 @@ corrected statement. "p." is the PDF page.
   at 100 Hz and narrows linearly on a log axis to ±1.5 dB at 500 Hz. It is
   ±1.5 dB from 500 Hz to 4 kHz and widens to ±4 dB at 16 kHz. It is drawn
   only from 100 Hz to 16 kHz.
-  - At 250 Hz the limit is 1.75 dB, not 2 dB.
+  - At 250 Hz the limit is 1.71 dB, not 2 dB.
   - Traced from the rendered figure against its grid, the upper line reads
     1.78 dB at 200 Hz and 2.75 dB at 8.1 kHz, against 1.785 dB and 2.78 dB
     for the log-linear mask (`data/targets/bs708.json`).
@@ -189,7 +189,7 @@ corrected statement. "p." is the PDF page.
     reading (`harman_oe_2018_20Hz`; docs/targets.md).
   - The same article (p. 65) is the origin of the spec's "IEC 60318-1 ear
     simulator with a custom pinna" (see E6).
-- **E49 — Ravizza et al. 2023 data (pp. 41, 46).** The Zenodo record
+- **E49 — Ravizza et al. 2023 data (pp. 41, 48).** The Zenodo record
   (10.5281/zenodo.8388242, CC-BY-4.0 confirmed on the record) holds 32 rated
   curves, not one target curve.
   - Each curve is given as 30 third-octave graphic-equaliser gains from
