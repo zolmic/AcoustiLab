@@ -139,7 +139,7 @@ the frozen predictions keep describing the cup.
 | the damping of the damped IEC 60318-4 variant | the undamped model stands in, up to 10 kHz | above 8–10 kHz (not compared) |
 | the open hole's flow-dependent resistance | the model is linear; at 10 µW the hole's RMS velocity reaches 0.15 m/s on the fixture (116 Hz) and 0.6 m/s with the cup in free air (29 Hz), 1.5 and 6 m/s at 1 mW. The engine's 1 m/s limit is not the whole story at low frequency: the peak particle displacement √2·u/ω is 0.3 mm on the fixture (a tenth of the 3 mm bore, mildly nonlinear) but 4.7 mm in free air at 29 Hz, one and a half bores, where jets form and the resistance grows even at 10 µW | `iec_rhole_hi_p` against `iec_rhole_p` near the vent's notch around 180 Hz; `cup_free_hole_z` below about 60 Hz is a nonlinearity check rather than a test of the model |
 | diaphragm break-up above ka = 1 | the rigid-piston limit is 3.06 kHz (erratum E28) | shaded from 3 kHz; the notch near 5 kHz |
-| a leak gap below about 4 µm at level 1 | the distributed slit's transfer matrix becomes too ill-conditioned for the solver (a 1 µm gap fails at 1.6 kHz) | the nominal leak is kept at 0.01 mm and the acceptance fit is bounded at 0.005 mm |
+| a leak gap below about 4 µm at level 1 (engine of v1) | the engine that froze v1 lost the distributed slit's port relation to rounding (a 1 µm gap failed at 1.1 kHz); the current engine writes such long, lossy lines in admittance form (`Mna::two_port_abcd`) and solves them, so the note in the netlist's `residual_leak_gap_mm` is out of date | the nominal leak stays at 0.01 mm and the acceptance fit is bounded at 0.005 mm, as v1's protocol froze them |
 
 ## Frozen blind predictions
 
