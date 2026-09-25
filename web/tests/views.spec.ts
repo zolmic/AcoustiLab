@@ -47,13 +47,18 @@ test('result views: tabs, lazy mount, refresh on a new result, keyboard', async 
   await expect(tabs.getByRole('tab', { name: 'Response' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#view-response')).toBeVisible();
   await expect(page.locator('#plots canvas').first()).toBeVisible();
+  // The next tab, whichever view it is (views are ordered by `order`).
   await page.keyboard.press('ArrowRight');
-  await expect(page.locator('#view-parameter-table')).toBeVisible();
+  const second = tabs.getByRole('tab').nth(1);
+  await expect(second).toBeFocused();
+  await expect(second).toHaveAttribute('aria-selected', 'true');
+  const panel = page.locator(`#${await second.getAttribute('aria-controls')}`);
+  await expect(panel).toBeVisible();
 
   // The choice is remembered per viewer.
   await page.reload();
   await solved(page);
-  await expect(page.locator('#view-parameter-table')).toBeVisible();
+  await expect(panel).toBeVisible();
 });
 
 for (const theme of ['light', 'dark'] as const) {

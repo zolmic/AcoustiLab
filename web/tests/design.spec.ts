@@ -10,7 +10,7 @@
 
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const repo = fileURLToPath(new URL('../../', import.meta.url));
@@ -80,7 +80,13 @@ test('the template opens in Design mode with its groups, sketch and primary prob
   const optgroups = await page.locator('#example-select optgroup').evaluateAll((gs) =>
     gs.map((g) => [(g as HTMLOptGroupElement).label, [...g.querySelectorAll('option')].map((o) => o.value)]),
   );
-  expect(optgroups[0]).toEqual(['Design templates', ['design_over_ear']]);
+  // Oracle: the examples directory, read here (every file declaring "parameters").
+  const parametric = readdirSync(`${repo}/examples`)
+    .filter((f) => f.endsWith('.json') && 'parameters' in JSON.parse(readFileSync(`${repo}/examples/${f}`, 'utf8')))
+    .map((f) => f.replace(/\.json$/, ''));
+  expect(optgroups[0][0]).toBe('Design templates');
+  expect([...(optgroups[0][1] as string[])].sort()).toEqual(parametric.sort());
+  expect(optgroups[0][1]).toContain('design_over_ear');
   expect(optgroups[1][0]).toBe('Example netlists');
   expect(optgroups[1][1]).toContain('sealed_cup');
 
