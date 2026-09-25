@@ -355,6 +355,7 @@ plug states of that seating; per-point noise 0.05 dB and 0.3°):
 | `missing_files_and_protocol_violations_are_reported` | a missing measurement, a lost seating, a wrong fixture, a coarse smoothing, a different drive, a missing and an unreadable sidecar are each reported, the bad files left out, the acceptance "not evaluated", and a stray file listed |
 | `session_templates_name_every_file` | a template for every seating file, parseable, with the conditions filled in |
 | `acceptance_is_not_evaluated_where_the_data_stop_short_and_uses_the_stated_drive` | with `drive_mW` changed on the fitted model the residual is still taken at the sidecar's drive (it was 20 dB off before); curves starting at 30 Hz leave the 20 Hz–1 kHz band and the verdict "not evaluated", while the 1–4 kHz band is still judged |
+| `a_driver_off_its_datasheet_moves_the_fitted_volume_and_the_anchor_separates_it` | Bl 25 % low: the spec run fails with the fitted front volume above 1.2; the driver-anchored run passes with it within 0.03 of 1 |
 | `an_impedance_jig_with_a_series_resistor_is_accepted` | impedance files with a 100 ohm or unstated source impedance are kept with a warning and the driver anchor fits them; a pressure file with 100 ohm is refused |
 | `predictions_are_reproducible_and_blind_only_when_declared` | `predict` on a reduced protocol (level 0, 4 runs): the same bytes twice, a verifiable set with zero drift, "not blind" without the declaration (only the manifest differs) and a report that says so; v1 is blind |
 | `full_session_at_level_1` (ignored; release, about 3.5 minutes) | the whole protocol at level 1 from a synthetic session of the nominal cup: every acceptance run (both variants) passes with residuals of at most 0.41 dB below 4 kHz (the open vent's notch; asserted below 0.5 dB) and 8–19 dB above, where seatings differing by 1 % in front volume smear the cup's notches in the mean; the driver anchor recovers the nominal driver within 0.5 %; the blind comparison of `iec_ref_p` stays within 0.1 dB (asserted below 0.15 dB) and inside the 5–95 % envelope below 4 kHz |
@@ -375,6 +376,19 @@ templates reported as incomplete and not evaluated.
   from this session's equipment.
 * The acceptance statistic is the strict reading of E54; the report's
   residuals allow any other.
+* **The two fitted parameters absorb part of other errors.** The front
+  volume (0.5 to 1.5) and the leak (0.005 to 0.5 mm) move the level below
+  the in-cup resonance, so they take up part of a broadband error: with Bl
+  25 % low (−2.5 dB) the spec run moves the front volume to 1.3–1.5 and
+  the leak to 0.1–0.15 mm on most fixture states, and still fails by
+  2.4–5.6 dB (level 0, the full protocol); a smaller driver error can pass
+  that way. On this rigid cup the front volume is known to about 1 % (10 %
+  on the head and torso simulator, the pinna), so read the fitted values
+  with the verdict: a front volume far from 1, or a parameter reported "at
+  its bound", means the fit absorbed something else, and the
+  driver-anchored run (front volume back near 1 in the same case) tells
+  which. The protocol's bounds are frozen with v1; narrower ones would be
+  a protocol change for a new version.
 * The comparison uses the first sidecar's systematic uncertainty terms for
   every seating of a measurement.
 * The driver anchor fits a model without voice-coil inductance or creep

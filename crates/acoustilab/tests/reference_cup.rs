@@ -522,6 +522,38 @@ fn a_model_form_error_fails_and_a_small_one_passes() {
 }
 
 #[test]
+fn a_driver_off_its_datasheet_moves_the_fitted_volume_and_the_anchor_separates_it() {
+    // Bl 25 % low (-2.5 dB, far outside the 5 % tolerance): the leak and
+    // the front volume absorb part of a broadband driver error, so the
+    // fitted front volume leaves the rigid cup's range by tens of per cent,
+    // yet the spec run still fails; anchored on the driver's own free-air
+    // impedance, the same data pass with a front volume near 1.
+    let f = restricted(&["driver_free", "iec_ref"]);
+    let r = validate(&f, &sim(&f, &[("driver_Bl_factor", 0.75)], None, 19), true);
+    assert_eq!(spec_pass(&r, "iec_ref_p"), Some(false), "{}", r.summary());
+    let m = r.measurement("iec_ref_p").unwrap();
+    let volume = |variant: &str| {
+        m.acceptance
+            .iter()
+            .find(|a| a.variant == variant)
+            .unwrap()
+            .fitted
+            .iter()
+            .find(|p| p.name == "front_volume_factor")
+            .unwrap()
+            .value
+    };
+    assert!(volume("spec") > 1.2, "{}", r.summary());
+    let anchored = m
+        .acceptance
+        .iter()
+        .find(|a| a.variant == "driver_anchored")
+        .unwrap();
+    assert_eq!(anchored.pass, Some(true), "{}", r.summary());
+    assert!((volume("driver_anchored") - 1.0).abs() < 0.03);
+}
+
+#[test]
 fn missing_files_and_protocol_violations_are_reported() {
     let f = restricted(&["cup_free_sealed", "iec_ref", "t43_ref"]);
     let mut files = sim(&f, &[], None, 11);

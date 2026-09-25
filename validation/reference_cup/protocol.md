@@ -173,6 +173,11 @@ comparison to expect least from above 1 kHz.
   re-measure if the condition was wrong (drive, smoothing, fixture).
 * **Large spread between seatings** (more than about 1 dB below 1 kHz):
   check the gasket and the seating; a leak varies from seating to seating.
+* **A fitted front volume far from 1** (more than a few per cent on the
+  flat plate, about 10 % on the head and torso simulator) or a fitted
+  parameter "at its bound": the leak and front volume have absorbed
+  something else, whatever the verdict; compare with the driver-anchored
+  run.
 * **Acceptance fails below 1 kHz on every fixture state:** compare with
   the free-air cup impedance (steps 2 to 4) before blaming the fixture: the
   driver's internal rear holes act between the diaphragm and the rear

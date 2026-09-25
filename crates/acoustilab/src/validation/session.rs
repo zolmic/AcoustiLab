@@ -1605,7 +1605,20 @@ impl Report {
                     },
                     a.fitted
                         .iter()
-                        .map(|f| format!("{} {:.4} (start {:.4})", f.name, f.value, f.start))
+                        .map(|f| format!(
+                            "{} {:.4} (start {:.4}{})",
+                            f.name,
+                            f.value,
+                            f.start,
+                            // A leak or front volume at its bound has
+                            // absorbed something else (a driver unit off
+                            // its datasheet, a model error).
+                            if f.status == fit::Status::AtBound {
+                                ", AT ITS BOUND"
+                            } else {
+                                ""
+                            }
+                        ))
                         .collect::<Vec<_>>()
                         .join(", "),
                     a.reduced_chi2.map_or("n/a".into(), |x| format!("{x:.2}")),
