@@ -576,7 +576,10 @@ development container:
 | readouts (solve included) | 22 ms | 26 ms |
 | full sensitivity map, complete solves (39 solves) | 0.62 s | 0.82 s |
 | full sensitivity map, forward sensitivities | 0.15 s | 0.21 s |
+| sensitivity map, 16 parameters, complete solves / forward | not measured | 0.69 s / 0.18 s |
+| full sensitivity map at 96 points per octave (1053 frequencies) | not measured | 3.3 s |
 | tornado at a pinned frequency | 13 ms | 14 ms |
+| tornado of the coupled resonance (a readout per end) | 0.79 s | 1.0 s |
 | explain (default options) | 0.34 s | 0.41 s |
 | Monte Carlo plan, 200 runs | not measured | 4 ms |
 | 200 Monte Carlo runs with metrics | 4.1 s | 5.1 s (10 calls of 20 runs, 0.5 s each) |
@@ -589,6 +592,18 @@ the base factors. Measured in process (best of five): 0.62 s against 0.15 s
 for the closed-back template (4.1×), 0.54 s against 0.12 s open-back (4.4×),
 and 0.32 s against 0.085 s at level 0 (3.7×). Both timings of the
 sensitivity map in the table include the base design's own solve.
+
+**Bounds of one call.** A sensitivity map costs two solves per parameter,
+a tornado two evaluations of its metric per parameter, and explain one
+solve per parameter. A solve's cost grows with the sweep, which the
+netlist sets (at most 10⁶ points). A readout adds at most a few dozen
+single-frequency solves per peak (Brent's method stops after 200 steps and
+the Illinois method after 100). A wasm worker that must report progress
+splits a sensitivity map or a tornado by `parameters`, and a Monte Carlo
+run by `first` and `count`. Plans hold at most 100 000 runs. A parameter or
+probe listed twice is refused, so a request cannot repeat work. Finding
+the peaks' prominences walks the grid outwards from each peak: O(n²) for n
+grid points in the worst case, negligible below about 10⁴ points.
 
 ## Known limits
 

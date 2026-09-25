@@ -36,7 +36,7 @@ const USAGE: &str = "usage:
   acoustilab mc <netlist.json> [-n N] [--seed S] [--param NAME]... [--probe ID]... [--chunk K]
                 [--csv | --json] [--out FILE]            Latin hypercube Monte Carlo over the tolerances
     the analyses also take --set and --out; see docs/analysis.md
-  acoustilab types                                      list element types
+  acoustilab types                                       list element types
   acoustilab help                                        print this message
   acoustilab version                                     print the engine version";
 

@@ -1808,7 +1808,7 @@ fn monte_carlo_runs_are_deterministic_chunkable_and_hashed() {
     let csv = mc::to_csv(&plan.parameters, &all.samples, &all.engine);
     let lines: Vec<&str> = csv.lines().collect();
     assert_eq!(lines.len(), 7);
-    assert!(lines[0].starts_with("run,hash,engine,driver_fs_Hz,"));
+    assert!(lines[0].starts_with(&format!("run,hash,engine,{},", plan.parameters.join(","))));
     assert!(lines[0].ends_with(",z_min_over_rated,error"));
     assert!(lines[1].starts_with(&format!(
         "0,{},acoustilab ",

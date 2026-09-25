@@ -133,6 +133,36 @@ fn options_and_engine_errors_are_reported_by_kind() {
             ),
             "parameter",
         ),
+        // Bounded work: huge plans and repeated names are refused before any
+        // allocation or solve (a trillion-level factor used to abort).
+        (
+            wa::mc_plan_value(&t, "", r#"{"method": "lhs", "n": 100001}"#),
+            "options",
+        ),
+        (
+            wa::mc_plan_value(
+                &t,
+                "",
+                r#"{"method": "factorial", "factors": {"leak_gap_mm": {"levels": 1000000000000, "from": 0.02, "to": 0.2}}}"#,
+            ),
+            "parameter",
+        ),
+        (
+            wa::sensitivity_value(
+                &t,
+                "",
+                r#"{"parameters": ["driver_Mms_g", "driver_Mms_g"]}"#,
+            ),
+            "parameter",
+        ),
+        (
+            wa::explain_value(
+                &t,
+                "",
+                r#"{"parameters": ["driver_Mms_g", "driver_Mms_g"]}"#,
+            ),
+            "parameter",
+        ),
         (wa::mc_run_value(&t, "", "[{}]", ""), "options"),
         (wa::mc_envelope_value("[]"), "options"),
     ] {
@@ -246,10 +276,18 @@ fn monte_carlo_in_chunks_equals_one_run() {
     let csv = wa::mc_csv_value(&chunk.to_string(), &plan["parameters"].to_string());
     let text = csv["csv"].as_str().unwrap();
     assert_eq!(text.lines().count(), 6);
-    assert!(text.starts_with("run,hash,engine,driver_fs_Hz,"));
+    // The plan's parameters are the first columns (read from the plan, so
+    // that editing the template does not break the test).
+    let names: Vec<&str> = plan["parameters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    assert!(text.starts_with(&format!("run,hash,engine,{},", names.join(","))));
     // Overrides are the sample's own; the base overrides apply underneath.
     let first = &plan["samples"][0]["overrides"];
-    assert!(first["driver_fs_Hz"].as_f64().is_some());
+    assert!(first[names[0]].as_f64().is_some());
     let open = wa::mc_run_value(
         &t,
         r#"{"rear": "open"}"#,
